@@ -1009,7 +1009,8 @@ function importData(){
         const data=JSON.parse(ev.target.result);
         if(!data.clients||!data.invoices){alert('الملف مش صح!');return;}
         if(!confirm('هيتم استبدال كل البيانات الحالية بالنسخة دي. متأكد؟'))return;
-        clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];returns=data.returns||[];
+        clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
+        if(Array.isArray(data.returns)){returns=data.returns;}else{alert('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه بيانات المرتجع — بيانات المرتجع الموجودة على الجهاز هتفضل زي ما هي.');}
         save();alert('✅ تم استيراد البيانات بنجاح!');render();
       }catch(err){alert('حصل خطأ في قراءة الملف!');}
     };
