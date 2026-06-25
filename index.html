@@ -179,7 +179,11 @@ const clientBalance=(cid)=>{
 };
 const stockQty=(pid)=>movements.filter(m=>m.productId===pid).reduce((s,m)=>m.type==='in'?s+m.qty:s-m.qty,0);
 
-document.getElementById('todayDate').textContent=today();
+function updateHeaderDate(){
+  document.getElementById('todayDate').textContent=today();
+}
+updateHeaderDate();
+setInterval(updateHeaderDate, 60000);
 
 let currentTab='home';
 function switchTab(name){
@@ -987,7 +991,7 @@ function renderStockDetail(){
 
 // ===== BACKUP =====
 function exportData(){
-  const data={clients,invoices,payments,stock,movements,exportDate:new Date().toISOString()};
+  const data={clients,invoices,payments,stock,movements,returns,exportDate:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -1005,7 +1009,7 @@ function importData(){
         const data=JSON.parse(ev.target.result);
         if(!data.clients||!data.invoices){alert('الملف مش صح!');return;}
         if(!confirm('هيتم استبدال كل البيانات الحالية بالنسخة دي. متأكد؟'))return;
-        clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
+        clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];returns=data.returns||[];
         save();alert('✅ تم استيراد البيانات بنجاح!');render();
       }catch(err){alert('حصل خطأ في قراءة الملف!');}
     };
