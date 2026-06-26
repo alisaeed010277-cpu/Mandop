@@ -725,7 +725,7 @@ function renderReturns(){
     return `<tr>
       <td>${r.number}</td><td>${c?.name||'—'}</td><td>${r.date}</td>
       <td style="font-weight:bold;color:#1E8449">${fmt(r.total)} ج</td>
-      <td><button class="btn-sm red" onclick="deleteReturn('${r.id}')">🗑</button></td>
+      <td style="display:flex;gap:4px"><button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()" title="عرض التفاصيل">👁</button><button class="btn-sm red" onclick="deleteReturn('${r.id}')">🗑</button></td>
     </tr>`;
   }).join('');
 
@@ -878,8 +878,8 @@ function renderStockOverview(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج"></div>
-          <div class="form-group"><div class="lbl">وحدة القياس</div>
-            <select id="p_unit"><option>علبة</option><option>كرتونة</option><option>زجاجة</option><option>كيس</option><option>وحدة</option><option>لتر</option><option>كجم</option></select>
+          <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
+            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر...">
           </div>
         </div>
         <div class="btn-row">
