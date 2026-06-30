@@ -1080,18 +1080,28 @@ function doExportDevice(){
 async function doExportShare(){
   const blob=buildExportBlob();
   const fileName='نسخة_احتياطية_'+today()+'.json';
-  const file=new File([blob],fileName,{type:'application/json'});
-  if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
-    try{
-      await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من مدير المندوب البيطري'});
-      markExported();
-    }catch(e){/* المستخدم لغى المشاركة */}
-  }else{
-    alert('المتصفح ده مش بيدعم المشاركة المباشرة لجوجل درايف / جيميل. هيتم حفظ الملف على الجهاز وتقدر ترفعه يدويًا من تطبيق درايف أو جيميل.');
-    doExportDevice();
-    return;
-  }
+  // أول حاجة: حفظ الملف على الجهاز
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=fileName;a.click();
+  URL.revokeObjectURL(url);
+  markExported();
   document.getElementById('exportModal').style.display='none';
+  // تاني حاجة: لو المتصفح يدعم Web Share API نجرب نشاركه
+  await new Promise(r=>setTimeout(r,800));
+  const file=new File([blob],fileName,{type:'application/json'});
+  if(navigator.share){
+    try{
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من مدير المندوب البيطري'});
+      }else{
+        await navigator.share({title:'نسخة احتياطية - '+fileName,text:'تم حفظ الملف على جهازك، ارفعه على جوجل درايف أو جيميل من مدير الملفات.'});
+      }
+    }catch(e){}
+  }else{
+    // للمتصفحات اللي مش بتدعم Share API
+    setTimeout(()=>alert('✅ تم حفظ الملف على جهازك.\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
+  }
 }
 function hideExportReminder(){
   const el=document.getElementById('exportReminder');
