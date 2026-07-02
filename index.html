@@ -1154,15 +1154,44 @@ function initActivation(){
     DB.set('_dc', dCode);
   }
 
-  // فحص لو الجهاز ده مفعّل
+  // فحص لو مفعّل تفعيل دائم
   const activated = DB.get('_ak');
   if(activated && _vk(dCode, activated)){
-    // مفعّل — شغّل البرنامج عادي
     render();
     return;
   }
 
-  // مش مفعّل — وقف البرنامج وعرض شاشة التفعيل
+  // فحص لو في فترة تجريبية
+  const trialStart = DB.get('_ts');
+  const trialActivated = DB.get('_ta');
+  if(trialStart && trialActivated && _vt(dCode, trialActivated)){
+    const daysPassed = (Date.now() - trialStart) / (1000*60*60*24);
+    if(daysPassed < 7){
+      // التجربة لسه شغالة
+      render();
+      _showTrialBanner(7 - Math.floor(daysPassed));
+      return;
+    }
+    // التجربة خلصت
+    _showLockScreen(dCode, true);
+    return;
+  }
+
+  // مش مفعّل ومفيش تجربة — وقف البرنامج
+  _showLockScreen(dCode, false);
+}
+
+function _showTrialBanner(daysLeft){
+  if(document.getElementById('trialBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'trialBanner';
+  banner.style.cssText = 'background:#F39C12;color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:bold;position:relative;z-index:100;';
+  banner.innerHTML = `⏳ النسخة التجريبية — باقي <strong>${daysLeft}</strong> ${daysLeft===1?'يوم':'أيام'} &nbsp;|&nbsp; للتفعيل الدائم تواصل على واتساب <strong>01552623744</strong>`;
+  const header = document.querySelector('.header');
+  if(header) header.insertAdjacentElement('afterend', banner);
+}
+
+function _showLockScreen(dCode, trialExpired){
   const header = document.querySelector('.header');
   const tabs = document.querySelector('.tabs');
   const body = document.querySelector('.body');
@@ -1172,7 +1201,10 @@ function initActivation(){
   if(body) body.style.display='none';
   if(wm) wm.style.display='none';
 
-  // شاشة التفعيل
+  const expiredMsg = trialExpired
+    ? `<div style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;font-size:13px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>للاستمرار فعّل النسخة الكاملة</div>`
+    : `<div style="font-size:13px;opacity:.85;margin-bottom:20px;">للتجربة المجانية 7 أيام أو التفعيل الدائم<br>تواصل مع المبرمج على واتساب</div>`;
+
   const lockScreen = document.createElement('div');
   lockScreen.id = 'lockScreen';
   lockScreen.style.cssText = `
@@ -1184,26 +1216,32 @@ function initActivation(){
     -webkit-overflow-scrolling:touch;overflow-y:auto;
   `;
   lockScreen.innerHTML = `
-    <div style="font-size:50px;margin-bottom:16px;">🔒</div>
+    <div style="font-size:50px;margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
     <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">مدير المندوب البيطري المتكامل</div>
-    <div style="font-size:13px;opacity:.85;margin-bottom:28px;">النسخة غير مفعّلة</div>
+    ${expiredMsg}
     <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:20px 24px;margin-bottom:24px;width:100%;max-width:320px;">
-      <div style="font-size:13px;opacity:.9;margin-bottom:10px;">أرسل كود الجهاز التالي للمبرمج على واتساب للحصول على كود التفعيل:</div>
+      <div style="font-size:13px;opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
       <div style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#FFD700;">${dCode}</div>
       <div style="font-size:11px;opacity:.7;margin-top:6px;">كود الجهاز</div>
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:20px;width:100%;max-width:320px;">
-      <input id="serialInput" type="number" placeholder="أدخل كود التفعيل" style="
+    <div style="display:flex;gap:10px;margin-bottom:12px;width:100%;max-width:320px;">
+      <input id="serialInput" type="number" placeholder="أدخل الكود هنا" style="
         flex:1;padding:12px;border-radius:8px;border:2px solid rgba(255,255,255,.4);
         background:rgba(255,255,255,.1);color:#fff;font-size:16px;text-align:center;
         outline:none;direction:ltr;-webkit-appearance:none;
       ">
     </div>
+    ${!trialExpired?`
+    <button onclick="_activateTrial(${dCode})" style="
+      background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
+      padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
+      width:100%;max-width:320px;margin-bottom:8px;-webkit-appearance:none;
+    ">🎁 تفعيل النسخة التجريبية (7 أيام)</button>`:''}
     <button onclick="_activate(${dCode})" style="
       background:#FFD700;color:#1A5276;border:none;border-radius:8px;
       padding:14px 40px;font-size:16px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;-webkit-appearance:none;
-    ">✓ تفعيل</button>
+    ">✓ تفعيل النسخة الكاملة</button>
     <div id="activationMsg" style="margin-top:14px;font-size:13px;min-height:20px;"></div>
     <div style="margin-top:30px;font-size:12px;opacity:.7;">
       للتفعيل تواصل مع المبرمج على واتساب<br>
@@ -1211,20 +1249,18 @@ function initActivation(){
     </div>
   `;
   document.body.appendChild(lockScreen);
-  window._appLocked = true;
 }
 
 document.addEventListener('DOMContentLoaded', function(){
   initActivation();
   checkExportReminder();
-  // إزالة شاشة الترحيب من الصفحة بعد ما تختفي
   setTimeout(()=>{
     const splash=document.getElementById('splashScreen');
     if(splash) splash.remove();
   },2700);
 });
 
-// دالة التحقق من السيريال — المعادلة مخفية هنا
+// معادلة التحقق من كود التفعيل الدائم
 function _vk(c,k){
   const _a='\x36\x35',_b='\x31\x33',_c='\x34\x35\x37',_d='\x39\x31';
   const _x=c,_y=Number(_b),_z=Number(_c),_w=Number(_d);
@@ -1232,17 +1268,48 @@ function _vk(c,k){
   return Number(k)===_p;
 }
 
-// دالة التفعيل
+// معادلة التحقق من كود التجربة (مختلفة عن الدائم)
+function _vt(c,k){
+  const _p=(c*7+199)*2-83;
+  return Number(k)===_p;
+}
+
+// تفعيل النسخة التجريبية
+function _activateTrial(dCode){
+  const serial = document.getElementById('serialInput').value.trim();
+  const msg = document.getElementById('activationMsg');
+  if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل كود التجربة'; return; }
+  if(_vt(dCode, serial)){
+    DB.set('_ta', serial);
+    DB.set('_ts', Date.now());
+    msg.style.color='#90EE90';
+    msg.textContent='✅ تم تفعيل التجربة! جاري الفتح...';
+    setTimeout(()=>{
+      document.getElementById('lockScreen').remove();
+      document.querySelector('.header').style.display='';
+      document.querySelector('.tabs').style.display='';
+      document.querySelector('.body').style.display='';
+      const wm=document.querySelector('.watermark');
+      if(wm)wm.style.display='';
+      render();
+      _showTrialBanner(7);
+    },1200);
+  } else {
+    msg.style.color='#FF6B6B';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
+  }
+}
+
+// تفعيل النسخة الكاملة الدائمة
 function _activate(dCode){
   const serial = document.getElementById('serialInput').value.trim();
   const msg = document.getElementById('activationMsg');
-  if(!serial){
-    msg.style.color='#FFD700';
-    msg.textContent='من فضلك أدخل كود التفعيل';
-    return;
-  }
+  if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل كود التفعيل'; return; }
   if(_vk(dCode, serial)){
     DB.set('_ak', serial);
+    // امسح بيانات التجربة
+    DB.set('_ta', null);
+    DB.set('_ts', null);
     msg.style.color='#90EE90';
     msg.textContent='✅ تم التفعيل بنجاح! جاري الفتح...';
     setTimeout(()=>{
@@ -1250,12 +1317,13 @@ function _activate(dCode){
       document.querySelector('.header').style.display='';
       document.querySelector('.tabs').style.display='';
       document.querySelector('.body').style.display='';
-      document.querySelector('.watermark').style.display='';
+      const wm=document.querySelector('.watermark');
+      if(wm)wm.style.display='';
       render();
-    },1500);
+    },1200);
   } else {
     msg.style.color='#FF6B6B';
-    msg.textContent='❌ كود التفعيل غير صحيح';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
   }
 }
 </script>
