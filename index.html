@@ -196,6 +196,16 @@ const clientBalance=(cid)=>{
   return opening+total-paid-ret;
 };
 const stockQty=(pid)=>movements.filter(m=>m.productId===pid).reduce((s,m)=>m.type==='in'?s+m.qty:s-m.qty,0);
+// بيجيب الكميات مقسمة على تواريخ الصلاحية
+const stockBatches=(pid)=>{
+  const batches={};
+  movements.filter(m=>m.productId===pid).forEach(m=>{
+    const key=m.expiry||'—';
+    if(!batches[key]) batches[key]=0;
+    batches[key]+=m.type==='in'?m.qty:-m.qty;
+  });
+  return Object.entries(batches).filter(([k,v])=>v>0).sort((a,b)=>a[0].localeCompare(b[0]));
+};
 
 function updateHeaderDate(){
   document.getElementById('todayDate').textContent=today();
@@ -511,8 +521,16 @@ function renderInvoices(){
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
-          ${stock.length>0?`<select onchange="updateLine('${l.id}','productId',this.value)">${stockOpts}</select>`:`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
+          ${stock.length>0?`<select onchange="updateLine('${l.id}','productId',this.value);updateLine('${l.id}','expiry','')">${stockOpts}</select>`:`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
+        ${l.productId&&stockBatches(l.productId).length>0?`
+        <div class="form-group">
+          <div class="lbl">📅 الصلاحية</div>
+          <select onchange="updateLine('${l.id}','expiry',this.value)">
+            <option value="">— اختر —</option>
+            ${stockBatches(l.productId).map(([exp,q])=>`<option value="${exp}" ${l.expiry===exp?'selected':''}>${exp} (${q})</option>`).join('')}
+          </select>
+        </div>`:''}
         <div class="form-group">
           <div class="lbl">الكمية</div>
           <input type="number" min="1" value="${l.qty}" onchange="updateLine('${l.id}','qty',this.value)">
@@ -572,25 +590,27 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="invSearch=this.value;renderInvoices()">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0}];renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا توجد فواتير</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 
-function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0});renderInvoices();}
+function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''});renderInvoices();}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);renderInvoices();}
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:''};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   // نحفظ اختيار العميل والتاريخ قبل الرندر
   const savedClient=document.getElementById('inv_client')?.value;
   const savedDate=document.getElementById('inv_date')?.value;
   renderInvoices();
-  if(savedClient) document.getElementById('inv_client').value=savedClient;
-  if(savedDate) document.getElementById('inv_date').value=savedDate;
+  setTimeout(()=>{
+    if(savedClient){const el=document.getElementById('inv_client');if(el)el.value=savedClient;}
+    if(savedDate){const el=document.getElementById('inv_date');if(el)el.value=savedDate;}
+  },0);
 }
 
 function saveInvoice(){
@@ -598,6 +618,36 @@ function saveInvoice(){
   const date=document.getElementById('inv_date')?.value||today();
   if(!clientId){alert('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
+
+  // التحقق من الكمية المتراكمة لكل صنف+تاريخ في الفاتورة
+  // نجمع أولاً كل الكميات المطلوبة لكل صنف+تاريخ
+  const needed={};
+  for(const l of invLines){
+    if(!l.productId) continue;
+    const key=l.productId+'|'+(l.expiry||'__any__');
+    if(!needed[key]) needed[key]={productId:l.productId,expiry:l.expiry||'',total:0};
+    needed[key].total+=Number(l.qty)+(Number(l.bonus)||0);
+  }
+  // نتحقق من كل مجموعة
+  for(const key of Object.keys(needed)){
+    const {productId,expiry,total}=needed[key];
+    const p=stock.find(p=>p.id===productId);
+    if(expiry){
+      const batches=stockBatches(productId);
+      const batch=batches.find(([exp])=>exp===expiry);
+      const available=batch?batch[1]:0;
+      if(total>available){
+        alert(`❌ الكمية المتاحة من "${p?.name||'المنتج'}" بتاريخ ${expiry} هي ${available} فقط\nإجمالي المطلوب في الفاتورة: ${total}`);
+        return;
+      }
+    } else {
+      const available=stockQty(productId);
+      if(total>available){
+        alert(`❌ الكمية المتاحة من "${p?.name||'المنتج'}" هي ${available} فقط\nإجمالي المطلوب في الفاتورة: ${total}`);
+        return;
+      }
+    }
+  }
   const total=invLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
@@ -608,10 +658,10 @@ function saveInvoice(){
   invLines.forEach(l=>{
     if(l.productId){
       const totalQty=Number(l.qty)+(Number(l.bonus)||0);
-      movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'فاتورة #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id});
+      movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'فاتورة #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0}];renderInvoices();
+  save();showInvForm=false;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices();
 }
 
 function deleteInvoice(id){
@@ -805,9 +855,18 @@ function renderReturns(){
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
           ${stock.length>0
-            ?`<select onchange="updateRetLine('${l.id}','productId',this.value)">${stockOpts}</select>`
+            ?`<select onchange="updateRetLine('${l.id}','productId',this.value);updateRetLine('${l.id}','expiry','')">${stockOpts}</select>`
             :`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateRetLine('${l.id}','productName',this.value)">`}
         </div>
+        ${l.productId&&stockBatches(l.productId).length>0?`
+        <div class="form-group">
+          <div class="lbl">📅 الصلاحية</div>
+          <select onchange="updateRetLine('${l.id}','expiry',this.value)">
+            <option value="">— اختر —</option>
+            ${stockBatches(l.productId).map(([exp,q])=>`<option value="${exp}" ${l.expiry===exp?'selected':''}>${exp} (${q})</option>`).join('')}
+          </select>
+        </div>`:''}
+        
         <div class="form-group">
           <div class="lbl">الكمية</div>
           <input type="number" min="1" value="${l.qty}" onchange="updateRetLine('${l.id}','qty',this.value)">
@@ -863,7 +922,7 @@ function renderReturns(){
   `;
 }
 
-function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:1,price:0});renderReturns();}
+function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''});renderReturns();}
 function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns();}
 function updateRetLine(id,field,value){
   retLines=retLines.map(l=>{
@@ -883,16 +942,23 @@ function saveReturn(){
   const date=document.getElementById('ret_date')?.value||today();
   if(!clientId){alert('اختر عميل');return;}
   if(retLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
+
+  // التحقق إن الكمية المرتجعة منطقية (مش أكبر من اللي اتباع فعلاً)
+  for(const l of retLines){
+    if(!l.productId) continue;
+    const qty=Number(l.qty);
+    if(!qty||qty<=0){alert('أدخل كمية صحيحة لكل صنف');return;}
+  }
   const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
   const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
   returns.push(ret);
   // المرتجع بيرجع للمخزن (وارد)
   retLines.forEach(l=>{
-    if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'مرتجع #'+ret.number,returnId:ret.id});
+    if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'مرتجع #'+ret.number,returnId:ret.id,expiry:l.expiry||''});
   });
   save();
   showRetForm=false;
-  retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0}];
+  retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
   renderReturns();
 }
 
@@ -927,9 +993,17 @@ function renderStockOverview(){
   let items=stock.map(p=>{
     const qty=stockQty(p.id);
     const qtyColor=qty<10?'#C0392B':'#1E8449';
+    const batches=stockBatches(p.id);
+    const batchHtml=batches.length>0
+      ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${q}</b></span>`).join('')
+      :'';
     return `<div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${p.name}</div><div class="list-item-sub">وحدة: ${p.unit}</div></div>
+        <div style="flex:1">
+          <div class="list-item-name">${p.name}</div>
+          <div class="list-item-sub">وحدة: ${p.unit}</div>
+          ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
+        </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${qtyColor};font-size:20px">${qty}</div><div class="list-item-bal-lbl">${p.unit}</div></div>
       </div>
       <div class="list-item-actions">
@@ -974,6 +1048,9 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" id="mov_qty" min="1" placeholder="0"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="mov_date" value="${today()}"></div>
         </div>
+        ${currentMovType==='in'?`<div class="form-row">
+          <div class="form-group"><div class="lbl">📅 تاريخ الصلاحية</div><input type="month" id="mov_expiry" placeholder="اختر تاريخ الصلاحية"></div>
+        </div>`:''}
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="mov_note" placeholder="ملاحظة اختيارية"></div>
         </div>
@@ -1008,9 +1085,10 @@ function saveMovement(){
   const qty=Number(document.getElementById('mov_qty')?.value||0);
   const date=document.getElementById('mov_date')?.value||today();
   const note=document.getElementById('mov_note')?.value||'';
+  const expiry=currentMovType==='in'?(document.getElementById('mov_expiry')?.value||''):'';
   if(!productId||!qty){alert('اختر منتج وأدخل الكمية');return;}
   if(currentMovType==='out'&&stockQty(productId)<qty){alert('الكمية المتاحة '+stockQty(productId)+' فقط');return;}
-  movements.push({id:uid(),productId,type:currentMovType,qty,date,note});
+  movements.push({id:uid(),productId,type:currentMovType,qty,date,note,expiry});
   save();showMovForm=false;renderStock();
 }
 
@@ -1020,13 +1098,15 @@ function renderStockMovements(){
     const p=stock.find(p=>p.id===m.productId);
     return `<tr><td>${p?.name||'—'}</td><td>${m.date}</td>
       <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد':'صادر'}</span></td>
-      <td style="font-weight:bold">${m.qty}</td><td>${m.note||'—'}</td></tr>`;
+      <td style="font-weight:bold">${m.qty}</td>
+      <td>${m.expiry||'—'}</td>
+      <td>${m.note||'—'}</td></tr>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
       <button class="btn green" onclick="stockSubTab='overview';showMovForm=true;renderStock()">+ حركة جديدة</button>
     </div>
-    ${sorted.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المنتج</th><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${sorted.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المنتج</th><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>الصلاحية</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 
 function renderStockDetail(){
