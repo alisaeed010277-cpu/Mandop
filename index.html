@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="مندوب بيطري">
 <meta name="theme-color" content="#1A5276">
-<title>مدير المندوب البيطري المتكامل</title>
+<title>مدير المندوب المتكامل</title>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -104,8 +104,8 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 <body>
 
 <div id="splashScreen">
-  <div class="splash-icon">🐔</div>
-  <div class="splash-title">مدير المندوب البيطري المتكامل</div>
+  <div class="splash-icon"><svg width="70" height="70" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg></div>
+  <div class="splash-title">مدير المندوب المتكامل</div>
   <div class="splash-sub">إدارة العملاء والفواتير والمخزن</div>
   <div class="splash-line"></div>
   <div class="splash-dev">Ali Saeed (ElNokhba)</div>
@@ -116,7 +116,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 
 <div class="header">
   <div>
-    <div class="header-title">🐔 مدير المندوب البيطري المتكامل</div>
+    <div class="header-title"><svg width="26" height="26" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-left:6px"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg> مدير المندوب المتكامل</div>
     <div class="header-sub">إدارة العملاء والفواتير والمخزن</div>
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
@@ -165,7 +165,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 </div>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
-<div class="watermark">🐔 Developed by: Ali Saeed (ElNokhba) — 01552623744</div>
+<div class="watermark">Developed by: Ali Saeed (ElNokhba) — 01552623744</div>
 
 <script>
 const DB = {
@@ -367,7 +367,7 @@ function shareClientStatement(cid){
   const totalInv=invoices.filter(i=>i.clientId===cid).reduce((s,i)=>s+i.total,0);
   const totalPaid=payments.filter(p=>p.clientId===cid).reduce((s,p)=>s+p.amount,0);
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
-  let msg=`🐔 *كشف حساب*\n`;
+  let msg=` *كشف حساب*\n`;
   msg+=`━━━━━━━━━━━━━━\n`;
   msg+=`👤 العميل: ${c.name}\n`;
   if(c.phone) msg+=`📞 ${c.phone}\n`;
@@ -675,7 +675,7 @@ function shareInvoice(invId){
   const inv=invoices.find(i=>i.id===invId);
   if(!inv)return;
   const c=clients.find(c=>c.id===inv.clientId);
-  let msg=`🐔 *فاتورة رقم #${inv.number}*\n`;
+  let msg=` *فاتورة رقم #${inv.number}*\n`;
   msg+=`━━━━━━━━━━━━━━\n`;
   msg+=`👤 العميل: ${c?.name||'—'}\n`;
   msg+=`📅 التاريخ: ${inv.date}\n`;
@@ -1173,7 +1173,7 @@ async function doExportShare(){
   if(navigator.share){
     try{
       if(navigator.canShare && navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من مدير المندوب البيطري'});
+        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من مدير المندوب المتكامل'});
       }else{
         await navigator.share({title:'نسخة احتياطية - '+fileName,text:'تم حفظ الملف على جهازك، ارفعه على جوجل درايف أو جيميل من مدير الملفات.'});
       }
@@ -1297,7 +1297,7 @@ function _showLockScreen(dCode, trialExpired){
   `;
   lockScreen.innerHTML = `
     <div style="font-size:50px;margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
-    <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">مدير المندوب البيطري المتكامل</div>
+    <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">مدير المندوب المتكامل</div>
     ${expiredMsg}
     <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:20px 24px;margin-bottom:24px;width:100%;max-width:320px;">
       <div style="font-size:13px;opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
