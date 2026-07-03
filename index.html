@@ -168,20 +168,82 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 <div class="watermark">Developed by: Ali Saeed (ElNokhba) — 01552623744</div>
 
 <script>
-const DB = {
+// ============================================================
+// IndexedDB wrapper — بيستحمل جيجابايت بدل 5MB
+// ============================================================
+const DB_NAME='vsApp';const DB_VER=1;const STORE='kvStore';
+let _idb=null;
+
+function openIDB(){
+  return new Promise((res,rej)=>{
+    if(_idb){res(_idb);return;}
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=e=>{e.target.result.createObjectStore(STORE,{keyPath:'k'});};
+    req.onsuccess=e=>{_idb=e.target.result;res(_idb);};
+    req.onerror=e=>rej(e);
+  });
+}
+
+function idbGet(key){
+  return openIDB().then(db=>new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readonly');
+    const req=tx.objectStore(STORE).get(key);
+    req.onsuccess=()=>res(req.result?req.result.v:null);
+    req.onerror=e=>rej(e);
+  }));
+}
+
+function idbSet(key,val){
+  return openIDB().then(db=>new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).put({k:key,v:val});
+    tx.oncomplete=()=>res();
+    tx.onerror=e=>rej(e);
+  }));
+}
+
+// للتفعيل والإعدادات — بيفضل localStorage (بيانات صغيرة جداً)
+const DB={
   get:(k)=>{try{return JSON.parse(localStorage.getItem(k)||'null');}catch{return null;}},
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
+
 const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns'};
 
-let clients=DB.get(KEYS.clients)||[];
-let invoices=DB.get(KEYS.invoices)||[];
-let payments=DB.get(KEYS.payments)||[];
-let stock=DB.get(KEYS.stock)||[];
-let movements=DB.get(KEYS.movements)||[];
-let returns=DB.get(KEYS.returns)||[];
+// البيانات الرئيسية
+let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[];
 
-const save=()=>{DB.set(KEYS.clients,clients);DB.set(KEYS.invoices,invoices);DB.set(KEYS.payments,payments);DB.set(KEYS.stock,stock);DB.set(KEYS.movements,movements);DB.set(KEYS.returns,returns);};
+// حفظ async في IndexedDB
+const save=()=>{
+  idbSet(KEYS.clients,clients);
+  idbSet(KEYS.invoices,invoices);
+  idbSet(KEYS.payments,payments);
+  idbSet(KEYS.stock,stock);
+  idbSet(KEYS.movements,movements);
+  idbSet(KEYS.returns,returns);
+};
+
+// تحميل كل البيانات من IndexedDB ثم تشغيل البرنامج
+// مع fallback لـ localStorage لو في بيانات قديمة
+async function loadAllData(){
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns];
+  const [c,i,p,s,m,r]=await Promise.all(keys.map(k=>idbGet(k)));
+
+  // fallback: لو IndexedDB فاضي نجرب نقرأ من localStorage (ترقية من النسخة القديمة)
+  clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
+  invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
+  payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
+  stock    = s || JSON.parse(localStorage.getItem(KEYS.stock)||'[]');
+  movements= m || JSON.parse(localStorage.getItem(KEYS.movements)||'[]');
+  returns  = r || JSON.parse(localStorage.getItem(KEYS.returns)||'[]');
+
+  // لو في بيانات قديمة في localStorage نحولها لـ IndexedDB وبعدين نمسحها
+  if(!c && clients.length>0){
+    save();
+    [KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns]
+      .forEach(k=>localStorage.removeItem(k));
+  }
+}
 let _id=Date.now();
 const uid=()=>(++_id).toString(36);
 const today=()=>new Date().toISOString().slice(0,10);
@@ -1331,7 +1393,8 @@ function _showLockScreen(dCode, trialExpired){
   document.body.appendChild(lockScreen);
 }
 
-document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener('DOMContentLoaded', async function(){
+  await loadAllData();
   initActivation();
   checkExportReminder();
   setTimeout(()=>{
