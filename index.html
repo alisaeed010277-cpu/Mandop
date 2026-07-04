@@ -153,6 +153,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <button class="tab" onclick="switchTab('payments')">💰 السداد</button>
   <button class="tab" onclick="switchTab('returns')">↩️ المرتجع</button>
   <button class="tab" onclick="switchTab('stock')">📦 المخزن</button>
+  <button class="tab" onclick="switchTab('reports')">📊 التقارير</button>
 </div>
 
 <div class="body">
@@ -162,6 +163,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <div id="tab-payments" style="display:none"></div>
   <div id="tab-returns" style="display:none"></div>
   <div id="tab-stock" style="display:none"></div>
+  <div id="tab-reports" style="display:none"></div>
 </div>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
@@ -278,9 +280,9 @@ setInterval(updateHeaderDate, 60000);
 let currentTab='home';
 function switchTab(name){
   document.querySelectorAll('.tab').forEach((t,i)=>{
-    t.classList.toggle('active',['home','clients','invoices','payments','returns','stock'][i]===name);
+    t.classList.toggle('active',['home','clients','invoices','payments','returns','stock','reports'][i]===name);
   });
-  ['home','clients','invoices','payments','returns','stock'].forEach(t=>{
+  ['home','clients','invoices','payments','returns','stock','reports'].forEach(t=>{
     document.getElementById('tab-'+t).style.display=t===name?'':'none';
   });
   currentTab=name;render();
@@ -292,6 +294,7 @@ function render(){
   else if(currentTab==='payments')renderPayments();
   else if(currentTab==='returns')renderReturns();
   else if(currentTab==='stock')renderStock();
+  else if(currentTab==='reports')renderReports();
 }
 
 // ===== HOME =====
@@ -1288,6 +1291,94 @@ function importData(){
 }
 
 // ===== ACTIVATION SYSTEM =====
+function renderReports(){
+  // تواريخ افتراضية: أول وآخر الشهر الحالي
+  const now=new Date();
+  const defFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const defTo=today();
+
+  const fromVal=document.getElementById('rep_from')?.value||defFrom;
+  const toVal=document.getElementById('rep_to')?.value||defTo;
+
+  // فلترة بالفترة
+  const inRange=(date)=>date>=fromVal&&date<=toVal;
+  const filteredInv=invoices.filter(i=>inRange(i.date));
+  const filteredPay=payments.filter(p=>inRange(p.date));
+  const filteredRet=returns.filter(r=>inRange(r.date));
+
+  const totalSales=filteredInv.reduce((s,i)=>s+i.total,0);
+  const totalReturns=filteredRet.reduce((s,r)=>s+r.total,0);
+  const netSales=totalSales-totalReturns;
+  const totalPaid=filteredPay.reduce((s,p)=>s+p.amount,0);
+
+  document.getElementById('tab-reports').innerHTML=`
+    <div style="padding:14px">
+      <div class="page-title" style="margin-bottom:14px">📊 التقارير</div>
+
+      <!-- فترة التقرير -->
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:bold;color:#1A5276;margin-bottom:10px;font-size:13px">📅 فترة التقرير</div>
+        <div class="form-row">
+          <div class="form-group">
+            <div class="lbl">من تاريخ</div>
+            <input type="date" id="rep_from" value="${fromVal}" onchange="renderReports()">
+          </div>
+          <div class="form-group">
+            <div class="lbl">إلى تاريخ</div>
+            <input type="date" id="rep_to" value="${toVal}" onchange="renderReports()">
+          </div>
+        </div>
+      </div>
+
+      <!-- النتائج -->
+      <div style="display:grid;gap:10px">
+
+        <div class="card" style="border-right:4px solid #1A5276">
+          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المبيعات</div>
+          <div style="font-size:24px;font-weight:bold;color:#1A5276">${fmt(totalSales)} ج</div>
+          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredInv.length} فاتورة</div>
+        </div>
+
+        <div class="card" style="border-right:4px solid #C0392B">
+          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المرتجعات</div>
+          <div style="font-size:24px;font-weight:bold;color:#C0392B">${fmt(totalReturns)} ج</div>
+          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredRet.length} مرتجع</div>
+        </div>
+
+        <div class="card" style="border-right:4px solid #1E8449;background:#F0FAF4">
+          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">صافي المبيعات</div>
+          <div style="font-size:28px;font-weight:bold;color:#1E8449">${fmt(netSales)} ج</div>
+          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">بعد خصم المرتجعات</div>
+        </div>
+
+        <div class="card" style="border-right:4px solid #F39C12">
+          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي السداد المحصّل</div>
+          <div style="font-size:24px;font-weight:bold;color:#F39C12">${fmt(totalPaid)} ج</div>
+          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredPay.length} عملية سداد</div>
+        </div>
+
+      </div>
+    </div>`;
+}
+
+function checkNewFeatureNotif(){
+  if(DB.get('_notif_reports')) return;
+  const notif=document.createElement('div');
+  notif.id='featureNotif';
+  notif.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  notif.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:40px;margin-bottom:10px">📊</div>
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:8px">إضافة جديدة!</div>
+      <div style="font-size:13px;color:#444;line-height:1.7;margin-bottom:20px">
+        تم إضافة تبويب <strong>التقارير</strong> — تقدر دلوقتي تشوف
+        إجمالي مبيعاتك وسداداتك وصافي مبيعاتك في أي فترة زمنية تحددها بنفسك 🎉
+      </div>
+      <button onclick="document.getElementById('featureNotif').remove();DB.set('_notif_reports',1)" style="background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px 30px;font-size:14px;font-weight:bold;cursor:pointer;width:100%">تمام، فهمت 👍</button>
+    </div>`;
+  document.body.appendChild(notif);
+}
+
 function initActivation(){
   // توليد كود الجهاز — بيتخزن مرة واحدة في الجهاز ده بس
   let dCode = DB.get('_dc');
@@ -1397,6 +1488,7 @@ document.addEventListener('DOMContentLoaded', async function(){
   await loadAllData();
   initActivation();
   checkExportReminder();
+  checkNewFeatureNotif();
   setTimeout(()=>{
     const splash=document.getElementById('splashScreen');
     if(splash) splash.remove();
