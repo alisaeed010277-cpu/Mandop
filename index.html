@@ -373,7 +373,7 @@ function renderClients(){
       </div>
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="openClientDetail('${c.id}')">📋 كشف حساب</button>
-        <button class="btn-sm purple" onclick="shareClientStatement('${c.id}')">📲 واتساب</button>
+        <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientStatement('${c.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 PDF</button>
         <button class="btn-sm red" onclick="deleteClient('${c.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -425,27 +425,6 @@ function deleteClient(id){
 }
 function openClientDetail(id){clientDetailId=id;renderClients();}
 
-function shareClientStatement(cid){
-  const c=clients.find(c=>c.id===cid);
-  if(!c)return;
-  const bal=clientBalance(c.id);
-  const totalInv=invoices.filter(i=>i.clientId===cid).reduce((s,i)=>s+i.total,0);
-  const totalPaid=payments.filter(p=>p.clientId===cid).reduce((s,p)=>s+p.amount,0);
-  const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
-  let msg=` *كشف حساب*\n`;
-  msg+=`━━━━━━━━━━━━━━\n`;
-  msg+=`👤 العميل: ${c.name}\n`;
-  if(c.phone) msg+=`📞 ${c.phone}\n`;
-  msg+=`📅 التاريخ: ${today()}\n`;
-  msg+=`━━━━━━━━━━━━━━\n`;
-  msg+=`🧾 إجمالي الفواتير: ${fmt(totalInv)} ج\n`;
-  msg+=`✅ إجمالي المدفوع: ${fmt(totalPaid)} ج\n`;
-  msg+=`💰 ${balLbl}: ${fmt(Math.abs(bal))} ج\n`;
-  msg+=`━━━━━━━━━━━━━━\n`;
-  const url='https://wa.me/?text='+encodeURIComponent(msg);
-  window.open(url,'_blank');
-}
-
 function renderClientDetail(){
   const c=clients.find(c=>c.id===clientDetailId);
   if(!c){clientDetailId=null;renderClients();return;}
@@ -482,7 +461,7 @@ function renderClientDetail(){
       <div class="sum-card ${bal>0?'red':'green'}"><div class="sum-num">${fmt(Math.abs(bal))}</div><div class="sum-lbl">${balLbl}</div></div>
     </div>
     <div class="btn-row" style="margin-bottom:10px">
-      <button class="btn purple" onclick="shareClientStatement('${c.id}')">📲 مشاركة نصية واتساب</button>
+      <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printClientStatement('${c.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
     </div>
     <div class="card">
       <div class="card-head">📋 حركات الحساب</div>
@@ -543,6 +522,9 @@ function renderReturnDetail(){
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+        </div>
       </div>
     </div>`;
 }
@@ -736,30 +718,235 @@ function deleteInvoice(id){
   save();renderInvoices();
 }
 
-function shareInvoice(invId){
+// ===== توليد PDF ومشاركته مباشرة (بدون أي مكتبات خارجية — يفضل البرنامج شغال أوفلاين بالكامل) =====
+
+// تجهيز نسخة PDF-fallback القديمة (نافذة طباعة) تستخدم فقط لو المشاركة المباشرة مش مدعومة على الجهاز
+function printDocument(title, bodyHtml){
+  const logoSvg = `<svg width="60" height="60" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const win = window.open('', '_blank');
+  if(!win){ alert('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع أو تحفظ PDF'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${title}</title>
+  <style>${DOC_STYLE}</style></head><body>
+    ${buildDocInnerHtml(title, bodyHtml, logoSvg)}
+    <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+const DOC_STYLE = `
+  *{box-sizing:border-box;margin:0;padding:0;}
+  .doc-wrap{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#1C2833;background:#fff;padding:24px;}
+  body{padding:24px;}
+  .doc-header{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1A5276;padding-bottom:14px;margin-bottom:18px;}
+  .doc-header-left{display:flex;align-items:center;gap:12px;}
+  .doc-title{font-size:20px;font-weight:bold;color:#1A5276;}
+  .doc-meta{text-align:left;font-size:12px;color:#717D7E;}
+  .doc-info{margin-bottom:16px;font-size:14px;}
+  .doc-info div{margin-bottom:4px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;}
+  th{background:#1A5276;color:#fff;padding:8px 10px;text-align:right;font-size:12px;}
+  td{padding:7px 10px;border-bottom:1px solid #D5D8DC;}
+  tr:nth-child(even) td{background:#F2F3F4;}
+  .doc-total{text-align:left;font-weight:bold;font-size:16px;color:#1A5276;margin-top:6px;}
+  .doc-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .doc-sum-box{flex:1;min-width:120px;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;text-align:center;}
+  .doc-sum-box .n{font-size:16px;font-weight:bold;color:#1A5276;}
+  .doc-sum-box .l{font-size:11px;color:#717D7E;margin-top:2px;}
+  .doc-footer{text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:10px;margin-top:24px;}
+`;
+
+function buildDocInnerHtml(title, bodyHtml, logoSvg){
+  return `<div class="doc-header">
+      <div class="doc-header-left">${logoSvg}<div class="doc-title">مدير المندوب المتكامل</div></div>
+      <div class="doc-meta">${title}</div>
+    </div>
+    ${bodyHtml}
+    <div class="doc-footer">Developed by: Ali Saeed (ElNokhba) — 01552623744</div>`;
+}
+
+// يحوّل محتوى المستند (فاتورة/كشف حساب) لصورة JPEG عالية الجودة عن طريق رسمه في SVG foreignObject ثم Canvas
+async function renderDocToJpeg(title, bodyHtml){
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 70 70"><defs><linearGradient id="pg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1;width:760px;';
+  holder.innerHTML=`<style>${DOC_STYLE}</style><div class="doc-wrap" id="_pdfDocRoot">${buildDocInnerHtml(title, bodyHtml, logoSvg)}</div>`;
+  document.body.appendChild(holder);
+  await new Promise(r=>setTimeout(r,60));
+  const rootEl=holder.querySelector('#_pdfDocRoot');
+  const w=rootEl.offsetWidth||760;
+  const h=rootEl.offsetHeight||400;
+  const serializer=new XMLSerializer();
+  const styleStr=serializer.serializeToString(holder.querySelector('style'));
+  const rootStr=serializer.serializeToString(rootEl);
+  document.body.removeChild(holder);
+
+  const svgStr=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${styleStr}${rootStr}</div></foreignObject></svg>`;
+  const svgDataUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgStr);
+
+  const img=new Image();
+  const loaded=new Promise((resolve,reject)=>{ img.onload=()=>resolve(); img.onerror=()=>reject(new Error('تعذر تجهيز صورة المستند')); });
+  img.src=svgDataUrl;
+  await loaded;
+
+  const scale=2;
+  const canvas=document.createElement('canvas');
+  canvas.width=w*scale; canvas.height=h*scale;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.92));
+  return {blob, cssWidth:w, cssHeight:h, pxWidth:canvas.width, pxHeight:canvas.height};
+}
+
+// بناء ملف PDF يدويًا (بدون أي مكتبة) بتضمين صورة الفاتورة/الكشف كصفحة واحدة
+function buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight){
+  const encoder=new TextEncoder();
+  const parts=[]; let offset=0; const offsets=[];
+  function push(chunk){
+    const bytes=(typeof chunk==='string')?encoder.encode(chunk):chunk;
+    parts.push(bytes); offset+=bytes.length;
+  }
+  push('%PDF-1.4\n');
+  offsets[1]=offset; push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+  offsets[2]=offset; push(`2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`);
+  offsets[3]=offset; push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> /ProcSet [/PDF /ImageC] >> /MediaBox [0 0 ${ptWidth.toFixed(2)} ${ptHeight.toFixed(2)}] /Contents 5 0 R >>\nendobj\n`);
+  offsets[4]=offset; push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pxWidth} /Height ${pxHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
+  push(jpegBytes);
+  push(`\nendstream\nendobj\n`);
+  const contentStr=`q ${ptWidth.toFixed(2)} 0 0 ${ptHeight.toFixed(2)} 0 0 cm /Im0 Do Q`;
+  offsets[5]=offset; push(`5 0 obj\n<< /Length ${contentStr.length} >>\nstream\n${contentStr}\nendstream\nendobj\n`);
+  const xrefStart=offset;
+  push(`xref\n0 6\n0000000000 65535 f \n`);
+  for(let i=1;i<=5;i++){ push(String(offsets[i]).padStart(10,'0')+' 00000 n \n'); }
+  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+  const total=parts.reduce((s,p)=>s+p.length,0);
+  const out=new Uint8Array(total);
+  let pos=0; for(const p of parts){ out.set(p,pos); pos+=p.length; }
+  return new Blob([out],{type:'application/pdf'});
+}
+
+async function generateDocumentPdfBlob(title, bodyHtml){
+  const {blob, cssWidth, cssHeight, pxWidth, pxHeight}=await renderDocToJpeg(title, bodyHtml);
+  const jpegBytes=new Uint8Array(await blob.arrayBuffer());
+  const ptWidth=cssWidth*0.75, ptHeight=cssHeight*0.75;
+  return buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight);
+}
+
+// الدالة الرئيسية: تولّد الـ PDF وتفتح شاشة المشاركة مباشرة (واتساب وغيره)، ولو مش مدعوم بترجع لنافذة الطباعة القديمة تلقائيًا
+async function sendDocument(title, bodyHtml, filename){
+  try{
+    const pdfBlob=await generateDocumentPdfBlob(title, bodyHtml);
+    const file=new File([pdfBlob], filename, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title});
+      return;
+    }
+    // مفيش دعم للمشاركة المباشرة على الجهاز/المتصفح ده → تنزيل الملف مباشرة
+    const url=URL.createObjectURL(pdfBlob);
+    const a=document.createElement('a');
+    a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+  }catch(err){
+    if(err && err.name==='AbortError') return; // المستخدم لغى شاشة المشاركة بنفسه
+    console.error(err);
+    printDocument(title, bodyHtml); // فallback نهائي: نافذة طباعة تقليدية
+  }
+}
+
+async function printInvoice(invId){
   const inv=invoices.find(i=>i.id===invId);
   if(!inv)return;
   const c=clients.find(c=>c.id===inv.clientId);
-  let msg=` *فاتورة رقم #${inv.number}*\n`;
-  msg+=`━━━━━━━━━━━━━━\n`;
-  msg+=`👤 العميل: ${c?.name||'—'}\n`;
-  msg+=`📅 التاريخ: ${inv.date}\n`;
-  msg+=`━━━━━━━━━━━━━━\n`;
-  inv.lines.forEach(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+  const rows=inv.lines.map(l=>{
+    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId;
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
-    msg+=`📦 ${pName}\n`;
-    msg+=`   ${l.qty} × ${fmt(l.price)} ج`;
-    if(l.discount>0) msg+=` (خصم ${l.discount}%)`;
-    if(l.bonus>0) msg+=` + ${l.bonus} هدية`;
-    msg+=`\n   = ${fmt(lineTotal)} ج\n`;
-  });
-  msg+=`━━━━━━━━━━━━━━\n`;
-  msg+=`💰 *الإجمالي: ${fmt(inv.total)} جنيه*\n`;
-  msg+=`━━━━━━━━━━━━━━`;
-  window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+    const extras=[];
+    if(l.discount>0) extras.push(`خصم ${l.discount}%`);
+    if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
+    return `<tr>
+      <td>${pName}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>
+      <td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
+    </tr>`;
+  }).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
+      <div><strong>رقم الفاتورة:</strong> #${inv.number}</div>
+      <div><strong>التاريخ:</strong> ${inv.date}</div>
+    </div>
+    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>`;
+  await sendDocument(`فاتورة #${inv.number}`, body, `فاتورة-${inv.number}.pdf`);
 }
+
+async function printClientStatement(cid){
+  const c=clients.find(c=>c.id===cid);
+  if(!c)return;
+  const bal=clientBalance(c.id);
+  const cInvoices=invoices.filter(i=>i.clientId===cid);
+  const cPayments=payments.filter(p=>p.clientId===cid);
+  const cReturns=returns.filter(r=>r.clientId===cid);
+  const totalInv=cInvoices.reduce((s,i)=>s+i.total,0);
+  const totalPaid=cPayments.reduce((s,p)=>s+p.amount,0);
+  const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
+  const events=[
+    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening}]:[]),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total}))
+  ].sort((a,b)=>a.date.localeCompare(b.date));
+  let running=0;
+  const rows=events.map(ev=>{
+    const debit=(ev.type==='invoice'||ev.type==='opening')?ev.amount:0;
+    const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
+    running += debit - credit;
+    return `<tr>
+      <td>${ev.date}</td><td>${ev.label}</td>
+      <td>${debit?fmt(debit):'—'}</td>
+      <td>${credit?fmt(credit):'—'}</td>
+      <td>${fmt(running)}</td>
+    </tr>`;
+  }).join('');
+  const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
+  const body=`
+    <div class="doc-info">
+      <div><strong>العميل:</strong> ${c.name}</div>
+      ${c.phone?`<div><strong>الهاتف:</strong> ${c.phone}</div>`:''}
+      <div><strong>تاريخ الكشف:</strong> ${today()}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(totalInv)}</div><div class="l">إجمالي الفواتير</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totalPaid)}</div><div class="l">إجمالي المدفوع</div></div>
+      ${totalRet>0?`<div class="doc-sum-box"><div class="n">${fmt(totalRet)}</div><div class="l">إجمالي المرتجع</div></div>`:''}
+      <div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${balLbl}</div></div>
+    </div>
+    ${events.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}</tbody></table>`}
+    <div class="doc-total">${balLbl}: ${fmt(Math.abs(bal))} جنيه</div>`;
+  await sendDocument(`كشف حساب: ${c.name}`, body, `كشف-حساب-${c.name}.pdf`);
+}
+
+async function printReturn(retId){
+  const ret=returns.find(r=>r.id===retId);
+  if(!ret)return;
+  const c=clients.find(c=>c.id===ret.clientId);
+  const rows=ret.lines.map(l=>{
+    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+    return `<tr><td>${pName}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+  }).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
+      <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
+      <div><strong>التاريخ:</strong> ${ret.date}</div>
+    </div>
+    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="doc-total">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>`;
+  await sendDocument(`مرتجع #${ret.number}`, body, `مرتجع-${ret.number}.pdf`);
+}
+
 
 function renderInvDetail(){
   const inv=invoices.find(i=>i.id===invDetailId);
@@ -789,7 +976,7 @@ function renderInvDetail(){
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
-          <button class="btn purple" onclick="shareInvoice('${inv.id}')">📲 مشاركة نصية واتساب</button>
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printInvoice('${inv.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
         </div>
       </div>
     </div>`;
