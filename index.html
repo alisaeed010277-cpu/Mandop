@@ -1551,7 +1551,7 @@ function renderReports(){
 }
 
 function checkNewFeatureNotif(){
-  if(DB.get('_notif_reports')) return;
+  if(DB.get('_notif_reports')){ checkPdfShareNotif(); return; }
   const notif=document.createElement('div');
   notif.id='featureNotif';
   notif.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -1563,7 +1563,24 @@ function checkNewFeatureNotif(){
         تم إضافة تبويب <strong>التقارير</strong> — تقدر دلوقتي تشوف
         إجمالي مبيعاتك وسداداتك وصافي مبيعاتك في أي فترة زمنية تحددها بنفسك 🎉
       </div>
-      <button onclick="document.getElementById('featureNotif').remove();DB.set('_notif_reports',1)" style="background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px 30px;font-size:14px;font-weight:bold;cursor:pointer;width:100%">تمام، فهمت 👍</button>
+      <button onclick="document.getElementById('featureNotif').remove();DB.set('_notif_reports',1);checkPdfShareNotif()" style="background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px 30px;font-size:14px;font-weight:bold;cursor:pointer;width:100%">تمام، فهمت 👍</button>
+    </div>`;
+  document.body.appendChild(notif);
+}
+
+function checkPdfShareNotif(){
+  if(DB.get('_notif_pdfshare')) return;
+  const notif=document.createElement('div');
+  notif.id='featureNotifPdf';
+  notif.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  notif.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:40px;margin-bottom:10px">📤</div>
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:8px">إضافة جديدة!</div>
+      <div style="font-size:13px;color:#444;line-height:1.7;margin-bottom:20px">
+        اتشالت المشاركة النصية واتساب، وبدل منها دلوقتي تقدر <strong>ترسل PDF مباشر</strong> لأي فاتورة أو مردود مبيعات أو كشف حساب عميل بزرار واحد "📤 إرسال PDF" — هيفتحلك شاشة المشاركة على طول تختار منها واتساب أو أي تطبيق تاني 🎉
+      </div>
+      <button onclick="document.getElementById('featureNotifPdf').remove();DB.set('_notif_pdfshare',1)" style="background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px 30px;font-size:14px;font-weight:bold;cursor:pointer;width:100%">تمام، فهمت 👍</button>
     </div>`;
   document.body.appendChild(notif);
 }
