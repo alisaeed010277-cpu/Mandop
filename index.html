@@ -118,6 +118,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <div>
     <div class="header-title"><svg width="26" height="26" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-left:6px"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg> مدير البيطري المتكامل</div>
     <div class="header-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
+    <div id="companyBar" style="margin-top:3px"></div>
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
     <div class="header-date" id="todayDate"></div>
@@ -218,10 +219,11 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[];
+let companyProfile={name:'',phone:''};
 
 // حفظ async في IndexedDB
 const save=()=>{
@@ -238,8 +240,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns];
-  const [c,i,p,s,m,r,sup,pur,spay,pret]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -250,6 +252,7 @@ async function loadAllData(){
   purchases= pur||[];
   supplierPayments=spay||[];
   purchaseReturns=pret||[];
+  companyProfile=comp||{name:'',phone:''};
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -335,6 +338,87 @@ const supplierBalance=(sid)=>{
 };
 
 // ===== HOME =====
+function renderCompanyBar(){
+  const bar=document.getElementById('companyBar');
+  if(!bar)return;
+  if(companyProfile.name){
+    bar.innerHTML=`
+      <div onclick="openCompanyModal()" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;opacity:.9">
+        ${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:cover">`:''}
+        <span><strong>${companyProfile.name}</strong>${companyProfile.phone?' — '+companyProfile.phone:''} ✏️</span>
+      </div>`;
+  }else{
+    bar.innerHTML=`<div onclick="openCompanyModal()" style="cursor:pointer;font-size:11px;opacity:.85;text-decoration:underline">+ أضف بيانات شركتك</div>`;
+  }
+}
+
+let _tempLogoDataUrl=null;
+
+function openCompanyModal(){
+  _tempLogoDataUrl=companyProfile.logo||null;
+  const modal=document.createElement('div');
+  modal.id='companyModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:22px;max-width:320px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">🏢 بيانات شركتك</div>
+      <div style="text-align:center;margin-bottom:12px">
+        <img id="logoPreview" src="${companyProfile.logo||''}" style="width:60px;height:60px;border-radius:10px;object-fit:cover;background:#F2F3F4;display:${companyProfile.logo?'inline-block':'none'}">
+      </div>
+      <label style="display:block;background:#EBF5FB;color:#1A5276;border:1px dashed #1A5276;border-radius:8px;padding:10px;text-align:center;font-size:13px;cursor:pointer;margin-bottom:10px">
+        🖼️ اختيار شعار (اختياري)
+        <input type="file" accept="image/*" style="display:none" onchange="_handleLogoUpload(this)">
+      </label>
+      ${companyProfile.logo?`<div onclick="_removeLogo()" style="text-align:center;font-size:11px;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
+      <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${companyProfile.name||''}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;font-size:14px;box-sizing:border-box">
+      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box;direction:ltr;text-align:right">
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('companyModal').remove()" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">إلغاء</button>
+        <button onclick="saveCompanyProfile()" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">حفظ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function _handleLogoUpload(input){
+  const file=input.files && input.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const img=new Image();
+    img.onload=function(){
+      const maxSize=150;
+      let w=img.width, h=img.height;
+      if(w>h){ if(w>maxSize){h=Math.round(h*maxSize/w); w=maxSize;} }
+      else{ if(h>maxSize){w=Math.round(w*maxSize/h); h=maxSize;} }
+      const canvas=document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      _tempLogoDataUrl=canvas.toDataURL('image/jpeg',0.85);
+      const prev=document.getElementById('logoPreview');
+      if(prev){ prev.src=_tempLogoDataUrl; prev.style.display='inline-block'; }
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function _removeLogo(){
+  _tempLogoDataUrl=null;
+  const modal=document.getElementById('companyModal');
+  if(modal){ modal.remove(); openCompanyModal(); }
+}
+
+function saveCompanyProfile(){
+  const name=document.getElementById('companyNameInput').value.trim();
+  const phone=document.getElementById('companyPhoneInput').value.trim();
+  companyProfile={name, phone, logo:_tempLogoDataUrl||''};
+  idbSet(KEYS.companyProfile, companyProfile);
+  document.getElementById('companyModal').remove();
+  renderCompanyBar();
+}
+
 function renderHome(){
   const totalSales=invoices.reduce((s,i)=>s+i.total,0);
   const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
@@ -489,12 +573,20 @@ const DOC_STYLE = `
 `;
 
 function buildDocInnerHtml(title, bodyHtml, logoSvg){
+  const smallAppLogo = `<svg width="14" height="14" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><defs><linearGradient id="pgf" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pgf)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const companyBlock = companyProfile.name ? `
+      <div style="text-align:right">
+        <div class="doc-title">${companyProfile.name}</div>
+        ${companyProfile.phone?`<div style="font-size:12px;color:#717D7E;margin-top:2px">${companyProfile.phone}</div>`:''}
+      </div>` : `<div class="doc-title">مدير البيطري المتكامل</div>`;
   return `<div class="doc-header">
-      <div class="doc-header-left">${logoSvg}<div class="doc-title">مدير البيطري المتكامل</div></div>
+      <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
       <div class="doc-meta">${title}</div>
     </div>
     ${bodyHtml}
-    <div class="doc-footer">Developed by: Ali Saeed (ElNokhba) — 01552623744</div>`;
+    <div class="doc-footer" style="display:flex;align-items:center;gap:5px;justify-content:flex-start;direction:ltr;text-align:left">
+      ${smallAppLogo}<span>مدير البيطري المتكامل — Developed by: Ali Saeed (ElNokhba) — 01552623744</span>
+    </div>`;
 }
 
 // نافذة طباعة تقليدية — تُستخدم فقط كـ fallback لو المشاركة المباشرة مش مدعومة على الجهاز
@@ -2283,13 +2375,34 @@ function _showTrialBanner(daysLeft){
   if(document.getElementById('trialBanner')) return;
   const banner = document.createElement('div');
   banner.id = 'trialBanner';
-  banner.style.cssText = 'background:#F39C12;color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:bold;position:relative;z-index:100;';
-  banner.innerHTML = `⏳ النسخة التجريبية — باقي <strong>${daysLeft}</strong> ${daysLeft===1?'يوم':'أيام'} &nbsp;|&nbsp; للتفعيل الدائم تواصل على واتساب <strong>01552623744</strong>`;
+  banner.style.cssText = 'background:#F39C12;color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:bold;position:relative;z-index:100;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;';
+  banner.innerHTML = `<span>⏳ النسخة التجريبية — باقي <strong>${daysLeft}</strong> ${daysLeft===1?'يوم':'أيام'}</span>
+    <button onclick="_openActivationFromTrial()" style="background:#fff;color:#F39C12;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:bold;cursor:pointer">🔓 فعّل دلوقتي</button>`;
   const header = document.querySelector('.header');
   if(header) header.insertAdjacentElement('afterend', banner);
 }
 
-function _showLockScreen(dCode, trialExpired){
+function _openActivationFromTrial(){
+  const dCode = DB.get('_dc');
+  _showLockScreen(dCode, false, true);
+}
+
+function _closeLockScreenFromTrial(){
+  const ls=document.getElementById('lockScreen');
+  if(ls) ls.remove();
+  const header = document.querySelector('.header');
+  const tabs = document.querySelector('.tabs');
+  const body = document.querySelector('.body');
+  const wm = document.querySelector('.watermark');
+  if(header) header.style.display='';
+  if(tabs) tabs.style.display='';
+  if(body) body.style.display='';
+  if(wm) wm.style.display='';
+  const tb=document.getElementById('trialBanner');
+  if(tb) tb.style.display='';
+}
+
+function _showLockScreen(dCode, trialExpired, fromTrial){
   const header = document.querySelector('.header');
   const tabs = document.querySelector('.tabs');
   const body = document.querySelector('.body');
@@ -2298,6 +2411,8 @@ function _showLockScreen(dCode, trialExpired){
   if(tabs) tabs.style.display='none';
   if(body) body.style.display='none';
   if(wm) wm.style.display='none';
+  const trialBanner = document.getElementById('trialBanner');
+  if(trialBanner) trialBanner.style.display='none';
 
   const expiredMsg = trialExpired
     ? `<div style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;font-size:13px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>للاستمرار فعّل النسخة الكاملة</div>`
@@ -2314,6 +2429,7 @@ function _showLockScreen(dCode, trialExpired){
     -webkit-overflow-scrolling:touch;overflow-y:auto;
   `;
   lockScreen.innerHTML = `
+    ${fromTrial?`<button onclick="_closeLockScreenFromTrial()" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer">✕ رجوع</button>`:''}
     <div style="font-size:50px;margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
     <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">مدير البيطري المتكامل</div>
     ${expiredMsg}
@@ -2329,7 +2445,7 @@ function _showLockScreen(dCode, trialExpired){
         outline:none;direction:ltr;-webkit-appearance:none;
       ">
     </div>
-    ${!trialExpired?`
+    ${!trialExpired && !fromTrial?`
     <button onclick="_activateTrial(${dCode})" style="
       background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
       padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
@@ -2352,6 +2468,7 @@ function _showLockScreen(dCode, trialExpired){
 document.addEventListener('DOMContentLoaded', async function(){
   await loadAllData();
   initActivation();
+  renderCompanyBar();
   checkExportReminder();
   checkNewFeatureNotif();
   setTimeout(()=>{
@@ -2419,6 +2536,8 @@ function _activate(dCode){
       document.querySelector('.body').style.display='';
       const wm=document.querySelector('.watermark');
       if(wm)wm.style.display='';
+      const tb=document.getElementById('trialBanner');
+      if(tb) tb.remove();
       render();
     },1200);
   } else {
