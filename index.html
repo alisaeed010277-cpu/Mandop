@@ -550,8 +550,10 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${inv.number}</td><td>${c?.name||'—'}</td><td>${inv.date}</td>
-      <td style="font-weight:bold;color:#1A5276">${fmt(inv.total)} ج</td>
+      <td>${inv.number}</td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c?.name||'—'}</td>
+      <td style="white-space:nowrap">${inv.date}</td>
+      <td style="font-weight:bold;color:#1A5276;white-space:nowrap">${fmt(inv.total)} ج</td>
       <td>
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
         <button class="btn-sm red" onclick="deleteInvoice('${inv.id}')" style="margin-right:4px">🗑</button>
