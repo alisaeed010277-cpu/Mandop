@@ -419,6 +419,40 @@ function saveCompanyProfile(){
   renderCompanyBar();
 }
 
+function openOpeningBalanceModal(type, id){
+  const list = type==='client' ? clients : suppliers;
+  const item = list.find(x=>x.id===id);
+  if(!item)return;
+  const modal=document.createElement('div');
+  modal.id='openingModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:22px;max-width:300px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:15px;font-weight:bold;color:#1A5276;margin-bottom:4px;text-align:center">✏️ تعديل الرصيد الافتتاحي</div>
+      <div style="font-size:13px;color:#717D7E;margin-bottom:14px;text-align:center">${item.name}</div>
+      <div class="lbl">الرصيد الافتتاحي (ج)</div>
+      <input id="openingAmountInput" type="number" min="0" value="${item.opening||0}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;font-size:14px;box-sizing:border-box">
+      <div class="lbl">تاريخ الرصيد الافتتاحي</div>
+      <input id="openingDateInput" type="date" value="${item.openingDate||today()}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box">
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('openingModal').remove()" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">إلغاء</button>
+        <button onclick="saveOpeningBalance('${type}','${id}')" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">حفظ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function saveOpeningBalance(type, id){
+  const list = type==='client' ? clients : suppliers;
+  const item = list.find(x=>x.id===id);
+  if(!item)return;
+  item.opening = Number(document.getElementById('openingAmountInput').value||0);
+  item.openingDate = document.getElementById('openingDateInput').value||today();
+  save();
+  document.getElementById('openingModal').remove();
+  if(type==='client') renderClients(); else renderSuppliers();
+}
+
 function renderHome(){
   const totalSales=invoices.reduce((s,i)=>s+i.total,0);
   const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
@@ -497,6 +531,7 @@ function renderClients(){
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="openClientDetail('${c.id}')">📋 كشف حساب</button>
         <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientStatement('${c.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 PDF</button>
+        <button class="btn-sm" style="background:#D68910;color:#fff" onclick="openOpeningBalanceModal('client','${c.id}')">✏️ رصيد افتتاحي</button>
         <button class="btn-sm red" onclick="deleteClient('${c.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -787,6 +822,7 @@ let invDetailId=null;
 let invDetailFromClient=null;
 let invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0}];
 let showInvForm=false;
+let editInvoiceId=null;
 let invSearch='';
 
 function openInvoiceFromClient(invId,clientId){
@@ -886,11 +922,13 @@ function renderInvoices(){
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
+        <button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editInvoice('${inv.id}')">✏️</button>
         <button class="btn-sm red" onclick="deleteInvoice('${inv.id}')" style="margin-right:4px">🗑</button>
       </td>
     </tr>`;
   }).join('');
-  const clientOpts=clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
+  const clientOpts=clients.map(c=>`<option value="${c.id}" ${editingInv?.clientId===c.id?'selected':''}>${c.name}</option>`).join('');
   let linesHtml=invLines.map(l=>{
     const stockOpts=stock.length>0?`<option value="">— اختر منتج —</option>`+stock.map(p=>`<option value="${p.id}" ${l.productId===p.id?'selected':''}>${p.name} (${stockQty(p.id)})</option>`).join(''):'';
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
@@ -947,11 +985,11 @@ function renderInvoices(){
   document.getElementById('tab-invoices').innerHTML=`
     ${showInvForm?`
     <div class="card">
-      <div class="card-head green">إنشاء فاتورة جديدة</div>
+      <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">العميل *</div><select id="inv_client"><option value="">— اختر عميل —</option>${clientOpts}</select></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||today()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة</div>
@@ -961,17 +999,27 @@ function renderInvoices(){
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
           <div class="btn-row">
-            <button class="btn green" onclick="saveInvoice()">✓ حفظ الفاتورة</button>
-            <button class="btn-outline" onclick="showInvForm=false;renderInvoices()">إلغاء</button>
+            <button class="btn ${editingInv?'orange':'green'}" onclick="saveInvoice()">${editingInv?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
+            <button class="btn-outline" onclick="showInvForm=false;editInvoiceId=null;renderInvoices()">إلغاء</button>
           </div>
         </div>
       </div>
     </div>`:''}
     <div class="search-row">
       <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="invSearch=this.value;renderInvoices()">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا توجد فواتير</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+}
+
+function editInvoice(id){
+  const inv=invoices.find(i=>i.id===id);
+  if(!inv)return;
+  editInvoiceId=id;
+  invLines=inv.lines.map(l=>({...l}));
+  showInvForm=true;
+  invDetailId=null;
+  renderInvoices();
 }
 
 function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''});renderInvoices();}
@@ -998,8 +1046,22 @@ function saveInvoice(){
   if(!clientId){alert('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
 
+  // لو بنعدّل فاتورة موجودة: نرجع تأثيرها القديم على المخزن مؤقتًا قبل الفحص
+  let removedInv=null, removedMovements=[];
+  if(editInvoiceId){
+    removedInv = invoices.find(i=>i.id===editInvoiceId) || null;
+    removedMovements = movements.filter(m=>m.invoiceId===editInvoiceId);
+    invoices = invoices.filter(i=>i.id!==editInvoiceId);
+    movements = movements.filter(m=>m.invoiceId!==editInvoiceId);
+  }
+  function rollbackEdit(){
+    if(removedInv){
+      invoices.push(removedInv);
+      movements = movements.concat(removedMovements);
+    }
+  }
+
   // التحقق من الكمية المتراكمة لكل صنف+تاريخ في الفاتورة
-  // نجمع أولاً كل الكميات المطلوبة لكل صنف+تاريخ
   const needed={};
   for(const l of invLines){
     if(!l.productId) continue;
@@ -1007,7 +1069,6 @@ function saveInvoice(){
     if(!needed[key]) needed[key]={productId:l.productId,expiry:l.expiry||'',total:0};
     needed[key].total+=Number(l.qty)+(Number(l.bonus)||0);
   }
-  // نتحقق من كل مجموعة
   for(const key of Object.keys(needed)){
     const {productId,expiry,total}=needed[key];
     const p=stock.find(p=>p.id===productId);
@@ -1016,12 +1077,14 @@ function saveInvoice(){
       const batch=batches.find(([exp])=>exp===expiry);
       const available=batch?batch[1]:0;
       if(total>available){
+        rollbackEdit();
         alert(`❌ الكمية المتاحة من "${p?.name||'المنتج'}" بتاريخ ${expiry} هي ${available} فقط\nإجمالي المطلوب في الفاتورة: ${total}`);
         return;
       }
     } else {
       const available=stockQty(productId);
       if(total>available){
+        rollbackEdit();
         alert(`❌ الكمية المتاحة من "${p?.name||'المنتج'}" هي ${available} فقط\nإجمالي المطلوب في الفاتورة: ${total}`);
         return;
       }
@@ -1031,7 +1094,10 @@ function saveInvoice(){
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
   },0);
-  const inv={id:uid(),number:invoices.length+1,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),total,createdAt:new Date().toISOString()};
+  const invId = editInvoiceId || uid();
+  const invNumber = removedInv ? removedInv.number : (invoices.length>0?Math.max(...invoices.map(i=>i.number||0)):0)+1;
+  const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),total,createdAt};
   invoices.push(inv);
   // خصم الكمية الفعلية + البونص من المخزن
   invLines.forEach(l=>{
@@ -1040,7 +1106,7 @@ function saveInvoice(){
       movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices();
 }
 
 function deleteInvoice(id){
@@ -1106,6 +1172,7 @@ function renderInvDetail(){
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printInvoice('${inv.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+          <button class="btn orange" onclick="editInvoice('${inv.id}')">✏️ تعديل</button>
         </div>
       </div>
     </div>`;
@@ -1724,6 +1791,7 @@ function renderSuppliers(){
       </div>
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="supplierDetailId='${s.id}';renderSuppliers()">📋 كشف حساب</button>
+        <button class="btn-sm" style="background:#D68910;color:#fff" onclick="openOpeningBalanceModal('supplier','${s.id}')">✏️ رصيد افتتاحي</button>
         <button class="btn-sm red" onclick="deleteSupplier('${s.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -1737,6 +1805,7 @@ function renderSuppliers(){
       <div class="form-row" style="margin-top:8px">
         <div class="form-group"><div class="lbl">رقم الهاتف</div><input type="text" id="sup_phone" placeholder="01x..."></div>
         <div class="form-group"><div class="lbl">رصيد افتتاحي</div><input type="number" id="sup_opening" placeholder="0"></div>
+        <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" id="sup_opening_date" value="${today()}"></div>
       </div>
       <button class="btn green" style="margin-top:8px;width:100%" onclick="addSupplier()">+ إضافة مورد</button>
     </div>
@@ -1746,7 +1815,7 @@ function renderSuppliers(){
 function addSupplier(){
   const name=document.getElementById('sup_name')?.value?.trim();
   if(!name){alert('أدخل اسم المورد');return;}
-  suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0)});
+  suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),createdAt:today()});
   save();renderSuppliers();
 }
 
@@ -1838,7 +1907,7 @@ async function printSupplierStatement(sid){
   const totalRet=sReturns.reduce((s,r)=>s+r.total,0);
   const opening=Number(s.opening||0);
   const events=[
-    ...(opening>0?[{date:s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening}]:[]),
+    ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening}]:[]),
     ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total})),
     ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
     ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total}))
@@ -1877,6 +1946,7 @@ async function printSupplierStatement(sid){
 let purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
 let showPurForm=false;
 let purDetailId=null;
+let editPurchaseId=null;
 let purDetailFromSupplier=null;
 
 function openPurchaseFromSupplier(purId,supplierId){
@@ -1899,7 +1969,8 @@ function goBackFromPurDetail(){
 function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
   const sorted=[...purchases].sort((a,b)=>b.date.localeCompare(a.date));
-  const supOpts=suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  const editingPur = editPurchaseId ? purchases.find(p=>p.id===editPurchaseId) : null;
+  const supOpts=suppliers.map(s=>`<option value="${s.id}" ${editingPur?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('');
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
@@ -1907,6 +1978,7 @@ function renderPurchases(){
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
+        <button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPurchase('${p.id}')">✏️</button>
         <button class="btn-sm red" onclick="deletePurchase('${p.id}')" style="margin-right:4px">🗑</button>
       </td>
     </tr>`;
@@ -1933,25 +2005,38 @@ function renderPurchases(){
 
     const purTotal=purchaseLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
     formHtml=`<div class="card">
-      <div class="form-row">
+      <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
+      <div class="form-row" style="padding:12px 12px 0">
         <div class="form-group"><div class="lbl">المورد *</div><select id="pur_supplier"><option value="">— اختر مورد —</option>${supOpts}</select></div>
-        <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${today()}"></div>
+        <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||today()}"></div>
       </div>
+      <div style="padding:0 12px">
       ${linesHtml}
       <button class="btn-outline" style="margin-top:8px" onclick="addPurLine()">+ إضافة صنف</button>
       <div class="inv-total">الإجمالي: <strong>${fmt(purTotal)} ج</strong></div>
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button class="btn green" onclick="savePurchase()">✓ حفظ الفاتورة</button>
-        <button class="btn-outline" onclick="showPurForm=false;renderPurchases()">إلغاء</button>
+      <div style="display:flex;gap:8px;margin-top:10px;padding-bottom:12px">
+        <button class="btn ${editingPur?'orange':'green'}" onclick="savePurchase()">${editingPur?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
+        <button class="btn-outline" onclick="showPurForm=false;editPurchaseId=null;renderPurchases()">إلغاء</button>
+      </div>
       </div>
     </div>`;
   }
 
   document.getElementById('tab-purchases').innerHTML=`
     <div class="page-title">📥 المشتريات</div>
-    ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+    ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     ${formHtml}
     ${sorted.length===0?'<div class="empty">لا توجد فواتير مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+}
+
+function editPurchase(id){
+  const pur=purchases.find(p=>p.id===id);
+  if(!pur)return;
+  editPurchaseId=id;
+  purchaseLines=(pur.lines||[]).map(l=>({...l}));
+  showPurForm=true;
+  purDetailId=null;
+  renderPurchases();
 }
 
 function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''});renderPurchases();}
@@ -1977,14 +2062,23 @@ function savePurchase(){
   if(!supplierId){alert('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
   const total=purchaseLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
-  const purNum=(purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
-  const pur={id:uid(),number:purNum,supplierId,date,total,lines:purchaseLines.map(l=>({...l}))};
+
+  let removedPur=null;
+  if(editPurchaseId){
+    removedPur = purchases.find(p=>p.id===editPurchaseId) || null;
+    movements = movements.filter(m=>m.purchaseId!==editPurchaseId);
+    purchases = purchases.filter(p=>p.id!==editPurchaseId);
+  }
+
+  const purId = editPurchaseId || uid();
+  const purNum = removedPur ? removedPur.number : (purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
+  const pur={id:purId,number:purNum,supplierId,date,total,lines:purchaseLines.map(l=>({...l}))};
   purchases.push(pur);
   // تحديث المخزن
   purchaseLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'ف.مشتريات #'+purNum,purchaseId:pur.id,expiry:l.expiry||''});
   });
-  save();showPurForm=false;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases();
 }
 
 function deletePurchase(id){
@@ -2017,6 +2111,7 @@ function renderPurDetail(){
       </table></div>
       <div class="btn-row" style="margin-top:12px">
         <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchase('${pur.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+        <button class="btn orange" onclick="editPurchase('${pur.id}')">✏️ تعديل</button>
       </div>
     </div>`;
 }
