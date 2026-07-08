@@ -6,8 +6,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="مندوب بيطري">
+<meta name="apple-mobile-web-app-title" content="البيطري المتكامل">
 <meta name="theme-color" content="#1A5276">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>مدير البيطري المتكامل</title>
 
 <style>
@@ -2639,6 +2642,13 @@ function _activate(dCode){
     msg.style.color='#FF6B6B';
     msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
   }
+}
+
+// تسجيل السيرفس ووركر لتفعيل تثبيت التطبيق كأيقونة مستقلة (PWA)
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
+  });
 }
 </script>
 </body>
