@@ -162,6 +162,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <button class="tab" onclick="switchTab('purreturns')">↪️ مردود مشتريات</button>
   <button class="tab" onclick="switchTab('stock')">📦 المخزن</button>
   <button class="tab" onclick="switchTab('reports')">📊 التقارير</button>
+  <button class="tab" onclick="switchTab('expenses')">💸 مصاريف المندوب</button>
 </div>
 
 <div class="body">
@@ -176,6 +177,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <div id="tab-purreturns" style="display:none"></div>
   <div id="tab-stock" style="display:none"></div>
   <div id="tab-reports" style="display:none"></div>
+  <div id="tab-expenses" style="display:none"></div>
 </div>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
@@ -222,10 +224,10 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses'};
 
 // البيانات الرئيسية
-let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[];
+let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let companyProfile={name:'',phone:''};
 
 // حفظ async في IndexedDB
@@ -240,11 +242,12 @@ const save=()=>{
   idbSet(KEYS.purchases,purchases);
   idbSet(KEYS.supplierPayments,supplierPayments);
   idbSet(KEYS.purchaseReturns,purchaseReturns);
+  idbSet(KEYS.expenses,expenses);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -256,6 +259,7 @@ async function loadAllData(){
   supplierPayments=spay||[];
   purchaseReturns=pret||[];
   companyProfile=comp||{name:'',phone:''};
+  expenses=exp||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -307,7 +311,7 @@ updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 
 let currentTab='home';
-const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports'];
+const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses'];
 function switchTab(name){
   document.querySelectorAll('.tab').forEach((t,i)=>{
     t.classList.toggle('active',TAB_ORDER[i]===name);
@@ -329,6 +333,7 @@ function render(){
   else if(currentTab==='returns')renderReturns();
   else if(currentTab==='stock')renderStock();
   else if(currentTab==='reports')renderReports();
+  else if(currentTab==='expenses')renderExpenses();
 }
 
 // رصيد المورد = رصيد افتتاحي + مشتريات - مدفوع - مردود مشتريات
@@ -1592,7 +1597,7 @@ function exportData(){
   document.getElementById('exportModal').style.display='flex';
 }
 function buildExportBlob(){
-  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,exportDate:new Date().toISOString()};
+  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
 function markExported(){
@@ -1700,6 +1705,7 @@ function importData(){
         if(Array.isArray(data.purchases)){purchases=data.purchases;}else{oldFileWarning=true;}
         if(Array.isArray(data.supplierPayments)){supplierPayments=data.supplierPayments;}else{oldFileWarning=true;}
         if(Array.isArray(data.purchaseReturns)){purchaseReturns=data.purchaseReturns;}else{oldFileWarning=true;}
+        if(Array.isArray(data.expenses)){expenses=data.expenses;}
         if(oldFileWarning) alert('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجع أو الموردين) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
         save();alert('✅ تم استيراد البيانات بنجاح!');render();
       }catch(err){alert('حصل خطأ في قراءة الملف!');}
@@ -1707,6 +1713,104 @@ function importData(){
     reader.readAsText(file);
   };
   input.click();
+}
+
+let expenseQuickFilter='month';
+
+function renderExpenses(){
+  const now=new Date();
+  const defFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const defTo=today();
+
+  let fromVal, toVal;
+  if(expenseQuickFilter==='today'){ fromVal=today(); toVal=today(); }
+  else if(expenseQuickFilter==='week'){
+    const d=new Date(); d.setDate(d.getDate()-6);
+    fromVal=d.toISOString().slice(0,10); toVal=today();
+  }
+  else if(expenseQuickFilter==='month'){ fromVal=defFrom; toVal=defTo; }
+  else if(expenseQuickFilter==='all'){ fromVal='0000-01-01'; toVal='9999-12-31'; }
+  else{
+    fromVal=document.getElementById('exp_from')?.value||defFrom;
+    toVal=document.getElementById('exp_to')?.value||defTo;
+  }
+
+  const filtered=[...expenses].filter(e=>e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
+  const total=filtered.reduce((s,e)=>s+Number(e.amount),0);
+
+  const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${expenseQuickFilter===key?'#1A5276':'#D5D8DC'};color:${expenseQuickFilter===key?'#fff':'#333'}" onclick="expenseQuickFilter='${key}';renderExpenses()">${label}</button>`;
+
+  const rows=filtered.map(e=>`
+    <div class="list-item">
+      <div class="list-item-head">
+        <div><div class="list-item-name">${e.label}</div><div class="list-item-sub">📅 ${e.date}</div></div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:#C0392B">${fmt(e.amount)} ج</div></div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn-sm red" onclick="deleteExpense('${e.id}')">🗑 حذف</button>
+      </div>
+    </div>`).join('');
+
+  document.getElementById('tab-expenses').innerHTML=`
+    <div style="padding:14px">
+      <div class="page-title" style="margin-bottom:14px">💸 مصاريف المندوب</div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-head green">➕ إضافة مصروف جديد</div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="form-group" style="flex:2"><div class="lbl">بند المصروف *</div><input type="text" id="exp_label" placeholder="مثال: بنزين، صيانة عربية..."></div>
+            <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="exp_amount" min="0" placeholder="0"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${today()}"></div>
+          </div>
+          <button class="btn green" onclick="addExpense()">✓ حفظ المصروف</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:bold;color:#1A5276;margin-bottom:10px;font-size:13px">📅 فترة العرض</div>
+        <div class="btn-row">
+          ${filterBtn('today','اليوم')}
+          ${filterBtn('week','آخر 7 أيام')}
+          ${filterBtn('month','الشهر ده')}
+          ${filterBtn('all','كل الفترات')}
+          ${filterBtn('custom','فترة مخصصة')}
+        </div>
+        ${expenseQuickFilter==='custom'?`
+        <div class="form-row" style="margin-top:10px">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="exp_from" value="${fromVal}" onchange="renderExpenses()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="exp_to" value="${toVal}" onchange="renderExpenses()"></div>
+        </div>`:''}
+      </div>
+
+      <div class="card" style="border-right:4px solid #C0392B;margin-bottom:14px">
+        <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المصاريف للفترة المختارة</div>
+        <div style="font-size:28px;font-weight:bold;color:#C0392B">${fmt(total)} ج</div>
+        <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filtered.length} بند مصروف</div>
+      </div>
+
+      ${filtered.length===0?'<div class="empty">لا توجد مصاريف في الفترة دي</div>':rows}
+    </div>`;
+}
+
+function addExpense(){
+  const label=document.getElementById('exp_label')?.value?.trim();
+  const amount=Number(document.getElementById('exp_amount')?.value||0);
+  const date=document.getElementById('exp_date')?.value||today();
+  if(!label){alert('اكتب بند المصروف');return;}
+  if(!amount||amount<=0){alert('أدخل مبلغ صحيح');return;}
+  expenses.push({id:uid(),label,amount,date});
+  save();
+  renderExpenses();
+}
+
+function deleteExpense(id){
+  if(!confirm('متأكد من حذف المصروف ده؟'))return;
+  expenses=expenses.filter(e=>e.id!==id);
+  save();
+  renderExpenses();
 }
 
 // ===== ACTIVATION SYSTEM =====
