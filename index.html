@@ -1638,6 +1638,33 @@ function hideExportReminder(){
   const el=document.getElementById('exportReminder');
   if(el) el.style.display='none';
 }
+// نسخة احتياطية تلقائية فعلية: بتنزل ملف الباك أب لوحدها في مجلد التنزيلات
+// من غير ما ينتظر المستخدم يدوس على أي زرار — بتحمي البيانات حتى لو حد مسح بيانات كروم بعد كده
+function checkAutoBackup(){
+  const hasData = clients.length>0 || invoices.length>0 || purchases.length>0 || suppliers.length>0 || stock.length>0;
+  if(!hasData) return; // مفيش داعي لباك أب فاضي على جهاز جديد لسه ملوش بيانات
+  const last = DB.get('_lastAutoExport');
+  const daysSince = last ? (Date.now()-new Date(last).getTime())/(1000*60*60*24) : Infinity;
+  if(daysSince < 3) return; // باك أب تلقائي كل 3 أيام بحد أقصى
+  try{
+    const blob = buildExportBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'نسخة_احتياطية_تلقائية_'+today()+'.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 3000);
+    const now = new Date().toISOString();
+    DB.set('_lastAutoExport', now);
+    DB.set('_lastExport', now); // يحدّث نفس مؤشر آخر تصدير عشان البانر ميزعجش المستخدم كمان
+    hideExportReminder();
+  }catch(e){
+    console.error('فشل الباك أب التلقائي', e);
+  }
+}
+
 function checkExportReminder(){
   const last=DB.get('_lastExport');
   const banner=document.getElementById('exportReminder');
@@ -2569,6 +2596,7 @@ document.addEventListener('DOMContentLoaded', async function(){
   renderCompanyBar();
   checkExportReminder();
   checkNewFeatureNotif();
+  setTimeout(()=>{ checkAutoBackup(); }, 4000);
   setTimeout(()=>{
     const splash=document.getElementById('splashScreen');
     if(splash) splash.remove();
