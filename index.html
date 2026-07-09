@@ -1484,6 +1484,9 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${today()}"></div>
         </div>
         <div class="form-row">
+          <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية"></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0"></div>
         </div>
         <div class="btn-row">
@@ -1535,13 +1538,14 @@ function addProduct(){
   const unit=document.getElementById('p_unit')?.value||'وحدة';
   const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
   const openingDate=document.getElementById('p_opening_date')?.value||today();
+  const openingExpiry=document.getElementById('p_opening_expiry')?.value||'';
   const price=Number(document.getElementById('p_price')?.value||0);
   if(!name){alert('أدخل اسم المنتج');return;}
   const newProduct={id:uid(),name,unit};
   if(price>0)newProduct.price=price;
   stock.push(newProduct);
   if(openingQty>0){
-    movements.push({id:uid(),productId:newProduct.id,type:'in',qty:openingQty,date:openingDate,note:'رصيد افتتاحي',expiry:''});
+    movements.push({id:uid(),productId:newProduct.id,type:'in',qty:openingQty,date:openingDate,note:'رصيد افتتاحي',expiry:openingExpiry});
   }
   save();showProductForm=false;renderStock();
 }
