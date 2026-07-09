@@ -1035,7 +1035,7 @@ function removeLine(id){invLines=invLines.filter(l=>l.id!==id);renderInvoices();
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',price:p?.price?Number(p.price):l.price};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   // نحفظ اختيار العميل والتاريخ قبل الرندر
@@ -1479,6 +1479,13 @@ function renderStockOverview(){
             <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر...">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" placeholder="0"></div>
+          <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${today()}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0"></div>
+        </div>
         <div class="btn-row">
           <button class="btn green" onclick="addProduct()">+ إضافة</button>
           <button class="btn-outline" onclick="showProductForm=false;renderStock()">إلغاء</button>
@@ -1526,8 +1533,16 @@ function renderStockOverview(){
 function addProduct(){
   const name=document.getElementById('p_name')?.value.trim();
   const unit=document.getElementById('p_unit')?.value||'وحدة';
+  const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
+  const openingDate=document.getElementById('p_opening_date')?.value||today();
+  const price=Number(document.getElementById('p_price')?.value||0);
   if(!name){alert('أدخل اسم المنتج');return;}
-  stock.push({id:uid(),name,unit});
+  const newProduct={id:uid(),name,unit};
+  if(price>0)newProduct.price=price;
+  stock.push(newProduct);
+  if(openingQty>0){
+    movements.push({id:uid(),productId:newProduct.id,type:'in',qty:openingQty,date:openingDate,note:'رصيد افتتاحي',expiry:''});
+  }
   save();showProductForm=false;renderStock();
 }
 function deleteProduct(id){
