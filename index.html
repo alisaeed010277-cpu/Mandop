@@ -562,8 +562,9 @@ function renderClients(){
         <button class="btn green" onclick="addClient()">+ إضافة عميل</button>
       </div>
     </div>
-    <div class="search-row">
+    <div class="search-row" style="align-items:center">
       <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${clientSearch}" oninput="clientSearch=this.value;renderClients()">
+      ${clients.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص العملاء PDF</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا يوجد عملاء</div>':items}`;
 }
@@ -733,6 +734,39 @@ async function sendDocument(title, bodyHtml, filename){
     console.error(err);
     printDocument(title, bodyHtml);
   }
+}
+
+async function printClientsSummaryPdf(){
+  const rows=clients.map(c=>{
+    const opening=Number(c.opening||0);
+    const sales=invoices.filter(i=>i.clientId===c.id).reduce((s,i)=>s+i.total,0);
+    const paid=payments.filter(p=>p.clientId===c.id).reduce((s,p)=>s+p.amount,0);
+    const ret=returns.filter(r=>r.clientId===c.id).reduce((s,r)=>s+r.total,0);
+    const bal=clientBalance(c.id);
+    return `<tr>
+      <td>${c.name}</td>
+      <td>${opening>0?fmt(opening):'—'}</td>
+      <td>${sales>0?fmt(sales):'—'}</td>
+      <td>${ret>0?fmt(ret):'—'}</td>
+      <td>${paid>0?fmt(paid):'—'}</td>
+      <td style="font-weight:bold;color:${bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E'}">${fmt(Math.abs(bal))}${bal>0?' (مستحق)':bal<0?' (له رصيد)':''}</td>
+    </tr>`;
+  }).join('');
+  const totalSales=invoices.reduce((s,i)=>s+i.total,0);
+  const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
+  const totalDebt=clients.reduce((s,c)=>s+Math.max(0,clientBalance(c.id)),0);
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      <div><strong>عدد العملاء:</strong> ${clients.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(totalSales)}</div><div class="l">إجمالي المبيعات</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totalPaid)}</div><div class="l">إجمالي السداد</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totalDebt)}</div><div class="l">إجمالي المديونية</div></div>
+    </div>
+    ${clients.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا يوجد عملاء</div>':`<table><thead><tr><th>العميل</th><th>رصيد أول المدة</th><th>المبيعات</th><th>المردودات</th><th>السداد</th><th>المديونية</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+  await sendDocument('ملخص العملاء', body, `ملخص-العملاء-${today()}.pdf`);
 }
 
 async function printClientStatement(cid){
@@ -1190,6 +1224,26 @@ function renderInvDetail(){
 let showPayForm=false;
 let payDetailId=null;
 
+async function printCollectionsSummaryPdf(){
+  const sorted=[...payments].sort((a,b)=>a.date.localeCompare(b.date));
+  const rows=sorted.map(p=>{
+    const c=clients.find(c=>c.id===p.clientId);
+    return `<tr><td>${p.date}</td><td>${c?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
+  }).join('');
+  const total=payments.reduce((s,p)=>s+p.amount,0);
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      <div><strong>عدد عمليات التحصيل:</strong> ${payments.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(total)}</div><div class="l">إجمالي التحصيل</div></div>
+    </div>
+    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد عمليات تحصيل</div>':`<table><thead><tr><th>التاريخ</th><th>العميل</th><th>المبلغ</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table>`}
+    <div class="doc-total">إجمالي التحصيل: ${fmt(total)} جنيه</div>`;
+  await sendDocument('تقرير التحصيل من العملاء', body, `تحصيل-العملاء-${today()}.pdf`);
+}
+
 function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
   const sorted=[...payments].sort((a,b)=>b.date.localeCompare(a.date));
@@ -1229,10 +1283,33 @@ function renderPayments(){
         </div>
       </div>
     </div>`:''}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
+      ${sorted.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printCollectionsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير PDF</button>`:''}
       ${!showPayForm?`<button class="btn green" onclick="showPayForm=true;renderPayments()">+ تسجيل سداد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مدفوعات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>العميل</th><th>التاريخ</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+}
+
+async function printPaymentReceipt(pid){
+  const p=payments.find(p=>p.id===pid);
+  if(!p)return;
+  const c=clients.find(c=>c.id===p.clientId);
+  const inv=p.invoiceId?invoices.find(i=>i.id===p.invoiceId):null;
+  const bal=c?clientBalance(c.id):0;
+  const body=`
+    <div class="doc-info">
+      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
+      ${c?.phone?`<div><strong>الهاتف:</strong> ${c.phone}</div>`:''}
+      <div><strong>تاريخ السداد:</strong> ${p.date}</div>
+      <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
+      ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount)}</div><div class="l">المبلغ المدفوع</div></div>
+      ${c?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'الرصيد المتبقي عليه':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
+    </div>
+    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount)} جنيه</div>`;
+  await sendDocument(`إيصال سداد: ${c?.name||''}`, body, `إيصال-سداد-${c?.name||''}-${p.date}.pdf`);
 }
 
 function renderPaymentDetail(){
@@ -1252,6 +1329,9 @@ function renderPaymentDetail(){
         <div style="margin-bottom:10px"><strong>المبلغ المدفوع:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount)} ج</span></div>
         <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
+        <div class="btn-row">
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
+        </div>
       </div>
     </div>`;
 }
@@ -1444,6 +1524,34 @@ function renderStock(){
   else renderStockMovements();
 }
 
+async function printStockSummaryPdf(){
+  const rows=stock.map(p=>{
+    const qty=stockQty(p.id);
+    const batches=stockBatches(p.id);
+    const batchTxt=batches.length>0?batches.map(([exp,q])=>`${exp}: ${q}`).join(' | '):'—';
+    return `<tr>
+      <td>${p.name}</td>
+      <td>${p.unit}</td>
+      <td style="font-weight:bold;color:${qty<10?'#C0392B':'#1E8449'}">${qty}</td>
+      <td>${p.price?fmt(p.price):'—'}</td>
+      <td style="font-size:11px">${batchTxt}</td>
+    </tr>`;
+  }).join('');
+  const totalItems=stock.length;
+  const lowCount=stock.filter(p=>stockQty(p.id)<10).length;
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ الجرد:</strong> ${today()}</div>
+      <div><strong>عدد الأصناف:</strong> ${totalItems}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${totalItems}</div><div class="l">إجمالي الأصناف</div></div>
+      <div class="doc-sum-box"><div class="n">${lowCount}</div><div class="l">أصناف قاربت على النفاد</div></div>
+    </div>
+    ${stock.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>السعر</th><th>الدفعات (الصلاحية: الكمية)</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+  await sendDocument('جرد المخزن', body, `جرد-المخزن-${today()}.pdf`);
+}
+
 function renderStockOverview(){
   const productOpts=stock.map(p=>`<option value="${p.id}">${p.name} (${stockQty(p.id)} ${p.unit})</option>`).join('');
   let items=stock.map(p=>{
@@ -1469,6 +1577,9 @@ function renderStockOverview(){
     </div>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
+    </div>
     ${showProductForm?`
     <div class="card">
       <div class="card-head green">إضافة منتج جديد</div>
@@ -2293,6 +2404,26 @@ async function printPurchase(purId){
 let showSupPayTabForm=false;
 let supPayTabDetailId=null;
 
+async function printSupplierPaymentsSummaryPdf(){
+  const sorted=[...supplierPayments].sort((a,b)=>a.date.localeCompare(b.date));
+  const rows=sorted.map(p=>{
+    const s=suppliers.find(s=>s.id===p.supplierId);
+    return `<tr><td>${p.date}</td><td>${s?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
+  }).join('');
+  const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      <div><strong>عدد عمليات السداد:</strong> ${supplierPayments.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(total)}</div><div class="l">إجمالي السداد للموردين</div></div>
+    </div>
+    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد عمليات سداد</div>':`<table><thead><tr><th>التاريخ</th><th>المورد</th><th>المبلغ</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table>`}
+    <div class="doc-total">إجمالي السداد: ${fmt(total)} جنيه</div>`;
+  await sendDocument('تقرير سداد الموردين', body, `سداد-الموردين-${today()}.pdf`);
+}
+
 function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
   const sorted=[...supplierPayments].sort((a,b)=>b.date.localeCompare(a.date));
@@ -2331,7 +2462,8 @@ function renderSupPayTab(){
         </div>
       </div>
     </div>`:''}
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
+      ${sorted.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSupplierPaymentsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير PDF</button>`:''}
       ${!showSupPayTabForm?`<button class="btn green" onclick="showSupPayTabForm=true;renderSupPayTab()">+ تسجيل سداد للمورد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مدفوعات للموردين</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المورد</th><th>التاريخ</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
@@ -2345,6 +2477,26 @@ function saveSupplierPaymentTab(){
   if(!supplierId||!amount){alert('اختر مورد وأدخل المبلغ');return;}
   supplierPayments.push({id:uid(),supplierId,amount,date,note});
   save();showSupPayTabForm=false;renderSupPayTab();
+}
+
+async function printSupplierPaymentReceipt(pid){
+  const p=supplierPayments.find(p=>p.id===pid);
+  if(!p)return;
+  const s=suppliers.find(s=>s.id===p.supplierId);
+  const bal=s?supplierBalance(s.id):0;
+  const body=`
+    <div class="doc-info">
+      <div><strong>المورد:</strong> ${s?.name||'—'}</div>
+      ${s?.phone?`<div><strong>الهاتف:</strong> ${s.phone}</div>`:''}
+      <div><strong>تاريخ السداد:</strong> ${p.date}</div>
+      ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount)}</div><div class="l">المبلغ المدفوع</div></div>
+      ${s?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'المتبقي له علينا':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
+    </div>
+    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount)} جنيه</div>`;
+  await sendDocument(`إيصال سداد: ${s?.name||''}`, body, `إيصال-سداد-مورد-${s?.name||''}-${p.date}.pdf`);
 }
 
 function renderSupPayTabDetail(){
@@ -2362,6 +2514,9 @@ function renderSupPayTabDetail(){
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
         <div style="margin-bottom:10px"><strong>المبلغ المدفوع:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount)} ج</span></div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
+        <div class="btn-row">
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للمورد</button>
+        </div>
       </div>
     </div>`;
 }
