@@ -461,6 +461,25 @@ function saveOpeningBalance(type, id){
   if(type==='client') renderClients(); else renderSuppliers();
 }
 
+let homeFromDate='',homeToDate='';
+function clientSummaryData(from,to){
+  const rows=clients.map(c=>{
+    let opening=Number(c.opening||0);
+    if(from){
+      opening+=invoices.filter(i=>i.clientId===c.id&&i.date<from).reduce((s,i)=>s+i.total,0);
+      opening-=payments.filter(p=>p.clientId===c.id&&p.date<from).reduce((s,p)=>s+p.amount,0);
+      opening-=returns.filter(r=>r.clientId===c.id&&r.date<from).reduce((s,r)=>s+r.total,0);
+    }
+    const sales=invoices.filter(i=>i.clientId===c.id&&(!from||i.date>=from)&&(!to||i.date<=to)).reduce((s,i)=>s+i.total,0);
+    const paid=payments.filter(p=>p.clientId===c.id&&(!from||p.date>=from)&&(!to||p.date<=to)).reduce((s,p)=>s+p.amount,0);
+    const ret=returns.filter(r=>r.clientId===c.id&&(!from||r.date>=from)&&(!to||r.date<=to)).reduce((s,r)=>s+r.total,0);
+    const bal=opening+sales-ret-paid;
+    return {client:c,opening,sales,ret,paid,bal};
+  });
+  const totals=rows.reduce((t,r)=>({opening:t.opening+r.opening,sales:t.sales+r.sales,ret:t.ret+r.ret,paid:t.paid+r.paid,bal:t.bal+r.bal}),{opening:0,sales:0,ret:0,paid:0,bal:0});
+  return {rows,totals};
+}
+
 function renderHome(){
   const totalSales=invoices.reduce((s,i)=>s+i.total,0);
   const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
@@ -472,23 +491,27 @@ function renderHome(){
   const lowStock=stock.filter(p=>stockQty(p.id)<10);
   let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${p.name}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
 
-  // جدول العملاء
-  const clientRows=clients.map(c=>{
-    const opening=Number(c.opening||0);
-    const sales=invoices.filter(i=>i.clientId===c.id).reduce((s,i)=>s+i.total,0);
-    const paid=payments.filter(p=>p.clientId===c.id).reduce((s,p)=>s+p.amount,0);
-    const ret=returns.filter(r=>r.clientId===c.id).reduce((s,r)=>s+r.total,0);
-    const bal=clientBalance(c.id);
+  // جدول العملاء (حسب فلتر المدة إن وُجد)
+  const {rows:summaryRows,totals}=clientSummaryData(homeFromDate,homeToDate);
+  const clientRows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
     return `<tr onclick="clientDetailId='${c.id}';switchTab('clients')" style="cursor:pointer">
       <td style="font-weight:bold">${c.name}</td>
-      <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):'—'}</td>
+      <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td style="text-align:center;color:#1A5276">${sales>0?fmt(sales):'—'}</td>
       <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
       <td style="text-align:center;color:#1E8449">${paid>0?fmt(paid):'—'}</td>
       <td style="text-align:center;font-weight:bold;color:${balColor}">${fmt(Math.abs(bal))}${bal>0?' 🔴':bal<0?' 🟢':''}</td>
     </tr>`;
   }).join('');
+  const totalsRow=clients.length>0?`<tr>
+      <td style="background:#D6EAF8;font-weight:bold;color:#1A5276">الإجمالي</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${totals.opening!==0?fmt(totals.opening):'—'}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.sales)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.ret)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.paid)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.bal)}</td>
+    </tr>`:'';
 
   document.getElementById('tab-home').innerHTML=`
     <div class="summary">
@@ -497,12 +520,19 @@ function renderHome(){
       <div class="sum-card orange"><div class="sum-num">${fmt(totalReturns)}</div><div class="sum-lbl">إجمالي المردودات</div></div>
       <div class="sum-card red"><div class="sum-num">${fmt(totalDebt)}</div><div class="sum-lbl">إجمالي المديونية</div></div>
     </div>
-    <div class="summary">
-      <div class="sum-card blue"><div class="sum-num">${debtorCount}</div><div class="sum-lbl">عملاء بهم رصيد</div></div>
-    </div>
     ${clients.length>0?`
     <div class="card">
       <div class="card-head">👥 ملخص العملاء</div>
+      <div class="card-body" style="padding-bottom:6px">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="home_from" value="${homeFromDate}" onchange="homeFromDate=this.value;renderHome()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="home_to" value="${homeToDate}" onchange="homeToDate=this.value;renderHome()"></div>
+        </div>
+        <div class="btn-row">
+          ${(homeFromDate||homeToDate)?`<button class="btn-outline" onclick="homeFromDate='';homeToDate='';renderHome()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf(homeFromDate,homeToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص العملاء</button>
+        </div>
+      </div>
       <div class="tbl-wrap">
         <table>
           <thead><tr>
@@ -513,7 +543,7 @@ function renderHome(){
             <th style="text-align:center">إجمالي السداد</th>
             <th style="text-align:center">المديونية</th>
           </tr></thead>
-          <tbody>${clientRows}</tbody>
+          <tbody>${clientRows}${totalsRow}</tbody>
         </table>
       </div>
     </div>`:''}
@@ -712,23 +742,57 @@ async function generateDocumentPdfBlob(title, bodyHtml){
   const {blob, cssWidth, cssHeight, pxWidth, pxHeight}=await renderDocToJpeg(title, bodyHtml);
   const jpegBytes=new Uint8Array(await blob.arrayBuffer());
   const ptWidth=cssWidth*0.75, ptHeight=cssHeight*0.75;
-  return buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight);
+  const pdfBlob=buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight);
+  return {pdfBlob, jpegBlob:blob};
 }
 
-// الدالة الرئيسية: تولّد الـ PDF وتفتح شاشة المشاركة مباشرة (واتساب وغيره)، ولو مش مدعوم بترجع لنافذة الطباعة القديمة تلقائيًا
+// نافذة معاينة المستند قبل الإرسال — بترجع Promise تتحل لما المستخدم يقفل النافذة (سواء بعت أو رجع)
+function showPdfPreviewModal(jpegBlob, onConfirm){
+  return new Promise((resolve)=>{
+    const url=URL.createObjectURL(jpegBlob);
+    const modal=document.createElement('div');
+    modal.id='pdfPreviewModal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML=`
+      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+        <div style="padding:12px 16px;border-bottom:1px solid #D5D8DC;font-weight:bold;color:#1A5276;text-align:center">👁️ معاينة قبل الإرسال</div>
+        <div style="overflow:auto;flex:1;background:#F2F3F4;padding:10px;display:flex;justify-content:center">
+          <img src="${url}" style="width:100%;max-width:380px;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
+        </div>
+        <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid #D5D8DC">
+          <button id="pdfPreviewBack" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">→ رجوع</button>
+          <button id="pdfPreviewSend" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">📤 إرسال</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    function cleanup(){ URL.revokeObjectURL(url); modal.remove(); }
+    modal.querySelector('#pdfPreviewBack').onclick=()=>{ cleanup(); resolve(false); };
+    modal.querySelector('#pdfPreviewSend').onclick=async ()=>{
+      const btn=modal.querySelector('#pdfPreviewSend');
+      btn.disabled=true; btn.innerHTML='⏳ جاري الإرسال...';
+      try{ await onConfirm(); }
+      catch(err){ if(!(err && err.name==='AbortError')) console.error(err); }
+      cleanup(); resolve(true);
+    };
+  });
+}
+
+// الدالة الرئيسية: تولّد الـ PDF، تعرض معاينة، ولو المستخدم ضغط إرسال تفتح شاشة المشاركة (واتساب وغيره)، ولو مش مدعوم بترجع لنافذة الطباعة القديمة تلقائيًا
 async function sendDocument(title, bodyHtml, filename){
   try{
-    const pdfBlob=await generateDocumentPdfBlob(title, bodyHtml);
-    const file=new File([pdfBlob], filename, {type:'application/pdf'});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title});
-      return;
-    }
-    const url=URL.createObjectURL(pdfBlob);
-    const a=document.createElement('a');
-    a.href=url; a.download=filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    const {pdfBlob, jpegBlob}=await generateDocumentPdfBlob(title, bodyHtml);
+    await showPdfPreviewModal(jpegBlob, async ()=>{
+      const file=new File([pdfBlob], filename, {type:'application/pdf'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title});
+        return;
+      }
+      const url=URL.createObjectURL(pdfBlob);
+      const a=document.createElement('a');
+      a.href=url; a.download=filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url),5000);
+    });
   }catch(err){
     if(err && err.name==='AbortError') return;
     console.error(err);
@@ -736,37 +800,40 @@ async function sendDocument(title, bodyHtml, filename){
   }
 }
 
-async function printClientsSummaryPdf(){
-  const rows=clients.map(c=>{
-    const opening=Number(c.opening||0);
-    const sales=invoices.filter(i=>i.clientId===c.id).reduce((s,i)=>s+i.total,0);
-    const paid=payments.filter(p=>p.clientId===c.id).reduce((s,p)=>s+p.amount,0);
-    const ret=returns.filter(r=>r.clientId===c.id).reduce((s,r)=>s+r.total,0);
-    const bal=clientBalance(c.id);
+async function printClientsSummaryPdf(from,to){
+  const {rows:summaryRows,totals}=clientSummaryData(from||'',to||'');
+  const rows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     return `<tr>
       <td>${c.name}</td>
-      <td>${opening>0?fmt(opening):'—'}</td>
+      <td>${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td>${sales>0?fmt(sales):'—'}</td>
       <td>${ret>0?fmt(ret):'—'}</td>
       <td>${paid>0?fmt(paid):'—'}</td>
       <td style="font-weight:bold;color:${bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E'}">${fmt(Math.abs(bal))}${bal>0?' (مستحق)':bal<0?' (له رصيد)':''}</td>
     </tr>`;
   }).join('');
-  const totalSales=invoices.reduce((s,i)=>s+i.total,0);
-  const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
-  const totalDebt=clients.reduce((s,c)=>s+Math.max(0,clientBalance(c.id)),0);
+  const totalsRow=`<tr style="background:#D6EAF8;font-weight:bold">
+      <td>الإجمالي</td>
+      <td>${totals.opening!==0?fmt(totals.opening):'—'}</td>
+      <td>${fmt(totals.sales)}</td>
+      <td>${fmt(totals.ret)}</td>
+      <td>${fmt(totals.paid)}</td>
+      <td>${fmt(totals.bal)}</td>
+    </tr>`;
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
       <div><strong>عدد العملاء:</strong> ${clients.length}</div>
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(totalSales)}</div><div class="l">إجمالي المبيعات</div></div>
-      <div class="doc-sum-box"><div class="n">${fmt(totalPaid)}</div><div class="l">إجمالي السداد</div></div>
-      <div class="doc-sum-box"><div class="n">${fmt(totalDebt)}</div><div class="l">إجمالي المديونية</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totals.sales)}</div><div class="l">إجمالي المبيعات</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totals.paid)}</div><div class="l">إجمالي السداد</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(Math.max(0,totals.bal))}</div><div class="l">إجمالي المديونية</div></div>
     </div>
-    ${clients.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا يوجد عملاء</div>':`<table><thead><tr><th>العميل</th><th>رصيد أول المدة</th><th>المبيعات</th><th>المردودات</th><th>السداد</th><th>المديونية</th></tr></thead><tbody>${rows}</tbody></table>`}`;
-  await sendDocument('ملخص العملاء', body, `ملخص-العملاء-${today()}.pdf`);
+    ${clients.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا يوجد عملاء</div>':`<table><thead><tr><th>العميل</th><th>رصيد أول المدة</th><th>المبيعات</th><th>المردودات</th><th>السداد</th><th>المديونية</th></tr></thead><tbody>${rows}${totalsRow}</tbody></table>`}`;
+  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
+  await sendDocument('ملخص العملاء', body, `ملخص-العملاء${suffix}.pdf`);
 }
 
 async function printClientStatement(cid){
