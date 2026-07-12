@@ -88,6 +88,14 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .line-box{background:#F0F4F8;border-radius:8px;padding:10px;margin-bottom:8px;}
 .warn-box{border:1px solid #D68910;}
 .search-row{display:flex;gap:8px;margin-bottom:10px;}
+.ssel-wrap{position:relative;}
+.ssel-input{width:100%;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;box-sizing:border-box;font-size:14px;}
+.ssel-list{display:none;position:absolute;z-index:60;background:#fff;border:1px solid #D5D8DC;border-radius:8px;max-height:230px;overflow-y:auto;width:100%;box-shadow:0 4px 16px rgba(0,0,0,.18);margin-top:2px;}
+.ssel-item{padding:10px 12px;border-bottom:1px solid #F2F3F4;cursor:pointer;font-size:14px;}
+.ssel-item:last-child{border-bottom:none;}
+.ssel-item:active,.ssel-item.hover{background:#EBF5FB;}
+.ssel-item .sub{font-size:11px;color:#717D7E;margin-top:2px;}
+.ssel-empty{padding:12px;text-align:center;color:#717D7E;font-size:13px;}
 .sub-tabs{display:flex;gap:8px;margin-bottom:12px;}
 .bonus-box{background:#E8F8F5;border:1px solid #27AE60;border-radius:6px;padding:6px 10px;font-size:12px;color:#1E8449;margin-top:4px;}
 
@@ -229,6 +237,50 @@ const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',s
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let companyProfile={name:'',phone:''};
+
+// ====== مكوّن قائمة بحث قابلة لإعادة الاستخدام (searchable select) ======
+// options: [{id,label,sub}]  — بيولّد حقل نص + حقل مخفي بنفس الـ fieldId (زي ما كانت select عادية)
+let _sselData={};
+function searchableSelectHtml(fieldId, options, placeholder, selectedId, onPickExtra){
+  _sselData[fieldId]={options, onPickExtra: onPickExtra||''};
+  const sel=options.find(o=>o.id===selectedId);
+  return `<div class="ssel-wrap">
+    <input type="text" class="ssel-input" id="${fieldId}_search" placeholder="${placeholder}" autocomplete="off"
+      value="${sel?sel.label.replace(/"/g,'&quot;'):''}"
+      oninput="_sselFilter('${fieldId}')" onfocus="_sselFilter('${fieldId}')"
+      onblur="setTimeout(()=>{const l=document.getElementById('${fieldId}_list');if(l)l.style.display='none';},200)">
+    <input type="hidden" id="${fieldId}" value="${selectedId||''}">
+    <div class="ssel-list" id="${fieldId}_list"></div>
+  </div>`;
+}
+function _sselFilter(fieldId){
+  const data=_sselData[fieldId];
+  if(!data)return;
+  const q=(document.getElementById(fieldId+'_search')?.value||'').trim();
+  const list=document.getElementById(fieldId+'_list');
+  if(!list)return;
+  const matches=q?data.options.filter(o=>o.label.includes(q)):data.options;
+  if(matches.length===0){
+    list.innerHTML=`<div class="ssel-empty">لا توجد نتائج</div>`;
+  }else{
+    list.innerHTML=matches.slice(0,100).map(o=>`<div class="ssel-item" onmousedown="_sselPick('${fieldId}','${o.id}')"><div>${o.label}</div>${o.sub?`<div class="sub">${o.sub}</div>`:''}</div>`).join('');
+  }
+  list.style.display='block';
+}
+function _sselPick(fieldId, optId){
+  const data=_sselData[fieldId];
+  if(!data)return;
+  const opt=data.options.find(o=>o.id===optId);
+  if(!opt)return;
+  const hidden=document.getElementById(fieldId);
+  const search=document.getElementById(fieldId+'_search');
+  const list=document.getElementById(fieldId+'_list');
+  if(hidden)hidden.value=opt.id;
+  if(search)search.value=opt.label;
+  if(list)list.style.display='none';
+  if(data.onPickExtra)(new Function(data.onPickExtra))();
+}
+
 
 // حفظ async في IndexedDB
 const save=()=>{
@@ -1037,9 +1089,9 @@ function renderInvoices(){
     </tr>`;
   }).join('');
   const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
-  const clientOpts=clients.map(c=>`<option value="${c.id}" ${editingInv?.clientId===c.id?'selected':''}>${c.name}</option>`).join('');
+  const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   let linesHtml=invLines.map(l=>{
-    const stockOpts=stock.length>0?`<option value="">— اختر منتج —</option>`+stock.map(p=>`<option value="${p.id}" ${l.productId===p.id?'selected':''}>${p.name} (${stockQty(p.id)})</option>`).join(''):'';
+    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
     const bonusQty=Number(l.bonus)||0;
@@ -1047,7 +1099,7 @@ function renderInvoices(){
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
-          ${stock.length>0?`<select onchange="updateLine('${l.id}','productId',this.value);updateLine('${l.id}','expiry','')">${stockOpts}</select>`:`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
+          ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
@@ -1097,7 +1149,7 @@ function renderInvoices(){
       <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div><select id="inv_client"><option value="">— اختر عميل —</option>${clientOpts}</select></div>
+          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||'')}</div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||today()}"></div>
         </div>
         <div class="divider"></div>
@@ -1141,10 +1193,11 @@ function updateLine(id,field,value){
   });
   // نحفظ اختيار العميل والتاريخ قبل الرندر
   const savedClient=document.getElementById('inv_client')?.value;
+  const savedClientText=document.getElementById('inv_client_search')?.value;
   const savedDate=document.getElementById('inv_date')?.value;
   renderInvoices();
   setTimeout(()=>{
-    if(savedClient){const el=document.getElementById('inv_client');if(el)el.value=savedClient;}
+    if(savedClient){const el=document.getElementById('inv_client');if(el)el.value=savedClient;const st=document.getElementById('inv_client_search');if(st)st.value=savedClientText||'';}
     if(savedDate){const el=document.getElementById('inv_date');if(el)el.value=savedDate;}
   },0);
 }
@@ -1315,7 +1368,7 @@ function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
   const sorted=[...payments].sort((a,b)=>b.date.localeCompare(a.date));
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
-  const clientOpts=debtors.map(c=>`<option value="${c.id}">${c.name} (مستحق: ${fmt(clientBalance(c.id))} ج)</option>`).join('');
+  const clientOptsArr=debtors.map(c=>({id:c.id,label:c.name,sub:`مستحق: ${fmt(clientBalance(c.id))} ج`}));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
@@ -1333,7 +1386,7 @@ function renderPayments(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group"><div class="lbl">العميل *</div>
-            <select id="pay_client" onchange="renderPayClientInvoices()"><option value="">— اختر عميل —</option>${clientOpts}</select>
+            ${searchableSelectHtml('pay_client', clientOptsArr, '🔍 دور على العميل...', '', 'renderPayClientInvoices()')}
           </div>
         </div>
         <div id="pay_inv_row"></div>
@@ -1436,7 +1489,7 @@ let retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0}];
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
   const sorted=[...returns].sort((a,b)=>b.date.localeCompare(a.date));
-  const clientOpts=clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
@@ -1450,15 +1503,13 @@ function renderReturns(){
   }).join('');
 
   let linesHtml=retLines.map(l=>{
-    const stockOpts=stock.length>0
-      ?`<option value="">— اختر منتج —</option>`+stock.map(p=>`<option value="${p.id}" ${l.productId===p.id?'selected':''}>${p.name} (${stockQty(p.id)})</option>`).join('')
-      :'';
+    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
           ${stock.length>0
-            ?`<select onchange="updateRetLine('${l.id}','productId',this.value);updateRetLine('${l.id}','expiry','')">${stockOpts}</select>`
+            ?searchableSelectHtml(`retline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateRetLine('${l.id}','productId',document.getElementById('retline_${l.id}').value);updateRetLine('${l.id}','expiry','')`)
             :`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateRetLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
@@ -1497,7 +1548,7 @@ function renderReturns(){
         <div class="form-row">
           <div class="form-group" style="flex:2">
             <div class="lbl">العميل *</div>
-            <select id="ret_client"><option value="">— اختر عميل —</option>${clientOpts}</select>
+            ${searchableSelectHtml('ret_client', clientOptsArr, '🔍 دور على العميل...', '')}
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
@@ -1534,9 +1585,10 @@ function updateRetLine(id,field,value){
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
   const savedClient=document.getElementById('ret_client')?.value;
+  const savedClientText=document.getElementById('ret_client_search')?.value;
   const savedDate=document.getElementById('ret_date')?.value;
   renderReturns();
-  if(savedClient) document.getElementById('ret_client').value=savedClient;
+  if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
   if(savedDate) document.getElementById('ret_date').value=savedDate;
 }
 
@@ -1577,6 +1629,7 @@ let stockSubTab='overview';
 let stockDetailId=null;
 let showProductForm=false;
 let showMovForm=false;
+let stockListSearch='';
 let currentMovType='in';
 
 function renderStock(){
@@ -1620,8 +1673,9 @@ async function printStockSummaryPdf(){
 }
 
 function renderStockOverview(){
-  const productOpts=stock.map(p=>`<option value="${p.id}">${p.name} (${stockQty(p.id)} ${p.unit})</option>`).join('');
-  let items=stock.map(p=>{
+  const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
+  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch));
+  let items=filteredStock.map(p=>{
     const qty=stockQty(p.id);
     const qtyColor=qty<10?'#C0392B':'#1E8449';
     const batches=stockBatches(p.id);
@@ -1644,7 +1698,8 @@ function renderStockOverview(){
     </div>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <div class="search-row" style="align-items:center">
+      <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="stockListSearch=this.value;renderStock()">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
     ${showProductForm?`
@@ -1686,7 +1741,7 @@ function renderStockOverview(){
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">المنتج *</div><select id="mov_product"><option value="">— اختر منتج —</option>${productOpts}</select></div>
+          <div class="form-group"><div class="lbl">المنتج *</div>${searchableSelectHtml('mov_product', productOptsArr, '🔍 دور على الصنف...', '')}</div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" id="mov_qty" min="1" placeholder="0"></div>
@@ -1708,7 +1763,7 @@ function renderStockOverview(){
       ${!showProductForm?`<button class="btn blue" onclick="showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
       ${!showMovForm?`<button class="btn green" onclick="showMovForm=true;renderStock()">+ حركة مخزن</button>`:''}
     </div>
-    ${stock.length===0?'<div class="empty">لا توجد منتجات. أضف منتجاتك أولاً.</div>':items}`;
+    ${filteredStock.length===0?`<div class="empty">${stock.length===0?'لا توجد منتجات. أضف منتجاتك أولاً.':'لا توجد نتائج بحث'}</div>`:items}`;
 }
 
 function addProduct(){
@@ -2301,7 +2356,7 @@ function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
   const sorted=[...purchases].sort((a,b)=>b.date.localeCompare(a.date));
   const editingPur = editPurchaseId ? purchases.find(p=>p.id===editPurchaseId) : null;
-  const supOpts=suppliers.map(s=>`<option value="${s.id}" ${editingPur?.supplierId===s.id?'selected':''}>${s.name}</option>`).join('');
+  const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
@@ -2318,11 +2373,11 @@ function renderPurchases(){
   let formHtml='';
   if(showPurForm){
     let linesHtml=purchaseLines.map(l=>{
-      const stockOpts=`<option value="">— اختر منتج —</option>`+stock.map(p=>`<option value="${p.id}" ${l.productId===p.id?'selected':''}>${p.name}</option>`).join('');
+      const stockOptsArr=stock.map(p=>({id:p.id,label:p.name}));
       return `<div class="line-box">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المنتج</div>
-            ${stock.length>0?`<select onchange="updatePurLine('${l.id}','productId',this.value)">${stockOpts}</select>`:`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
+            ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
           <div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>
         </div>
@@ -2338,7 +2393,7 @@ function renderPurchases(){
     formHtml=`<div class="card">
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="form-row" style="padding:12px 12px 0">
-        <div class="form-group"><div class="lbl">المورد *</div><select id="pur_supplier"><option value="">— اختر مورد —</option>${supOpts}</select></div>
+        <div class="form-group"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||'')}</div>
         <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||today()}"></div>
       </div>
       <div style="padding:0 12px">
@@ -2379,10 +2434,11 @@ function updatePurLine(id,field,value){
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
   const savedSup=document.getElementById('pur_supplier')?.value;
+  const savedSupText=document.getElementById('pur_supplier_search')?.value;
   const savedDate=document.getElementById('pur_date')?.value;
   renderPurchases();
   setTimeout(()=>{
-    if(savedSup){const el=document.getElementById('pur_supplier');if(el)el.value=savedSup;}
+    if(savedSup){const el=document.getElementById('pur_supplier');if(el)el.value=savedSup;const st=document.getElementById('pur_supplier_search');if(st)st.value=savedSupText||'';}
     if(savedDate){const el=document.getElementById('pur_date');if(el)el.value=savedDate;}
   },0);
 }
@@ -2495,7 +2551,7 @@ function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
   const sorted=[...supplierPayments].sort((a,b)=>b.date.localeCompare(a.date));
   const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
-  const supOpts=debtors.map(s=>`<option value="${s.id}">${s.name} (مستحق: ${fmt(supplierBalance(s.id))} ج)</option>`).join('');
+  const supOptsArr=debtors.map(s=>({id:s.id,label:s.name,sub:`مستحق: ${fmt(supplierBalance(s.id))} ج`}));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
@@ -2513,7 +2569,7 @@ function renderSupPayTab(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group"><div class="lbl">المورد *</div>
-            <select id="sp2_supplier"><option value="">— اختر مورد —</option>${supOpts}</select>
+            ${searchableSelectHtml('sp2_supplier', supOptsArr, '🔍 دور على المورد...', '')}
           </div>
         </div>
         <div class="form-row">
@@ -2620,7 +2676,7 @@ function goBackFromPurRetDetail(){
 function renderPurReturns(){
   if(purRetDetailId){renderPurRetDetail();return;}
   const sorted=[...purchaseReturns].sort((a,b)=>b.date.localeCompare(a.date));
-  const supOpts=suppliers.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+  const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
     return `<tr>
@@ -2634,12 +2690,12 @@ function renderPurReturns(){
   }).join('');
 
   let linesHtml=purRetLines.map(l=>{
-    const stockOpts=stock.length>0?`<option value="">— اختر منتج —</option>`+stock.map(p=>`<option value="${p.id}" ${l.productId===p.id?'selected':''}>${p.name} (${stockQty(p.id)})</option>`).join(''):'';
+    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
-          ${stock.length>0?`<select onchange="updatePurRetLine('${l.id}','productId',this.value);updatePurRetLine('${l.id}','expiry','')">${stockOpts}</select>`:`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurRetLine('${l.id}','productName',this.value)">`}
+          ${stock.length>0?searchableSelectHtml(`purretline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurRetLine('${l.id}','productId',document.getElementById('purretline_${l.id}').value);updatePurRetLine('${l.id}','expiry','')`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurRetLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
@@ -2676,7 +2732,7 @@ function renderPurReturns(){
         <div class="form-row">
           <div class="form-group" style="flex:2">
             <div class="lbl">المورد *</div>
-            <select id="pret_supplier"><option value="">— اختر مورد —</option>${supOpts}</select>
+            ${searchableSelectHtml('pret_supplier', supOptsArr, '🔍 دور على المورد...', '')}
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
@@ -2713,10 +2769,11 @@ function updatePurRetLine(id,field,value){
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
   const savedSup=document.getElementById('pret_supplier')?.value;
+  const savedSupText=document.getElementById('pret_supplier_search')?.value;
   const savedDate=document.getElementById('pret_date')?.value;
   renderPurReturns();
   setTimeout(()=>{
-    if(savedSup){const el=document.getElementById('pret_supplier');if(el)el.value=savedSup;}
+    if(savedSup){const el=document.getElementById('pret_supplier');if(el)el.value=savedSup;const st=document.getElementById('pret_supplier_search');if(st)st.value=savedSupText||'';}
     if(savedDate){const el=document.getElementById('pret_date');if(el)el.value=savedDate;}
   },0);
 }
