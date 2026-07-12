@@ -238,6 +238,17 @@ const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',s
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let companyProfile={name:'',phone:''};
 
+// دالة عامة: تحدّث متغير بحث وتعيد الرسم، مع الحفاظ على التركيز ومكان المؤشر بالكيبورد
+function searchInputHandler(el, setter, renderFn){
+  setter(el.value);
+  const pos=el.selectionStart;
+  const id=el.id;
+  renderFn();
+  const ne=document.getElementById(id);
+  if(ne){ ne.focus(); try{ ne.setSelectionRange(pos,pos); }catch(e){} }
+}
+
+
 // ====== مكوّن قائمة بحث قابلة لإعادة الاستخدام (searchable select) ======
 // options: [{id,label,sub}]  — بيولّد حقل نص + حقل مخفي بنفس الـ fieldId (زي ما كانت select عادية)
 let _sselData={};
@@ -645,7 +656,7 @@ function renderClients(){
       </div>
     </div>
     <div class="search-row" style="align-items:center">
-      <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${clientSearch}" oninput="clientSearch=this.value;renderClients()">
+      <input type="text" id="client_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${clientSearch}" oninput="searchInputHandler(this,v=>clientSearch=v,renderClients)">
       ${clients.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص العملاء PDF</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا يوجد عملاء</div>':items}`;
@@ -1167,7 +1178,7 @@ function renderInvoices(){
       </div>
     </div>`:''}
     <div class="search-row">
-      <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="invSearch=this.value;renderInvoices()">
+      <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
       ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا توجد فواتير</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
@@ -1699,7 +1710,7 @@ function renderStockOverview(){
   }).join('');
   document.getElementById('stock-content').innerHTML=`
     <div class="search-row" style="align-items:center">
-      <input type="text" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="stockListSearch=this.value;renderStock()">
+      <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
     ${showProductForm?`
@@ -2185,7 +2196,7 @@ function renderSuppliers(){
 
   document.getElementById('tab-suppliers').innerHTML=`
     <div class="page-title">🏭 الموردين</div>
-    <div class="search-bar"><input type="text" placeholder="🔍 بحث..." value="${supplierSearch}" oninput="supplierSearch=this.value;renderSuppliers()"></div>
+    <div class="search-bar"><input type="text" id="supplier_search_input" placeholder="🔍 بحث..." value="${supplierSearch}" oninput="searchInputHandler(this,v=>supplierSearch=v,renderSuppliers)"></div>
     <div class="card">
       <div class="lbl">اسم المورد *</div><input type="text" id="sup_name" placeholder="اسم المورد">
       <div class="form-row" style="margin-top:8px">
