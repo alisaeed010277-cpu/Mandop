@@ -2952,8 +2952,9 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
   const trialBanner = document.getElementById('trialBanner');
   if(trialBanner) trialBanner.style.display='none';
 
+  const extensionUsed = !!DB.get('_te');
   const expiredMsg = trialExpired
-    ? `<div style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;font-size:13px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>للاستمرار فعّل النسخة الكاملة</div>`
+    ? `<div style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;font-size:13px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>${extensionUsed?'للاستمرار فعّل النسخة الكاملة':'تقدر تاخد أسبوع إضافي أو تفعّل النسخة الكاملة'}</div>`
     : `<div style="font-size:13px;opacity:.85;margin-bottom:20px;">للتجربة المجانية 7 أيام أو التفعيل الدائم<br>تواصل مع المبرمج على واتساب</div>`;
 
   const lockScreen = document.createElement('div');
@@ -2989,6 +2990,12 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
       padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;margin-bottom:8px;-webkit-appearance:none;
     ">🎁 تفعيل النسخة التجريبية (7 أيام)</button>`:''}
+    ${trialExpired && !extensionUsed?`
+    <button onclick="_activateExtension(${dCode})" style="
+      background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
+      padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
+      width:100%;max-width:320px;margin-bottom:8px;-webkit-appearance:none;
+    ">📅 تفعيل أسبوع إضافي</button>`:''}
     <button onclick="_activate(${dCode})" style="
       background:#FFD700;color:#1A5276;border:none;border-radius:8px;
       padding:14px 40px;font-size:16px;font-weight:bold;cursor:pointer;
@@ -3028,6 +3035,39 @@ function _vk(c,k){
 function _vt(c,k){
   const _p=(c*7+199)*2-83;
   return Number(k)===_p;
+}
+
+// معادلة التحقق من كود الأسبوع الإضافي (منفصلة تمامًا عن الدائم والتجربة)
+function _ve(c,k){
+  const _p=(c*11+331)*2-67;
+  return Number(k)===_p;
+}
+
+// تفعيل أسبوع إضافي بعد انتهاء التجربة — مرة واحدة فقط لكل جهاز
+function _activateExtension(dCode){
+  const serial = document.getElementById('serialInput').value.trim();
+  const msg = document.getElementById('activationMsg');
+  if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الكود'; return; }
+  if(DB.get('_te')){ msg.style.color='#FF6B6B'; msg.textContent='❌ الأسبوع الإضافي اتفعّل قبل كده على الجهاز ده'; return; }
+  if(_ve(dCode, serial)){
+    DB.set('_ts', Date.now()); // إعادة بدء عد الأيام من دلوقتي (7 أيام جديدة)
+    DB.set('_te', true); // منع استخدام الخاصية دي مرة تانية على نفس الجهاز
+    msg.style.color='#90EE90';
+    msg.textContent='✅ تم تفعيل أسبوع إضافي! جاري الفتح...';
+    setTimeout(()=>{
+      document.getElementById('lockScreen').remove();
+      document.querySelector('.header').style.display='';
+      document.querySelector('.tabs').style.display='';
+      document.querySelector('.body').style.display='';
+      const wm=document.querySelector('.watermark');
+      if(wm)wm.style.display='';
+      render();
+      _showTrialBanner(7);
+    },1200);
+  } else {
+    msg.style.color='#FF6B6B';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
+  }
 }
 
 // تفعيل النسخة التجريبية
