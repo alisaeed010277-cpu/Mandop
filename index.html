@@ -96,6 +96,28 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .ssel-item:active,.ssel-item.hover{background:#EBF5FB;}
 .ssel-item .sub{font-size:11px;color:#717D7E;margin-top:2px;}
 .ssel-empty{padding:12px;text-align:center;color:#717D7E;font-size:13px;}
+
+/* ===== الخزنة ===== */
+.treasury-cols{display:flex;gap:10px;margin:0 0 12px 0;}
+.treasury-col{flex:1;min-width:0;background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden;display:flex;flex-direction:column;}
+.treasury-col-head{padding:12px;font-weight:bold;font-size:14px;display:flex;justify-content:space-between;align-items:center;color:#fff;}
+.treasury-col-head.in{background:#1E8449;}
+.treasury-col-head.out{background:#C0392B;}
+.treasury-list{max-height:420px;overflow-y:auto;}
+.tr-item{padding:9px 10px;border-bottom:1px solid #F2F3F4;}
+.tr-date{font-size:10px;color:#95A5A6;}
+.tr-label{font-size:13px;font-weight:bold;color:#2C3E50;margin:2px 0;}
+.tr-note{font-weight:normal;color:#717D7E;font-size:11px;}
+.tr-amount{font-size:14px;font-weight:bold;}
+.tr-amount.in{color:#1E8449;}
+.tr-amount.out{color:#C0392B;}
+.tr-empty{padding:20px 10px;text-align:center;color:#95A5A6;font-size:12px;}
+.treasury-closing-wrap{display:flex;justify-content:left;}
+.treasury-closing{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:12px 20px;text-align:center;min-width:200px;}
+.treasury-closing .l{font-size:12px;color:#717D7E;margin-bottom:4px;}
+.treasury-closing .n{font-size:22px;font-weight:bold;}
+.treasury-day-label{background:#fff;border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.badge-today{background:#EBF5FB;color:#2E86C1;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:bold;}
 .sub-tabs{display:flex;gap:8px;margin-bottom:12px;}
 .bonus-box{background:#E8F8F5;border:1px solid #27AE60;border-radius:6px;padding:6px 10px;font-size:12px;color:#1E8449;margin-top:4px;}
 
@@ -171,6 +193,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <button class="tab" onclick="switchTab('stock')">📦 المخزن</button>
   <button class="tab" onclick="switchTab('reports')">📊 التقارير</button>
   <button class="tab" onclick="switchTab('expenses')">💸 مصاريف المندوب</button>
+  <button class="tab" onclick="switchTab('treasury')">🏦 الخزنة</button>
 </div>
 
 <div class="body">
@@ -186,6 +209,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <div id="tab-stock" style="display:none"></div>
   <div id="tab-reports" style="display:none"></div>
   <div id="tab-expenses" style="display:none"></div>
+  <div id="tab-treasury" style="display:none"></div>
 </div>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
@@ -232,11 +256,19 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
+let treasuryOpening=0;
 let companyProfile={name:'',phone:''};
+// بتضيف اسم الشركة/النشاط (لو متسجل في بيانات الشركة) لاسم ملف الباك أب، عشان تقدر تميّز بين نسخ احتياطية من أكثر من نسخة تطبيق على نفس الجهاز
+function backupFileLabel(){
+  const name=(companyProfile.name||'').trim();
+  if(!name) return '';
+  const clean=name.replace(/[\\/:*?"<>|]/g,'').replace(/\s+/g,'_');
+  return clean?('_'+clean):'';
+}
 
 // دالة عامة: تحدّث متغير بحث وتعيد الرسم، مع الحفاظ على التركيز ومكان المؤشر بالكيبورد
 function searchInputHandler(el, setter, renderFn){
@@ -306,11 +338,12 @@ const save=()=>{
   idbSet(KEYS.supplierPayments,supplierPayments);
   idbSet(KEYS.purchaseReturns,purchaseReturns);
   idbSet(KEYS.expenses,expenses);
+  idbSet(KEYS.treasuryOpening,treasuryOpening);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -323,6 +356,7 @@ async function loadAllData(){
   purchaseReturns=pret||[];
   companyProfile=comp||{name:'',phone:''};
   expenses=exp||[];
+  treasuryOpening=Number(tOpen)||0;
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -374,7 +408,7 @@ updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 
 let currentTab='home';
-const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses'];
+const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses','treasury'];
 function switchTab(name){
   document.querySelectorAll('.tab').forEach((t,i)=>{
     t.classList.toggle('active',TAB_ORDER[i]===name);
@@ -397,6 +431,7 @@ function render(){
   else if(currentTab==='stock')renderStock();
   else if(currentTab==='reports')renderReports();
   else if(currentTab==='expenses')renderExpenses();
+  else if(currentTab==='treasury')renderTreasury();
 }
 
 // رصيد المورد = رصيد افتتاحي + مشتريات - مدفوع - مردود مشتريات
@@ -1871,14 +1906,14 @@ function doExportDevice(){
   const blob=buildExportBlob();
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download='نسخة_احتياطية_'+today()+'.json';a.click();
+  a.href=url;a.download='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';a.click();
   URL.revokeObjectURL(url);
   markExported();
   document.getElementById('exportModal').style.display='none';
 }
 async function doExportShare(){
   const blob=buildExportBlob();
-  const fileName='نسخة_احتياطية_'+today()+'.json';
+  const fileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';
   // أول حاجة: حفظ الملف على الجهاز
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -1919,7 +1954,7 @@ function checkAutoBackup(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'نسخة_احتياطية_تلقائية_'+today()+'.json';
+    a.download = 'نسخة_احتياطية_تلقائية'+backupFileLabel()+'_'+today()+'.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2074,6 +2109,117 @@ function deleteExpense(id){
   expenses=expenses.filter(e=>e.id!==id);
   save();
   renderExpenses();
+}
+
+let treasuryDate='';
+// بتجمع "وارد" و"صادر" ليوم معين بس (افتراضيًا النهاردة) — ورصيد أول اليوم ده بيتحسب تلقائي = رصيد أول الخزنة + كل حركات الأيام اللي فاتت
+function treasuryData(day){
+  day=day||today();
+  const incoming=payments.filter(p=>p.date===day).map(p=>{
+    const c=clients.find(c=>c.id===p.clientId);
+    return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:p.amount};
+  }).sort((a,b)=>a.date.localeCompare(b.date));
+  const outSup=supplierPayments.filter(p=>p.date===day).map(p=>{
+    const s=suppliers.find(s=>s.id===p.supplierId);
+    return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:p.amount};
+  });
+  const outExp=expenses.filter(e=>e.date===day).map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
+  const outgoing=[...outSup,...outExp].sort((a,b)=>a.date.localeCompare(b.date));
+
+  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر
+  const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
+  const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
+  const priorOutExp=expenses.filter(e=>e.date<day).reduce((s,e)=>s+e.amount,0);
+  const dayOpening=treasuryOpening+priorIn-priorOutSup-priorOutExp;
+
+  const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
+  const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
+  const closing=dayOpening+totalIn-totalOut;
+  return {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day};
+}
+function saveTreasuryOpening(){
+  const val=Number(document.getElementById('treasury_opening_input')?.value||0);
+  treasuryOpening=val;
+  save();
+  renderTreasury();
+}
+function renderTreasury(){
+  if(!treasuryDate) treasuryDate=today();
+  const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=treasuryData(treasuryDate);
+  const isToday=day===today();
+  const inRows=incoming.length?incoming.map(x=>`
+    <div class="tr-item">
+      <div class="tr-date">${x.date}</div>
+      <div class="tr-label">${x.label}${x.note?` <span class="tr-note">(${x.note})</span>`:''}</div>
+      <div class="tr-amount in">+ ${fmt(x.amount)}</div>
+    </div>`).join(''):`<div class="tr-empty">لا توجد عمليات وارد في هذا اليوم</div>`;
+  const outRows=outgoing.length?outgoing.map(x=>`
+    <div class="tr-item">
+      <div class="tr-date">${x.date}</div>
+      <div class="tr-label">${x.label}<span class="tr-note"> (${x.note})</span></div>
+      <div class="tr-amount out">- ${fmt(x.amount)}</div>
+    </div>`).join(''):`<div class="tr-empty">لا توجد عمليات صادر في هذا اليوم</div>`;
+
+  document.getElementById('tab-treasury').innerHTML=`
+    <div class="card">
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="lbl" style="margin:0">📅 عرض يوم</div>
+            <input type="date" id="treasury_date_input" value="${treasuryDate}" onchange="treasuryDate=this.value;renderTreasury()">
+            ${!isToday?`<button class="btn-outline" onclick="treasuryDate=today();renderTreasury()">↩ اليوم</button>`:''}
+          </div>
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printTreasuryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير الخزنة PDF</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #F2F3F4;padding-top:10px">
+          <div class="lbl" style="margin:0">💰 رصيد أول الخزنة (الأساسي)</div>
+          <input type="number" id="treasury_opening_input" value="${treasuryOpening}" style="width:120px;border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px">
+          <button class="btn-sm blue" onclick="saveTreasuryOpening()">💾 حفظ</button>
+          <span style="font-size:11px;color:#95A5A6">(بيتحدد مرة واحدة بس عند أول استخدام للخزنة)</span>
+        </div>
+      </div>
+    </div>
+    <div class="treasury-day-label">
+      رصيد أول يوم ${day}: <strong style="color:${dayOpening>=0?'#1E8449':'#C0392B'}">${fmt(dayOpening)} ج</strong>
+      ${isToday?'<span class="badge-today">اليوم الحالي</span>':''}
+    </div>
+    <div class="treasury-cols">
+      <div class="treasury-col">
+        <div class="treasury-col-head in"><span>⬇️ وارد</span><span>${fmt(totalIn)}</span></div>
+        <div class="treasury-list">${inRows}</div>
+      </div>
+      <div class="treasury-col">
+        <div class="treasury-col-head out"><span>${fmt(totalOut)}</span><span>صادر ⬇️</span></div>
+        <div class="treasury-list">${outRows}</div>
+      </div>
+    </div>
+    <div class="treasury-closing-wrap">
+      <div class="treasury-closing">
+        <div class="l">رصيد آخر يوم ${day}</div>
+        <div class="n" style="color:${closing>=0?'#1E8449':'#C0392B'}">${fmt(closing)} ج</div>
+      </div>
+    </div>`;
+}
+async function printTreasuryPdf(){
+  const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=treasuryData(treasuryDate);
+  const inRows=incoming.map(x=>`<tr><td>${x.date}</td><td>${x.label}${x.note?` (${x.note})`:''}</td><td style="color:#1E8449;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const outRows=outgoing.map(x=>`<tr><td>${x.date}</td><td>${x.label} (${x.note})</td><td style="color:#C0392B;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>اليوم:</strong> ${day}</div>
+      <div><strong>رصيد أول اليوم:</strong> ${fmt(dayOpening)} ج</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n" style="color:#1E8449">${fmt(totalIn)}</div><div class="l">إجمالي الوارد</div></div>
+      <div class="doc-sum-box"><div class="n" style="color:#C0392B">${fmt(totalOut)}</div><div class="l">إجمالي الصادر</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(closing)}</div><div class="l">رصيد آخر اليوم</div></div>
+    </div>
+    <div style="font-weight:bold;color:#1E8449;margin:14px 0 6px">⬇️ الوارد</div>
+    ${incoming.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات وارد</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows}</tbody></table>`}
+    <div style="font-weight:bold;color:#C0392B;margin:16px 0 6px">⬆️ الصادر</div>
+    ${outgoing.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات صادر</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows}</tbody></table>`}
+    <div class="doc-total">رصيد آخر يوم ${day}: ${fmt(closing)} جنيه</div>`;
+  await sendDocument(`تقرير الخزنة - ${day}`, body, `تقرير-الخزنة-${day}.pdf`);
 }
 
 // ===== ACTIVATION SYSTEM =====
