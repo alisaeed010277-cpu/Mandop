@@ -118,6 +118,15 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .treasury-closing .n{font-size:22px;font-weight:bold;}
 .treasury-day-label{background:#fff;border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.06);}
 .badge-today{background:#EBF5FB;color:#2E86C1;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:bold;}
+
+/* ===== قائمة الأسعار ===== */
+.pl-head,.pl-row{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #F2F3F4;}
+.pl-head{background:#1A5276;color:#fff;font-weight:bold;font-size:13px;border-radius:10px 10px 0 0;}
+.pl-row:last-child{border-bottom:none;border-radius:0 0 10px 10px;}
+.pl-name{flex:2;font-size:13px;font-weight:bold;color:#2C3E50;}
+.pl-unit{flex:1;font-size:12px;color:#717D7E;text-align:center;}
+.pl-price{flex:1;text-align:center;}
+input.pl-price{border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px;font-weight:bold;color:#1A5276;max-width:100px;}
 .sub-tabs{display:flex;gap:8px;margin-bottom:12px;}
 .bonus-box{background:#E8F8F5;border:1px solid #27AE60;border-radius:6px;padding:6px 10px;font-size:12px;color:#1E8449;margin-top:4px;}
 
@@ -194,6 +203,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <button class="tab" onclick="switchTab('reports')">📊 التقارير</button>
   <button class="tab" onclick="switchTab('expenses')">💸 مصاريف المندوب</button>
   <button class="tab" onclick="switchTab('treasury')">🏦 الخزنة</button>
+  <button class="tab" onclick="switchTab('pricelist')">📋 قائمة الأسعار</button>
 </div>
 
 <div class="body">
@@ -210,6 +220,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
   <div id="tab-reports" style="display:none"></div>
   <div id="tab-expenses" style="display:none"></div>
   <div id="tab-treasury" style="display:none"></div>
+  <div id="tab-pricelist" style="display:none"></div>
 </div>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
@@ -408,7 +419,7 @@ updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 
 let currentTab='home';
-const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses','treasury'];
+const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses','treasury','pricelist'];
 function switchTab(name){
   document.querySelectorAll('.tab').forEach((t,i)=>{
     t.classList.toggle('active',TAB_ORDER[i]===name);
@@ -432,6 +443,7 @@ function render(){
   else if(currentTab==='reports')renderReports();
   else if(currentTab==='expenses')renderExpenses();
   else if(currentTab==='treasury')renderTreasury();
+  else if(currentTab==='pricelist')renderPriceList();
 }
 
 // رصيد المورد = رصيد افتتاحي + مشتريات - مدفوع - مردود مشتريات
@@ -2220,6 +2232,49 @@ async function printTreasuryPdf(){
     ${outgoing.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات صادر</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows}</tbody></table>`}
     <div class="doc-total">رصيد آخر يوم ${day}: ${fmt(closing)} جنيه</div>`;
   await sendDocument(`تقرير الخزنة - ${day}`, body, `تقرير-الخزنة-${day}.pdf`);
+}
+
+// ===== قائمة الأسعار =====
+let pricelistSearch='';
+function updateProductPrice(pid, val){
+  const p=stock.find(p=>p.id===pid);
+  if(!p)return;
+  const price=Number(val||0);
+  if(price>0) p.price=price; else delete p.price;
+  save();
+}
+function renderPriceList(){
+  const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const rows=filtered.map(p=>`
+    <div class="pl-row">
+      <div class="pl-name">${p.name}</div>
+      <div class="pl-unit">${p.unit}</div>
+      <input type="number" class="pl-price" min="0" value="${p.price||''}" placeholder="0" onchange="updateProductPrice('${p.id}',this.value)">
+    </div>`).join('');
+  document.getElementById('tab-pricelist').innerHTML=`
+    <div class="search-row" style="align-items:center">
+      <input type="text" id="pricelist_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${pricelistSearch}" oninput="searchInputHandler(this,v=>pricelistSearch=v,renderPriceList)">
+      ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printPriceListPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال قائمة الأسعار PDF</button>`:''}
+    </div>
+    <div class="card">
+      <div class="pl-head">
+        <div class="pl-name">الصنف</div>
+        <div class="pl-unit">الوحدة</div>
+        <div class="pl-price">السعر</div>
+      </div>
+      ${filtered.length===0?`<div class="empty">${stock.length===0?'لا توجد أصناف. أضف أصنافك من تبويب المخازن أولاً.':'لا توجد نتائج بحث'}</div>`:rows}
+    </div>`;
+}
+async function printPriceListPdf(){
+  const sorted=[...stock].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const rows=sorted.map(p=>`<tr><td>${p.name}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ القائمة:</strong> ${today()}</div>
+      <div><strong>عدد الأصناف:</strong> ${sorted.length}</div>
+    </div>
+    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+  await sendDocument('قائمة الأسعار', body, `قائمة-الأسعار-${today()}.pdf`);
 }
 
 // ===== ACTIVATION SYSTEM =====
