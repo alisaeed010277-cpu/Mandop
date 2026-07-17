@@ -1039,7 +1039,7 @@ function renderClientDetail(){
 // ===== INVOICES =====
 let invDetailId=null;
 let invDetailFromClient=null;
-let invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0}];
+let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:''}];
 let showInvForm=false;
 let editInvoiceId=null;
 let invSearch='';
@@ -1179,11 +1179,11 @@ function renderInvoices(){
       <div class="form-row">
         <div class="form-group">
           <div class="lbl">خصم %</div>
-          <input type="number" min="0" max="100" value="${l.discount||0}" placeholder="0" onchange="updateLine('${l.id}','discount',this.value)">
+          <input type="number" min="0" max="100" value="${l.discount||''}" placeholder="0" onchange="updateLine('${l.id}','discount',this.value)">
         </div>
         <div class="form-group">
           <div class="lbl">بونص/هدية (وحدة)</div>
-          <input type="number" min="0" value="${l.bonus||0}" placeholder="0" onchange="updateLine('${l.id}','bonus',this.value)">
+          <input type="number" min="0" value="${l.bonus||''}" placeholder="0" onchange="updateLine('${l.id}','bonus',this.value)">
         </div>
         <div class="form-group">
           <div class="lbl">الإجمالي</div>
@@ -1226,7 +1226,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا توجد فواتير</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
@@ -1241,7 +1241,7 @@ function editInvoice(id){
   renderInvoices();
 }
 
-function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''});renderInvoices();}
+function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});renderInvoices();}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);renderInvoices();}
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
@@ -1326,7 +1326,7 @@ function saveInvoice(){
       movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,discount:0,bonus:0,expiry:''}];renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderInvoices();
 }
 
 function deleteInvoice(id){
@@ -1542,7 +1542,7 @@ function savePayment(){
 
 // ===== RETURNS =====
 let showRetForm=false;
-let retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0}];
+let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:''}];
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
@@ -1628,13 +1628,13 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0}];renderReturns()">+ مرتجع جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:''}];renderReturns()">+ مرتجع جديد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مرتجعات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>العميل</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
   `;
 }
 
-function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''});renderReturns();}
+function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''});renderReturns();}
 function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns();}
 function updateRetLine(id,field,value){
   retLines=retLines.map(l=>{
@@ -1671,7 +1671,7 @@ function saveReturn(){
   });
   save();
   showRetForm=false;
-  retLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
+  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
   renderReturns();
 }
 
@@ -2185,7 +2185,7 @@ function renderTreasury(){
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #F2F3F4;padding-top:10px">
           <div class="lbl" style="margin:0">💰 رصيد أول الخزنة (الأساسي)</div>
-          <input type="number" id="treasury_opening_input" value="${treasuryOpening}" style="width:120px;border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px">
+          <input type="number" id="treasury_opening_input" value="${treasuryOpening||''}" placeholder="0" style="width:120px;border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px">
           <button class="btn-sm blue" onclick="saveTreasuryOpening()">💾 حفظ</button>
           <span style="font-size:11px;color:#95A5A6">(بيتحدد مرة واحدة بس عند أول استخدام للخزنة)</span>
         </div>
@@ -2541,7 +2541,7 @@ async function printSupplierStatement(sid){
 }
 
 // ===== PURCHASES =====
-let purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
+let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
 let showPurForm=false;
 let purDetailId=null;
 let editPurchaseId=null;
@@ -2622,7 +2622,7 @@ function renderPurchases(){
 
   document.getElementById('tab-purchases').innerHTML=`
     <div class="page-title">📥 المشتريات</div>
-    ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+    ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     ${formHtml}
     ${sorted.length===0?'<div class="empty">لا توجد فواتير مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
@@ -2637,7 +2637,7 @@ function editPurchase(id){
   renderPurchases();
 }
 
-function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''});renderPurchases();}
+function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''});renderPurchases();}
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);renderPurchases();}
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
@@ -2677,7 +2677,7 @@ function savePurchase(){
   purchaseLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'ف.مشتريات #'+purNum,purchaseId:pur.id,expiry:l.expiry||''});
   });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];renderPurchases();
 }
 
 function deletePurchase(id){
@@ -2864,7 +2864,7 @@ function deleteSupplierPaymentTab(id){
 
 // ===== PURCHASE RETURNS (تبويب مردود مشتريات) =====
 let showPurRetForm=false;
-let purRetLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
+let purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
 let purRetDetailId=null;
 let purRetDetailFromSupplier=null;
 
@@ -2966,13 +2966,13 @@ function renderPurReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;purRetLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
+      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مردودات مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
   `;
 }
 
-function addPurRetLine(){purRetLines.push({id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''});renderPurReturns();}
+function addPurRetLine(){purRetLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''});renderPurReturns();}
 function removePurRetLine(id){purRetLines=purRetLines.filter(l=>l.id!==id);renderPurReturns();}
 function updatePurRetLine(id,field,value){
   purRetLines=purRetLines.map(l=>{
@@ -3019,7 +3019,7 @@ function savePurRet(){
   });
   save();
   showPurRetForm=false;
-  purRetLines=[{id:uid(),productId:'',productName:'',qty:1,price:0,expiry:''}];
+  purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
   renderPurReturns();
 }
 
