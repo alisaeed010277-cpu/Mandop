@@ -394,6 +394,19 @@ let _id=Date.now();
 const uid=()=>(++_id).toString(36);
 const today=()=>new Date().toISOString().slice(0,10);
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+function lineDetailText(l){
+  const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId||'—';
+  const afterDiscount=l.price*(1-(l.discount||0)/100);
+  const lineTotal=(l.qty||0)*afterDiscount;
+  const extras=[];
+  if(l.discount>0) extras.push(`خصم ${l.discount}%`);
+  if(l.bonus>0) extras.push(`🎁${l.bonus} هدية`);
+  return `${pName} × ${l.qty||0} = ${fmt(lineTotal)}${extras.length?' ('+extras.join('، ')+')':''}`;
+}
+function linesDetailHtml(lines){
+  if(!lines || !lines.length) return '';
+  return `<div style="font-size:10px;color:#717D7E;margin-top:3px;line-height:1.6">${lines.map(lineDetailText).join('<br>')}</div>`;
+}
 
 const clientBalance=(cid)=>{
   const c=clients.find(c=>c.id===cid);
@@ -961,17 +974,18 @@ async function printClientStatement(cid){
   const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
   const events=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total})),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,lines:i.lines})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total}))
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines}))
   ].sort((a,b)=>a.date.localeCompare(b.date));
   let running=0;
   const rows=events.map(ev=>{
     const debit=(ev.type==='invoice'||ev.type==='opening')?ev.amount:0;
     const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
     running += debit - credit;
+    const detail=(ev.type==='invoice'||ev.type==='return')?linesDetailHtml(ev.lines):'';
     return `<tr>
-      <td>${ev.date}</td><td>${ev.label}</td>
+      <td>${ev.date}</td><td>${ev.label}${detail}</td>
       <td>${debit?fmt(debit):'—'}</td>
       <td>${credit?fmt(credit):'—'}</td>
       <td>${fmt(running)}</td>
@@ -2557,17 +2571,18 @@ async function printSupplierStatement(sid){
   const opening=Number(s.opening||0);
   const events=[
     ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total})),
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total,lines:p.lines})),
     ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
-    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total}))
+    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines}))
   ].sort((a,b)=>a.date.localeCompare(b.date));
   let running=0;
   const rows=events.map(ev=>{
     const debit=(ev.type==='purchase'||ev.type==='opening')?ev.amount:0;
     const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
     running += debit - credit;
+    const detail=(ev.type==='purchase'||ev.type==='return')?linesDetailHtml(ev.lines):'';
     return `<tr>
-      <td>${ev.date}</td><td>${ev.label}</td>
+      <td>${ev.date}</td><td>${ev.label}${detail}</td>
       <td>${debit?fmt(debit):'—'}</td>
       <td>${credit?fmt(credit):'—'}</td>
       <td>${fmt(running)}</td>
