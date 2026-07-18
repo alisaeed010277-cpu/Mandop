@@ -267,11 +267,12 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let treasuryOpening=0;
+let repNotes=[];
 let companyProfile={name:'',phone:''};
 // بتضيف اسم الشركة/النشاط (لو متسجل في بيانات الشركة) لاسم ملف الباك أب، عشان تقدر تميّز بين نسخ احتياطية من أكثر من نسخة تطبيق على نفس الجهاز
 function backupFileLabel(){
@@ -350,11 +351,12 @@ const save=()=>{
   idbSet(KEYS.purchaseReturns,purchaseReturns);
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
+  idbSet(KEYS.repNotes,repNotes);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -368,6 +370,7 @@ async function loadAllData(){
   companyProfile=comp||{name:'',phone:''};
   expenses=exp||[];
   treasuryOpening=Number(tOpen)||0;
+  repNotes=rNotes||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -2027,6 +2030,7 @@ function importData(){
 
 let expenseQuickFilter='month';
 
+let showNoteForm=false;
 function renderExpenses(){
   const now=new Date();
   const defFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
@@ -2102,7 +2106,54 @@ function renderExpenses(){
       </div>
 
       ${filtered.length===0?'<div class="empty">لا توجد مصاريف في الفترة دي</div>':rows}
+
+      <div class="card" style="margin-top:18px;border-right:4px solid #F1C40F">
+        <div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظاتي (شخصية فقط — مش بتدخل في حساب المصاريف ولا الخزنة)</div>
+        <div class="card-body">
+          ${!showNoteForm?`<button class="btn-outline" onclick="showNoteForm=true;renderExpenses()">+ ملاحظة جديدة</button>`:`
+          <div class="form-row">
+            <div class="form-group" style="flex:2"><div class="lbl">الملاحظة *</div><input type="text" id="note_text" placeholder="مثال: استلفت من محمد، سلفت لأحمد..."></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><div class="lbl">المبلغ (اختياري)</div><input type="number" id="note_amount" min="0" placeholder="0"></div>
+            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="note_date" value="${today()}"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addRepNote()">✓ حفظ الملاحظة</button>
+            <button class="btn-outline" onclick="showNoteForm=false;renderExpenses()">إلغاء</button>
+          </div>`}
+          <div style="margin-top:12px">
+            ${[...repNotes].sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
+              <div class="list-item" style="background:#FEF9E7">
+                <div class="list-item-head">
+                  <div><div class="list-item-name">${n.text}</div><div class="list-item-sub">📅 ${n.date}</div></div>
+                  ${n.amount?`<div class="list-item-bal"><div class="list-item-bal-num" style="color:#B7950B">${fmt(n.amount)} ج</div></div>`:''}
+                </div>
+                <div class="list-item-actions">
+                  <button class="btn-sm red" onclick="deleteRepNote('${n.id}')">🗑 حذف</button>
+                </div>
+              </div>`).join('')||'<div class="empty">مفيش ملاحظات لسه</div>'}
+          </div>
+        </div>
+      </div>
     </div>`;
+}
+
+function addRepNote(){
+  const text=document.getElementById('note_text')?.value?.trim();
+  const amount=Number(document.getElementById('note_amount')?.value||0);
+  const date=document.getElementById('note_date')?.value||today();
+  if(!text){alert('اكتب الملاحظة');return;}
+  repNotes.push({id:uid(),text,amount,date});
+  save();
+  showNoteForm=false;
+  renderExpenses();
+}
+function deleteRepNote(id){
+  if(!confirm('متأكد من حذف الملاحظة دي؟'))return;
+  repNotes=repNotes.filter(n=>n.id!==id);
+  save();
+  renderExpenses();
 }
 
 function addExpense(){
