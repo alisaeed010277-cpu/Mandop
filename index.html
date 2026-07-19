@@ -25,6 +25,10 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .header-sub{font-size:11px;opacity:.75;margin-top:2px;}
 .header-date{font-size:11px;opacity:.7;}
 .watermark{text-align:center;padding:3px;font-size:10px;color:#aaa;background:#fff;border-top:1px solid #eee;position:fixed;bottom:0;left:0;right:0;z-index:200;pointer-events:none;user-select:none;}
+.whatsapp-float{position:fixed;bottom:34px;left:16px;height:48px;background:#25D366;border-radius:30px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px 0 12px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:300;cursor:pointer;border:none;}
+.whatsapp-float:active{transform:scale(.95);}
+.whatsapp-float svg{width:26px;height:26px;flex-shrink:0;}
+.whatsapp-float span{color:#fff;font-size:13px;font-weight:bold;white-space:nowrap;}
 .tabs{display:flex;background:#fff;border-bottom:2px solid #D5D8DC;overflow-x:auto;-webkit-overflow-scrolling:touch;position:sticky;top:56px;z-index:99;}
 .tabs::-webkit-scrollbar{display:none;}
 .tab{padding:10px 13px;cursor:pointer;font-size:12px;font-weight:normal;color:#717D7E;border:none;border-bottom:3px solid transparent;white-space:nowrap;background:none;flex-shrink:0;}
@@ -222,6 +226,12 @@ input.pl-price{border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px;font-w
   <div id="tab-treasury" style="display:none"></div>
   <div id="tab-pricelist" style="display:none"></div>
 </div>
+
+<!-- زر التواصل السريع (واتساب) -->
+<button class="whatsapp-float" onclick="window.open('https://wa.me/201552623744?text=' + encodeURIComponent('مرحباً، أحتاج مساعدة بخصوص تطبيق مدير البيطري المتكامل'), '_blank')" title="تواصل واتساب" aria-label="تواصل واتساب">
+  <svg viewBox="0 0 24 24" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.148.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12.001 2C6.478 2 2 6.478 2 12c0 1.85.502 3.585 1.376 5.073L2 22l5.06-1.352A9.94 9.94 0 0 0 12 22c5.523 0 10-4.478 10-10S17.523 2 12.001 2zm0 18.2c-1.618 0-3.132-.44-4.43-1.203l-.318-.19-3.006.803.803-2.93-.207-.328A8.17 8.17 0 0 1 3.8 12c0-4.53 3.671-8.2 8.2-8.2s8.2 3.67 8.2 8.2-3.671 8.2-8.199 8.2z"/></svg>
+  <span>التواصل للمساعدة</span>
+</button>
 
 <!-- WATERMARK - ثابت لا يمكن حذفه -->
 <div class="watermark">Developed by: Ali Saeed (ElNokhba) — 01552623744</div>
