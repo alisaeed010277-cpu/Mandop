@@ -128,9 +128,12 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .pl-head{background:#1A5276;color:#fff;font-weight:bold;font-size:13px;border-radius:10px 10px 0 0;}
 .pl-row:last-child{border-bottom:none;border-radius:0 0 10px 10px;}
 .pl-name{flex:2;font-size:13px;font-weight:bold;color:#2C3E50;}
+.pl-manu{flex:1.2;font-size:11px;color:#717D7E;text-align:center;}
+.pl-active{flex:1.2;font-size:11px;color:#717D7E;text-align:center;}
 .pl-unit{flex:1;font-size:12px;color:#717D7E;text-align:center;}
 .pl-price{flex:1;text-align:center;}
 input.pl-price{border:1px solid #D5D8DC;border-radius:6px;padding:6px 8px;font-weight:bold;color:#1A5276;max-width:100px;}
+input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding:5px 6px;font-size:11px;color:#1A5276;width:100%;text-align:center;}
 .sub-tabs{display:flex;gap:8px;margin-bottom:12px;}
 .bonus-box{background:#E8F8F5;border:1px solid #27AE60;border-radius:6px;padding:6px 10px;font-size:12px;color:#1E8449;margin-top:4px;}
 
@@ -1798,6 +1801,10 @@ function renderStockOverview(){
           </div>
         </div>
         <div class="form-row">
+          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة"></div>
+          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة"></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" placeholder="0"></div>
           <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${today()}"></div>
         </div>
@@ -1854,12 +1861,16 @@ function renderStockOverview(){
 function addProduct(){
   const name=document.getElementById('p_name')?.value.trim();
   const unit=document.getElementById('p_unit')?.value||'وحدة';
+  const manufacturer=document.getElementById('p_manufacturer')?.value.trim()||'';
+  const activeIngredient=document.getElementById('p_active')?.value.trim()||'';
   const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
   const openingDate=document.getElementById('p_opening_date')?.value||today();
   const openingExpiry=document.getElementById('p_opening_expiry')?.value||'';
   const price=Number(document.getElementById('p_price')?.value||0);
   if(!name){alert('أدخل اسم المنتج');return;}
   const newProduct={id:uid(),name,unit};
+  if(manufacturer)newProduct.manufacturer=manufacturer;
+  if(activeIngredient)newProduct.activeIngredient=activeIngredient;
   if(price>0)newProduct.price=price;
   stock.push(newProduct);
   if(openingQty>0){
@@ -2318,11 +2329,20 @@ function updateProductPrice(pid, val){
   if(price>0) p.price=price; else delete p.price;
   save();
 }
+function updateProductField(pid, field, val){
+  const p=stock.find(p=>p.id===pid);
+  if(!p)return;
+  const v=(val||'').trim();
+  if(v) p[field]=v; else delete p[field];
+  save();
+}
 function renderPriceList(){
   const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   const rows=filtered.map(p=>`
     <div class="pl-row">
       <div class="pl-name">${p.name}</div>
+      <input type="text" class="pl-manu" value="${p.manufacturer||''}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">
+      <input type="text" class="pl-active" value="${p.activeIngredient||''}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">
       <div class="pl-unit">${p.unit}</div>
       <input type="number" class="pl-price" min="0" value="${p.price||''}" placeholder="0" onchange="updateProductPrice('${p.id}',this.value)">
     </div>`).join('');
@@ -2334,6 +2354,8 @@ function renderPriceList(){
     <div class="card">
       <div class="pl-head">
         <div class="pl-name">الصنف</div>
+        <div class="pl-manu">الشركة المصنعة</div>
+        <div class="pl-active">المادة الفعالة</div>
         <div class="pl-unit">الوحدة</div>
         <div class="pl-price">السعر</div>
       </div>
@@ -2342,13 +2364,13 @@ function renderPriceList(){
 }
 async function printPriceListPdf(){
   const sorted=[...stock].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  const rows=sorted.map(p=>`<tr><td>${p.name}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
+  const rows=sorted.map(p=>`<tr><td>${p.name}</td><td>${p.manufacturer||'—'}</td><td>${p.activeIngredient||'—'}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ القائمة:</strong> ${today()}</div>
       <div><strong>عدد الأصناف:</strong> ${sorted.length}</div>
     </div>
-    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الشركة المصنعة</th><th>المادة الفعالة</th><th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
   await sendDocument('قائمة الأسعار', body, `قائمة-الأسعار-${today()}.pdf`);
 }
 
