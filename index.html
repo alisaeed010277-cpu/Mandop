@@ -429,6 +429,39 @@ const clientBalance=(cid)=>{
   const ret=returns.filter(r=>r.clientId===cid).reduce((s,r)=>s+r.total,0);
   return opening+total-paid-ret;
 };
+// أعمار الديون: يوزّع أرصدة العميل (الرصيد الافتتاحي + الفواتير) على أعمارها بالأيام
+// بطريقة FIFO (المدفوعات والمرتجعات بتقفل أقدم المستحقات الأول)
+function clientAgingBuckets(cid, asOf){
+  const c=clients.find(c=>c.id===cid);
+  if(!c) return null;
+  const debits=[];
+  if(Number(c.opening||0)>0) debits.push({date:c.openingDate||c.createdAt?.slice(0,10)||today(),amount:Number(c.opening)});
+  invoices.filter(i=>i.clientId===cid).forEach(i=>debits.push({date:i.date,amount:i.total}));
+  debits.sort((a,b)=>a.date.localeCompare(b.date));
+  let creditPool=payments.filter(p=>p.clientId===cid).reduce((s,p)=>s+p.amount,0)
+                +returns.filter(r=>r.clientId===cid).reduce((s,r)=>s+r.total,0);
+  const asOfDate=new Date(asOf||today());
+  const buckets=[0,0,0,0,0,0,0]; // 0-30,31-60,61-90,91-120,121-150,151-180,>180
+  debits.forEach(d=>{
+    let remaining=d.amount;
+    if(creditPool>0){
+      const applied=Math.min(creditPool, remaining);
+      remaining-=applied;
+      creditPool-=applied;
+    }
+    if(remaining<=0) return;
+    const days=Math.floor((asOfDate-new Date(d.date))/86400000);
+    let idx;
+    if(days<=30) idx=0; else if(days<=60) idx=1; else if(days<=90) idx=2;
+    else if(days<=120) idx=3; else if(days<=150) idx=4; else if(days<=180) idx=5; else idx=6;
+    buckets[idx]+=remaining;
+  });
+  const total=buckets.reduce((s,b)=>s+b,0);
+  return {client:c,buckets,total};
+}
+function agingReportRows(asOf){
+  return clients.map(c=>clientAgingBuckets(c.id,asOf)).filter(r=>r&&r.total>0.01).sort((a,b)=>b.total-a.total);
+}
 const stockQty=(pid)=>movements.filter(m=>m.productId===pid).reduce((s,m)=>m.type==='in'?s+m.qty:s-m.qty,0);
 // بيجيب الكميات مقسمة على تواريخ الصلاحية
 const stockBatches=(pid)=>{
@@ -2447,7 +2480,57 @@ function renderReports(){
           <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredSupPay.length} دفعة</div>
         </div>
       </div>
+      ${renderAgingReportBlock()}
     </div>`;
+}
+function renderAgingReportBlock(){
+  const rows=agingReportRows(today());
+  const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
+  const bodyRows=rows.map(r=>`<tr>
+      <td style="white-space:nowrap;font-weight:bold">${r.client.name}</td>
+      ${r.buckets.map(b=>`<td style="text-align:center">${b>0?fmt(b):'—'}</td>`).join('')}
+      <td style="text-align:center;font-weight:bold;color:#1A5276">${fmt(r.total)}</td>
+    </tr>`).join('');
+  const totals=[0,0,0,0,0,0,0];
+  rows.forEach(r=>r.buckets.forEach((b,i)=>totals[i]+=b));
+  const grandTotal=totals.reduce((s,t)=>s+t,0);
+  return `
+  <div class="card" style="margin-top:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+      <div style="font-weight:bold;color:#1A5276;font-size:13px">📅 تقرير أعمار الديون</div>
+      ${rows.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printAgingReportPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>`:''}
+    </div>
+    ${rows.length===0?'<div class="empty">لا توجد ديون مستحقة على العملاء حاليًا</div>':`
+    <div class="tbl-wrap"><table>
+      <thead><tr>${headers.map(h=>`<th style="white-space:nowrap">${h}</th>`).join('')}</tr></thead>
+      <tbody>${bodyRows}
+        <tr style="background:#F2F3F4;font-weight:bold">
+          <td>الإجمالي</td>
+          ${totals.map(t=>`<td style="text-align:center">${t>0?fmt(t):'—'}</td>`).join('')}
+          <td style="text-align:center;color:#1A5276">${fmt(grandTotal)}</td>
+        </tr>
+      </tbody>
+    </table></div>`}
+  </div>`;
+}
+async function printAgingReportPdf(){
+  const rows=agingReportRows(today());
+  const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
+  const bodyRows=rows.map(r=>`<tr>
+      <td>${r.client.name}</td>
+      ${r.buckets.map(b=>`<td>${b>0?fmt(b):'—'}</td>`).join('')}
+      <td style="font-weight:bold;color:#1A5276">${fmt(r.total)}</td>
+    </tr>`).join('');
+  const totals=[0,0,0,0,0,0,0];
+  rows.forEach(r=>r.buckets.forEach((b,i)=>totals[i]+=b));
+  const grandTotal=totals.reduce((s,t)=>s+t,0);
+  const body=`
+    <div class="doc-info"><div><strong>تاريخ التقرير:</strong> ${today()}</div></div>
+    <table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${bodyRows}
+        <tr style="font-weight:bold"><td>الإجمالي</td>${totals.map(t=>`<td>${t>0?fmt(t):'—'}</td>`).join('')}<td>${fmt(grandTotal)}</td></tr>
+      </tbody></table>`;
+  await sendDocument('تقرير أعمار الديون', body, `تقرير-أعمار-الديون-${today()}.pdf`);
 }
 
 function checkNewFeatureNotif(){
