@@ -174,6 +174,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div style="display:flex;gap:6px">
       <button onclick="exportData()" style="background:#27AE60;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">💾 تصدير</button>
       <button onclick="importData()" style="background:#D68910;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">📂 استيراد</button>
+      <button onclick="openTabOrderModal()" style="background:#7D3C98;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">⚙️ ترتيب</button>
     </div>
   </div>
 </div>
@@ -196,21 +197,18 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   </div>
 </div>
 
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('home')">🏠 الرئيسية</button>
-  <button class="tab" onclick="switchTab('clients')">👥 العملاء</button>
-  <button class="tab" onclick="switchTab('invoices')">🧾 المبيعات</button>
-  <button class="tab" onclick="switchTab('payments')">💰 التحصيل من العملاء</button>
-  <button class="tab" onclick="switchTab('returns')">↩️ مردود مبيعات</button>
-  <button class="tab" onclick="switchTab('suppliers')">🏭 الموردين</button>
-  <button class="tab" onclick="switchTab('purchases')">📥 المشتريات</button>
-  <button class="tab" onclick="switchTab('suppay')">💵 سداد المورد</button>
-  <button class="tab" onclick="switchTab('purreturns')">↪️ مردود مشتريات</button>
-  <button class="tab" onclick="switchTab('stock')">📦 المخزن</button>
-  <button class="tab" onclick="switchTab('reports')">📊 التقارير</button>
-  <button class="tab" onclick="switchTab('expenses')">💸 مصاريف المندوب</button>
-  <button class="tab" onclick="switchTab('treasury')">🏦 الخزنة</button>
-  <button class="tab" onclick="switchTab('pricelist')">📋 قائمة الأسعار</button>
+<div class="tabs" id="tabsBar"></div>
+
+<div id="tabOrderModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">⚙️ ترتيب التبويبات</div>
+    <div style="font-size:12px;color:#717D7E;margin-bottom:14px">رتّب التبويبات زي ما يريحك بالأسهم — الترتيب بيتحفظ على الجهاز ده وبيبان فورًا فوق</div>
+    <div id="tabOrderList"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn-outline" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
+      <button class="btn blue" onclick="document.getElementById('tabOrderModal').style.display='none'">تم</button>
+    </div>
+  </div>
 </div>
 
 <div class="body">
@@ -280,12 +278,13 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let treasuryOpening=0;
 let repNotes=[];
+let clientNotes=[];
 let companyProfile={name:'',phone:''};
 // بتضيف اسم الشركة/النشاط (لو متسجل في بيانات الشركة) لاسم ملف الباك أب، عشان تقدر تميّز بين نسخ احتياطية من أكثر من نسخة تطبيق على نفس الجهاز
 function backupFileLabel(){
@@ -365,11 +364,12 @@ const save=()=>{
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.repNotes,repNotes);
+  idbSet(KEYS.clientNotes,clientNotes);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -384,6 +384,7 @@ async function loadAllData(){
   expenses=exp||[];
   treasuryOpening=Number(tOpen)||0;
   repNotes=rNotes||[];
+  clientNotes=cNotes||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -481,15 +482,86 @@ updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 
 let currentTab='home';
-const TAB_ORDER=['home','clients','invoices','payments','returns','suppliers','purchases','suppay','purreturns','stock','reports','expenses','treasury','pricelist'];
+// تعريف كل التبويبات المتاحة (المعرف، الأيقونة، الاسم) — المصدر الوحيد للحقيقة بخصوص التبويبات الموجودة
+const TAB_DEFS=[
+  {id:'home',icon:'🏠',label:'الرئيسية'},
+  {id:'clients',icon:'👥',label:'العملاء'},
+  {id:'invoices',icon:'🧾',label:'المبيعات'},
+  {id:'payments',icon:'💰',label:'التحصيل من العملاء'},
+  {id:'returns',icon:'↩️',label:'مردود مبيعات'},
+  {id:'suppliers',icon:'🏭',label:'الموردين'},
+  {id:'purchases',icon:'📥',label:'المشتريات'},
+  {id:'suppay',icon:'💵',label:'سداد المورد'},
+  {id:'purreturns',icon:'↪️',label:'مردود مشتريات'},
+  {id:'stock',icon:'📦',label:'المخزن'},
+  {id:'reports',icon:'📊',label:'التقارير'},
+  {id:'expenses',icon:'💸',label:'مصاريف المندوب'},
+  {id:'treasury',icon:'🏦',label:'الخزنة'},
+  {id:'pricelist',icon:'📋',label:'قائمة الأسعار'}
+];
+// بيتأكد إن الترتيب المحفوظ لسه متطابق مع التبويبات الموجودة فعلاً (لو تبويب اتضاف أو اتشال بعدين)
+function sanitizeTabOrder(saved){
+  const ids=TAB_DEFS.map(t=>t.id);
+  const valid=(saved||[]).filter(id=>ids.includes(id));
+  const missing=ids.filter(id=>!valid.includes(id));
+  return [...valid,...missing];
+}
+let tabOrder=sanitizeTabOrder(DB.get('_tabOrder'));
+
+function renderTabsBar(){
+  const bar=document.getElementById('tabsBar');
+  if(!bar)return;
+  bar.innerHTML=tabOrder.map(id=>{
+    const t=TAB_DEFS.find(d=>d.id===id);
+    if(!t)return '';
+    return `<button class="tab${id===currentTab?' active':''}" data-tab="${id}" onclick="switchTab('${id}')">${t.icon} ${t.label}</button>`;
+  }).join('');
+}
+
+function openTabOrderModal(){
+  renderTabOrderList();
+  document.getElementById('tabOrderModal').style.display='flex';
+}
+function renderTabOrderList(){
+  const wrap=document.getElementById('tabOrderList');
+  if(!wrap)return;
+  wrap.innerHTML=tabOrder.map((id,idx)=>{
+    const t=TAB_DEFS.find(d=>d.id===id);
+    if(!t)return '';
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #F2F3F4">
+      <div style="flex:1;font-size:13px">${t.icon} ${t.label}</div>
+      <button class="btn-sm blue" ${idx===0?'disabled style="opacity:.3"':''} onclick="moveTab(${idx},-1)">⬆️</button>
+      <button class="btn-sm blue" ${idx===tabOrder.length-1?'disabled style="opacity:.3"':''} onclick="moveTab(${idx},1)">⬇️</button>
+    </div>`;
+  }).join('');
+}
+function moveTab(idx,dir){
+  const newIdx=idx+dir;
+  if(newIdx<0||newIdx>=tabOrder.length)return;
+  const arr=[...tabOrder];
+  [arr[idx],arr[newIdx]]=[arr[newIdx],arr[idx]];
+  tabOrder=arr;
+  DB.set('_tabOrder',tabOrder);
+  renderTabsBar();
+  renderTabOrderList();
+}
+function resetTabOrder(){
+  tabOrder=TAB_DEFS.map(t=>t.id);
+  DB.set('_tabOrder',tabOrder);
+  renderTabsBar();
+  renderTabOrderList();
+}
+
 function switchTab(name){
-  document.querySelectorAll('.tab').forEach((t,i)=>{
-    t.classList.toggle('active',TAB_ORDER[i]===name);
+  currentTab=name;
+  document.querySelectorAll('.tab').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.tab===name);
   });
-  TAB_ORDER.forEach(t=>{
-    document.getElementById('tab-'+t).style.display=t===name?'':'none';
+  TAB_DEFS.forEach(t=>{
+    const el=document.getElementById('tab-'+t.id);
+    if(el) el.style.display=t.id===name?'':'none';
   });
-  currentTab=name;render();
+  render();
 }
 function render(){
   if(currentTab==='home')renderHome();
@@ -1081,7 +1153,7 @@ function renderClientDetail(){
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
   document.getElementById('tab-clients').innerHTML=`
     <div class="back-row">
-      <button class="btn gray" onclick="clientDetailId=null;renderClients()">← رجوع</button>
+      <button class="btn gray" onclick="clientDetailId=null;showClientNoteForm=false;renderClients()">← رجوع</button>
       <div class="page-title">كشف حساب: ${c.name}</div>
     </div>
     <div class="summary">
@@ -1096,7 +1168,55 @@ function renderClientDetail(){
     <div class="card">
       <div class="card-head">📋 حركات الحساب</div>
       ${events.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+    </div>
+
+    <div class="card" style="margin-top:14px;border-right:4px solid #F1C40F">
+      <div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظاتي عن العميل (شخصية فقط — مش بتدخل في كشف الحساب ولا الرصيد)</div>
+      <div class="card-body">
+        ${!showClientNoteForm?`<button class="btn-outline" onclick="showClientNoteForm=true;renderClientDetail()">+ ملاحظة جديدة</button>`:`
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">الملاحظة *</div><input type="text" id="cnote_text" placeholder="مثال: بيدفع أول الشهر عادة..."></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">المبلغ (اختياري)</div><input type="number" id="cnote_amount" min="0" placeholder="0"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="cnote_date" value="${today()}"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addClientNote('${c.id}')">✓ حفظ الملاحظة</button>
+          <button class="btn-outline" onclick="showClientNoteForm=false;renderClientDetail()">إلغاء</button>
+        </div>`}
+        <div style="margin-top:12px">
+          ${[...clientNotes].filter(n=>n.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
+            <div class="list-item" style="background:#FEF9E7">
+              <div class="list-item-head">
+                <div><div class="list-item-name">${n.text}</div><div class="list-item-sub">📅 ${n.date}</div></div>
+                ${n.amount?`<div class="list-item-bal"><div class="list-item-bal-num" style="color:#B7950B">${fmt(n.amount)} ج</div></div>`:''}
+              </div>
+              <div class="list-item-actions">
+                <button class="btn-sm red" onclick="deleteClientNote('${n.id}')">🗑 حذف</button>
+              </div>
+            </div>`).join('')||'<div class="empty">مفيش ملاحظات لسه</div>'}
+        </div>
+      </div>
     </div>`;
+}
+
+let showClientNoteForm=false;
+function addClientNote(clientId){
+  const text=document.getElementById('cnote_text')?.value?.trim();
+  const amount=Number(document.getElementById('cnote_amount')?.value||0);
+  const date=document.getElementById('cnote_date')?.value||today();
+  if(!text){alert('اكتب الملاحظة');return;}
+  clientNotes.push({id:uid(),clientId,text,amount,date});
+  save();
+  showClientNoteForm=false;
+  renderClientDetail();
+}
+function deleteClientNote(id){
+  if(!confirm('متأكد من حذف الملاحظة دي؟'))return;
+  clientNotes=clientNotes.filter(n=>n.id!==id);
+  save();
+  renderClientDetail();
 }
 
 // ===== INVOICES =====
@@ -3393,6 +3513,7 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
 }
 
 document.addEventListener('DOMContentLoaded', async function(){
+  renderTabsBar();
   await loadAllData();
   initActivation();
   renderCompanyBar();
