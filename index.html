@@ -408,6 +408,9 @@ let _id=Date.now();
 const uid=()=>(++_id).toString(36);
 const today=()=>new Date().toISOString().slice(0,10);
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// مفتاح ترتيب زمني دقيق: التاريخ اليدوي أولاً، ثم وقت الإنشاء الفعلي كفاصل عند تساوي التاريخ
+// (بيحل مشكلة فاتورتين في نفس اليوم بفارق دقايق — الترتيب بينهم بيبقى مظبوط دايمًا)
+const tsKey=(r)=>(r.date||'')+'T'+(r.createdAt||'');
 function lineDetailText(l){
   const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId||'—';
   const afterDiscount=l.price*(1-(l.discount||0)/100);
@@ -756,6 +759,25 @@ function clientSummaryData(from,to){
   return {rows,totals};
 }
 
+let homeSupFromDate='',homeSupToDate='';
+function supplierSummaryData(from,to){
+  const rows=suppliers.map(sup=>{
+    let opening=Number(sup.opening||0);
+    if(from){
+      opening+=purchases.filter(p=>p.supplierId===sup.id&&p.date<from).reduce((s,p)=>s+p.total,0);
+      opening-=supplierPayments.filter(p=>p.supplierId===sup.id&&p.date<from).reduce((s,p)=>s+p.amount,0);
+      opening-=purchaseReturns.filter(r=>r.supplierId===sup.id&&r.date<from).reduce((s,r)=>s+r.total,0);
+    }
+    const purch=purchases.filter(p=>p.supplierId===sup.id&&(!from||p.date>=from)&&(!to||p.date<=to)).reduce((s,p)=>s+p.total,0);
+    const paid=supplierPayments.filter(p=>p.supplierId===sup.id&&(!from||p.date>=from)&&(!to||p.date<=to)).reduce((s,p)=>s+p.amount,0);
+    const ret=purchaseReturns.filter(r=>r.supplierId===sup.id&&(!from||r.date>=from)&&(!to||r.date<=to)).reduce((s,r)=>s+r.total,0);
+    const bal=opening+purch-ret-paid;
+    return {supplier:sup,opening,purch,ret,paid,bal};
+  });
+  const totals=rows.reduce((t,r)=>({opening:t.opening+r.opening,purch:t.purch+r.purch,ret:t.ret+r.ret,paid:t.paid+r.paid,bal:t.bal+r.bal}),{opening:0,purch:0,ret:0,paid:0,bal:0});
+  return {rows,totals};
+}
+
 function renderHome(){
   const totalSales=invoices.reduce((s,i)=>s+i.total,0);
   const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
@@ -789,6 +811,28 @@ function renderHome(){
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.bal)}</td>
     </tr>`:'';
 
+  // جدول الموردين (حسب فلتر المدة إن وُجد)
+  const {rows:supSummaryRows,totals:supTotals}=supplierSummaryData(homeSupFromDate,homeSupToDate);
+  const supplierRows=supSummaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
+    const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
+    return `<tr onclick="supplierDetailId='${sup.id}';switchTab('suppliers')" style="cursor:pointer">
+      <td style="font-weight:bold">${sup.name}</td>
+      <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
+      <td style="text-align:center;color:#1A5276">${purch>0?fmt(purch):'—'}</td>
+      <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
+      <td style="text-align:center;color:#1E8449">${paid>0?fmt(paid):'—'}</td>
+      <td style="text-align:center;font-weight:bold;color:${balColor}">${fmt(Math.abs(bal))}${bal>0?' 🔴':bal<0?' 🟢':''}</td>
+    </tr>`;
+  }).join('');
+  const supTotalsRow=suppliers.length>0?`<tr>
+      <td style="background:#D6EAF8;font-weight:bold;color:#1A5276">الإجمالي</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${supTotals.opening!==0?fmt(supTotals.opening):'—'}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.purch)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.ret)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.paid)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.bal)}</td>
+    </tr>`:'';
+
   document.getElementById('tab-home').innerHTML=`
     <div class="summary">
       <div class="sum-card blue"><div class="sum-num">${fmt(totalSales)}</div><div class="sum-lbl">إجمالي البيع</div></div>
@@ -820,6 +864,33 @@ function renderHome(){
             <th style="text-align:center">المديونية</th>
           </tr></thead>
           <tbody>${clientRows}${totalsRow}</tbody>
+        </table>
+      </div>
+    </div>`:''}
+    ${suppliers.length>0?`
+    <div class="card">
+      <div class="card-head">🏭 ملخص الموردين</div>
+      <div class="card-body" style="padding-bottom:6px">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="home_sup_from" value="${homeSupFromDate}" onchange="homeSupFromDate=this.value;renderHome()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="home_sup_to" value="${homeSupToDate}" onchange="homeSupToDate=this.value;renderHome()"></div>
+        </div>
+        <div class="btn-row">
+          ${(homeSupFromDate||homeSupToDate)?`<button class="btn-outline" onclick="homeSupFromDate='';homeSupToDate='';renderHome()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf(homeSupFromDate,homeSupToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص الموردين</button>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>المورد</th>
+            <th style="text-align:center">رصيد أول المدة</th>
+            <th style="text-align:center">إجمالي المشتريات</th>
+            <th style="text-align:center">إجمالي المردودات</th>
+            <th style="text-align:center">إجمالي المدفوع</th>
+            <th style="text-align:center">المستحق</th>
+          </tr></thead>
+          <tbody>${supplierRows}${supTotalsRow}</tbody>
         </table>
       </div>
     </div>`:''}
@@ -1113,6 +1184,42 @@ async function printClientsSummaryPdf(from,to){
   await sendDocument('ملخص العملاء', body, `ملخص-العملاء${suffix}.pdf`);
 }
 
+async function printSuppliersSummaryPdf(from,to){
+  const {rows:summaryRows,totals}=supplierSummaryData(from||'',to||'');
+  const rows=summaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
+    return `<tr>
+      <td>${sup.name}</td>
+      <td>${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
+      <td>${purch>0?fmt(purch):'—'}</td>
+      <td>${ret>0?fmt(ret):'—'}</td>
+      <td>${paid>0?fmt(paid):'—'}</td>
+      <td style="font-weight:bold;color:${bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E'}">${fmt(Math.abs(bal))}${bal>0?' (مستحق للمورد)':bal<0?' (له رصيد)':''}</td>
+    </tr>`;
+  }).join('');
+  const totalsRow=`<tr style="background:#D6EAF8;font-weight:bold">
+      <td>الإجمالي</td>
+      <td>${totals.opening!==0?fmt(totals.opening):'—'}</td>
+      <td>${fmt(totals.purch)}</td>
+      <td>${fmt(totals.ret)}</td>
+      <td>${fmt(totals.paid)}</td>
+      <td>${fmt(totals.bal)}</td>
+    </tr>`;
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
+      <div><strong>عدد الموردين:</strong> ${suppliers.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(totals.purch)}</div><div class="l">إجمالي المشتريات</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(totals.paid)}</div><div class="l">إجمالي المدفوع</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(Math.max(0,totals.bal))}</div><div class="l">إجمالي المستحق للموردين</div></div>
+    </div>
+    ${suppliers.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا يوجد موردين</div>':`<table><thead><tr><th>المورد</th><th>رصيد أول المدة</th><th>المشتريات</th><th>المردودات</th><th>المدفوع</th><th>المستحق</th></tr></thead><tbody>${rows}${totalsRow}</tbody></table>`}`;
+  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
+  await sendDocument('ملخص الموردين', body, `ملخص-الموردين${suffix}.pdf`);
+}
+
 async function printClientStatement(cid){
   const c=clients.find(c=>c.id===cid);
   if(!c)return;
@@ -1124,11 +1231,11 @@ async function printClientStatement(cid){
   const totalPaid=cPayments.reduce((s,p)=>s+p.amount,0);
   const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
   const events=[
-    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,lines:i.lines})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines}))
-  ].sort((a,b)=>a.date.localeCompare(b.date));
+    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,createdAt:''}]:[]),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,createdAt:p.createdAt})),
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
+  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   let running=0;
   const rows=events.map(ev=>{
     const debit=(ev.type==='invoice'||ev.type==='opening')?ev.amount:0;
@@ -1171,11 +1278,11 @@ function renderClientDetail(){
   const totalPaid=cPayments.reduce((s,p)=>s+p.amount,0);
   const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
   const events=[
-    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,id:i.id})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,id:null})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:r.id}))
-  ].sort((a,b)=>a.date.localeCompare(b.date));
+    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,id:i.id,createdAt:i.createdAt})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:r.id,createdAt:r.createdAt}))
+  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=events.map(ev=>`<tr ${ev.type==='invoice'?`onclick="openInvoiceFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:ev.type==='return'?`onclick="openReturnFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:''}>
     <td>${ev.date}${ev.type==='invoice'||ev.type==='return'?' 👁':''}</td>
     <td>${ev.type==='opening'?`<span class="badge orange">${ev.label}</span>`:ev.label}</td>
@@ -1334,7 +1441,7 @@ async function printReturn(retId){
 }
 
 async function printReturnsSummaryPdf(from,to){
-  const filtered=[...returns].filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)).sort((a,b)=>a.date.localeCompare(b.date));
+  const filtered=[...returns].filter(r=>(!from||r.date>=from)&&(!to||r.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const total=filtered.reduce((s,r)=>s+r.total,0);
   const rows=filtered.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
@@ -1374,7 +1481,7 @@ function renderInvoices(){
     const matchesSearch=!invSearch||c?.name.includes(invSearch)||String(inv.number).includes(invSearch);
     const matchesDate=(!invFromDate||inv.date>=invFromDate)&&(!invToDate||inv.date<=invToDate);
     return matchesSearch&&matchesDate;
-  }).sort((a,b)=>b.date.localeCompare(a.date));
+  }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const invPeriodTotal=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
@@ -1621,7 +1728,7 @@ async function printInvoice(invId){
 }
 
 async function printInvoicesSummaryPdf(from,to){
-  const filtered=[...invoices].filter(inv=>(!from||inv.date>=from)&&(!to||inv.date<=to)).sort((a,b)=>a.date.localeCompare(b.date));
+  const filtered=[...invoices].filter(inv=>(!from||inv.date>=from)&&(!to||inv.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const total=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
@@ -1683,7 +1790,7 @@ let payFromDate='',payToDate='';
 let payDetailId=null;
 
 async function printCollectionsSummaryPdf(from,to){
-  const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>a.date.localeCompare(b.date));
+  const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr><td>${p.date}</td><td>${c?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
@@ -1706,7 +1813,7 @@ async function printCollectionsSummaryPdf(from,to){
 
 function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
-  const sorted=[...payments].filter(p=>(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>b.date.localeCompare(a.date));
+  const sorted=[...payments].filter(p=>(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
   const clientOptsArr=debtors.map(c=>({id:c.id,label:c.name,sub:`مستحق: ${fmt(clientBalance(c.id))} ج`}));
@@ -1833,7 +1940,7 @@ function savePayment(){
   const note=document.getElementById('pay_note')?.value||'';
   const invoiceId=document.getElementById('pay_invoice')?.value||null;
   if(!clientId||!amount){alert('اختر عميل وأدخل المبلغ');return;}
-  payments.push({id:uid(),clientId,invoiceId,amount,date,note});
+  payments.push({id:uid(),clientId,invoiceId,amount,date,note,createdAt:new Date().toISOString()});
   save();showPayForm=false;renderPayments();
 }
 
@@ -1844,7 +1951,7 @@ let retFromDate='',retToDate='';
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
-  const sorted=[...returns].filter(r=>(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>b.date.localeCompare(a.date));
+  const sorted=[...returns].filter(r=>(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const retPeriodTotal=sorted.reduce((s,r)=>s+r.total,0);
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   const rows=sorted.map(r=>{
@@ -2828,7 +2935,10 @@ function renderSuppliers(){
 
   document.getElementById('tab-suppliers').innerHTML=`
     <div class="page-title">🏭 الموردين</div>
-    <div class="search-bar"><input type="text" id="supplier_search_input" placeholder="🔍 بحث..." value="${supplierSearch}" oninput="searchInputHandler(this,v=>supplierSearch=v,renderSuppliers)"></div>
+    <div class="search-row" style="align-items:center">
+      <input type="text" id="supplier_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${supplierSearch}" oninput="searchInputHandler(this,v=>supplierSearch=v,renderSuppliers)">
+      ${suppliers.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص الموردين PDF</button>`:''}
+    </div>
     <div class="card">
       <div class="lbl">اسم المورد *</div><input type="text" id="sup_name" placeholder="اسم المورد">
       <div class="form-row" style="margin-top:8px">
@@ -2864,9 +2974,9 @@ function renderSupplierDetail(){
   const s=suppliers.find(s=>s.id===supplierDetailId);
   if(!s){supplierDetailId=null;renderSuppliers();return;}
   const bal=supplierBalance(s.id);
-  const supPurchases=purchases.filter(p=>p.supplierId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
-  const supPayments=supplierPayments.filter(p=>p.supplierId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
-  const supPurRet=purchaseReturns.filter(r=>r.supplierId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const supPurchases=purchases.filter(p=>p.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const supPayments=supplierPayments.filter(p=>p.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const supPurRet=purchaseReturns.filter(r=>r.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const opening=Number(s.opening||0);
   const totalPurchased=supPurchases.reduce((acc,p)=>acc+p.total,0);
   const totalPaid=supPayments.reduce((acc,p)=>acc+p.amount,0);
@@ -2874,10 +2984,10 @@ function renderSupplierDetail(){
 
   // سجل الحركات مدمج: مشتريات + سداد + مردود مشتريات
   let allMoves=[
-    ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`,amount:p.total,id:p.id})),
-    ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}`,amount:p.amount,id:null})),
-    ...supPurRet.map(r=>({date:r.date,type:'return',desc:`مردود مشتريات #${r.number}`,amount:r.total,id:r.id})),
-  ].sort((a,b)=>a.date.localeCompare(b.date));
+    ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`,amount:p.total,id:p.id,createdAt:p.createdAt})),
+    ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}`,amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...supPurRet.map(r=>({date:r.date,type:'return',desc:`مردود مشتريات #${r.number}`,amount:r.total,id:r.id,createdAt:r.createdAt})),
+  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
 
   let runBal=opening;
   const movRows=allMoves.map(m=>{
@@ -2936,11 +3046,11 @@ async function printSupplierStatement(sid){
   const totalRet=sReturns.reduce((s,r)=>s+r.total,0);
   const opening=Number(s.opening||0);
   const events=[
-    ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total,lines:p.lines})),
-    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount})),
-    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines}))
-  ].sort((a,b)=>a.date.localeCompare(b.date));
+    ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening,createdAt:''}]:[]),
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total,lines:p.lines,createdAt:p.createdAt})),
+    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,createdAt:p.createdAt})),
+    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
+  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   let running=0;
   const rows=events.map(ev=>{
     const debit=(ev.type==='purchase'||ev.type==='opening')?ev.amount:0;
@@ -2973,11 +3083,13 @@ async function printSupplierStatement(sid){
 }
 
 // ===== PURCHASES =====
-let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
+let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
 let showPurForm=false;
 let purDetailId=null;
 let editPurchaseId=null;
 let purDetailFromSupplier=null;
+let purSearch='';
+let purFromDate='',purToDate='';
 
 function openPurchaseFromSupplier(purId,supplierId){
   purDetailFromSupplier=supplierId;
@@ -2998,10 +3110,16 @@ function goBackFromPurDetail(){
 
 function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
-  const sorted=[...purchases].sort((a,b)=>b.date.localeCompare(a.date));
+  const filtered=[...purchases].filter(p=>{
+    const s=suppliers.find(s=>s.id===p.supplierId);
+    const matchesSearch=!purSearch||s?.name.includes(purSearch)||String(p.number).includes(purSearch);
+    const matchesDate=(!purFromDate||p.date>=purFromDate)&&(!purToDate||p.date<=purToDate);
+    return matchesSearch&&matchesDate;
+  }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const purPeriodTotal=filtered.reduce((s,p)=>s+p.total,0);
   const editingPur = editPurchaseId ? purchases.find(p=>p.id===editPurchaseId) : null;
   const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
-  const rows=sorted.map(p=>{
+  const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
       <td>${p.number}</td><td style="white-space:nowrap">${s?.name||'—'}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
@@ -3018,6 +3136,9 @@ function renderPurchases(){
   if(showPurForm){
     let linesHtml=purchaseLines.map(l=>{
       const stockOptsArr=stock.map(p=>({id:p.id,label:p.name}));
+      const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      const lineTotal=Number(l.qty)*afterDiscount;
+      const bonusQty=Number(l.bonus)||0;
       return `<div class="line-box">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المنتج</div>
@@ -3029,34 +3150,77 @@ function renderPurchases(){
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" min="1" value="${l.qty}" onchange="updatePurLine('${l.id}','qty',this.value)"></div>
           <div class="form-group"><div class="lbl">سعر الشراء *</div><input type="number" min="0" value="${l.price}" onchange="updatePurLine('${l.id}','price',this.value)"></div>
         </div>
-        <button class="btn-sm red" onclick="removePurLine('${l.id}')">🗑 حذف السطر</button>
+        <div class="form-row">
+          <div class="form-group">
+            <div class="lbl">خصم %</div>
+            <input type="number" min="0" max="100" value="${l.discount||''}" placeholder="0" onchange="updatePurLine('${l.id}','discount',this.value)">
+          </div>
+          <div class="form-group">
+            <div class="lbl">بونص/هدية (وحدة)</div>
+            <input type="number" min="0" value="${l.bonus||''}" placeholder="0" onchange="updatePurLine('${l.id}','bonus',this.value)">
+          </div>
+          <div class="form-group">
+            <div class="lbl">الإجمالي</div>
+            <div style="padding:8px 0;font-weight:bold;color:#1A5276">${fmt(lineTotal)} ج</div>
+          </div>
+          ${purchaseLines.length>1?`<button class="btn red" style="padding:6px 10px;align-self:flex-end" onclick="removePurLine('${l.id}')">✕</button>`:''}
+        </div>
+        ${bonusQty>0||l.discount>0?`<div class="bonus-box">
+          ${l.discount>0?`✂️ خصم ${l.discount}% على السعر`:''}
+          ${bonusQty>0?` &nbsp;🎁 ${bonusQty} وحدة هدية من المورد (بتتضاف للمخزن من غير حساب)`:''}
+        </div>`:''}
       </div>`;
     }).join('');
 
-    const purTotal=purchaseLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
+    const purTotal=purchaseLines.reduce((s,l)=>{
+      const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      return s+(Number(l.qty)*afterDiscount);
+    },0);
     formHtml=`<div class="card">
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
-      <div class="form-row" style="padding:12px 12px 0">
-        <div class="form-group"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||'')}</div>
-        <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||today()}"></div>
-      </div>
-      <div style="padding:0 12px">
-      ${linesHtml}
-      <button class="btn-outline" style="margin-top:8px" onclick="addPurLine()">+ إضافة صنف</button>
-      <div class="inv-total">الإجمالي: <strong>${fmt(purTotal)} ج</strong></div>
-      <div style="display:flex;gap:8px;margin-top:10px;padding-bottom:12px">
-        <button class="btn ${editingPur?'orange':'green'}" onclick="savePurchase()">${editingPur?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
-        <button class="btn-outline" onclick="showPurForm=false;editPurchaseId=null;renderPurchases()">إلغاء</button>
-      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||'')}</div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||today()}"></div>
+        </div>
+        <div class="divider"></div>
+        <div class="section-title">📦 أصناف فاتورة المشتريات</div>
+        ${linesHtml}
+        <button class="btn-outline" style="margin-bottom:10px" onclick="addPurLine()">+ إضافة صنف</button>
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
+          <div class="btn-row">
+            <button class="btn ${editingPur?'orange':'green'}" onclick="savePurchase()">${editingPur?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
+            <button class="btn-outline" onclick="showPurForm=false;editPurchaseId=null;renderPurchases()">إلغاء</button>
+          </div>
+        </div>
       </div>
     </div>`;
   }
 
   document.getElementById('tab-purchases').innerHTML=`
-    <div class="page-title">📥 المشتريات</div>
-    ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     ${formHtml}
-    ${sorted.length===0?'<div class="empty">لا توجد فواتير مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    <div class="search-row">
+      <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${purSearch}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
+      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-body" style="padding-bottom:10px">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="pur_from_date" value="${purFromDate}" onchange="purFromDate=this.value;renderPurchases()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="pur_to_date" value="${purToDate}" onchange="purToDate=this.value;renderPurchases()"></div>
+        </div>
+        <div class="btn-row">
+          ${(purFromDate||purToDate)?`<button class="btn-outline" onclick="purFromDate='';purToDate='';renderPurchases()">✖ إلغاء الفلتر</button>`:''}
+          ${filtered.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printPurchasesSummaryPdf(purFromDate,purToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المشتريات PDF</button>`:''}
+        </div>
+      </div>
+    </div>
+    ${filtered.length===0?'<div class="empty">لا توجد فواتير مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="background:#EBF5FB;border-radius:8px;padding:10px 14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;font-weight:bold;color:#1A5276">
+      <span>الإجمالي (${filtered.length} فاتورة)</span><span>${fmt(purPeriodTotal)} ج</span>
+    </div>`}`;
 }
 
 function editPurchase(id){
@@ -3069,13 +3233,13 @@ function editPurchase(id){
   renderPurchases();
 }
 
-function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''});renderPurchases();}
+function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});renderPurchases();}
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);renderPurchases();}
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
     if(l.id!==id)return l;
     if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
-    return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
+    return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   const savedSup=document.getElementById('pur_supplier')?.value;
   const savedSupText=document.getElementById('pur_supplier_search')?.value;
@@ -3092,7 +3256,10 @@ function savePurchase(){
   const date=document.getElementById('pur_date')?.value||today();
   if(!supplierId){alert('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
-  const total=purchaseLines.reduce((s,l)=>s+Number(l.qty)*Number(l.price),0);
+  const total=purchaseLines.reduce((s,l)=>{
+    const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+    return s+(Number(l.qty)*afterDiscount);
+  },0);
 
   let removedPur=null;
   if(editPurchaseId){
@@ -3103,13 +3270,17 @@ function savePurchase(){
 
   const purId = editPurchaseId || uid();
   const purNum = removedPur ? removedPur.number : (purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
-  const pur={id:purId,number:purNum,supplierId,date,total,lines:purchaseLines.map(l=>({...l}))};
+  const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
+  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),total,createdAt};
   purchases.push(pur);
-  // تحديث المخزن
+  // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
   purchaseLines.forEach(l=>{
-    if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'ف.مشتريات #'+purNum,purchaseId:pur.id,expiry:l.expiry||''});
+    if(l.productId){
+      const totalQty=Number(l.qty)+(Number(l.bonus)||0);
+      movements.push({id:uid(),productId:l.productId,type:'in',qty:totalQty,date,note:'ف.مشتريات #'+purNum+(l.bonus>0?` (${l.qty} شراء + ${l.bonus} بونص)`:``),purchaseId:pur.id,expiry:l.expiry||''});
+    }
   });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderPurchases();
 }
 
 function deletePurchase(id){
@@ -3125,7 +3296,12 @@ function renderPurDetail(){
   const s=suppliers.find(s=>s.id===pur.supplierId);
   const linesRows=(pur.lines||[]).map(l=>{
     const prod=stock.find(p=>p.id===l.productId);
-    return `<tr><td>${prod?.name||l.productName||'—'}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(l.qty*l.price)} ج</td></tr>`;
+    const afterDiscount=l.price*(1-(l.discount||0)/100);
+    const lineTotal=l.qty*afterDiscount;
+    const extras=[];
+    if(l.discount>0) extras.push(`خصم ${l.discount}%`);
+    if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
+    return `<tr><td>${prod?.name||l.productName||'—'}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
   }).join('');
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
@@ -3154,7 +3330,12 @@ async function printPurchase(purId){
   const rows=(pur.lines||[]).map(l=>{
     const prod=stock.find(p=>p.id===l.productId);
     const pName=prod?.name||l.productName||'—';
-    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    const afterDiscount=l.price*(1-(l.discount||0)/100);
+    const lineTotal=l.qty*afterDiscount;
+    const extras=[];
+    if(l.discount>0) extras.push(`خصم ${l.discount}%`);
+    if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
+    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -3167,12 +3348,34 @@ async function printPurchase(purId){
   await sendDocument(`فاتورة مشتريات #${pur.number}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
 }
 
+async function printPurchasesSummaryPdf(from,to){
+  const filtered=[...purchases].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
+  const total=filtered.reduce((s,p)=>s+p.total,0);
+  const rows=filtered.map(p=>{
+    const s=suppliers.find(s=>s.id===p.supplierId);
+    return `<tr><td>${p.number}</td><td>${s?.name||'—'}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
+  }).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
+      <div><strong>عدد فواتير المشتريات:</strong> ${filtered.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(total)}</div><div class="l">إجمالي المشتريات</div></div>
+    </div>
+    ${filtered.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد فواتير مشتريات في الفترة المحددة</div>':`<table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>`}
+    <div class="doc-total">إجمالي المشتريات: ${fmt(total)} جنيه</div>`;
+  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:`-${today()}`;
+  await sendDocument('تقرير المشتريات', body, `تقرير-المشتريات${suffix}.pdf`);
+}
+
 // ===== SUPPLIER PAYMENTS (تبويب سداد المورد) =====
 let showSupPayTabForm=false;
 let supPayTabDetailId=null;
 
 async function printSupplierPaymentsSummaryPdf(){
-  const sorted=[...supplierPayments].sort((a,b)=>a.date.localeCompare(b.date));
+  const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr><td>${p.date}</td><td>${s?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
@@ -3193,7 +3396,7 @@ async function printSupplierPaymentsSummaryPdf(){
 
 function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
-  const sorted=[...supplierPayments].sort((a,b)=>b.date.localeCompare(a.date));
+  const sorted=[...supplierPayments].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
   const supOptsArr=debtors.map(s=>({id:s.id,label:s.name,sub:`مستحق: ${fmt(supplierBalance(s.id))} ج`}));
   const rows=sorted.map(p=>{
@@ -3242,7 +3445,7 @@ function saveSupplierPaymentTab(){
   const date=document.getElementById('sp2_date')?.value||today();
   const note=document.getElementById('sp2_note')?.value||'';
   if(!supplierId||!amount){alert('اختر مورد وأدخل المبلغ');return;}
-  supplierPayments.push({id:uid(),supplierId,amount,date,note});
+  supplierPayments.push({id:uid(),supplierId,amount,date,note,createdAt:new Date().toISOString()});
   save();showSupPayTabForm=false;renderSupPayTab();
 }
 
@@ -3319,7 +3522,7 @@ function goBackFromPurRetDetail(){
 
 function renderPurReturns(){
   if(purRetDetailId){renderPurRetDetail();return;}
-  const sorted=[...purchaseReturns].sort((a,b)=>b.date.localeCompare(a.date));
+  const sorted=[...purchaseReturns].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
