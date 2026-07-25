@@ -1363,6 +1363,7 @@ function deleteClientNote(id){
 let invDetailId=null;
 let invDetailFromClient=null;
 let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:''}];
+let invOverallDiscount=0;
 let showInvForm=false;
 let editInvoiceId=null;
 let invSearch='';
@@ -1546,10 +1547,13 @@ function renderInvoices(){
       </div>`:''}
     </div>`;
   }).join('');
-  const total=invLines.reduce((s,l)=>{
+  const subtotal=invLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
   },0);
+  const invDiscPct=Number(invOverallDiscount)||0;
+  const invDiscAmount=subtotal*invDiscPct/100;
+  const total=subtotal-invDiscAmount;
   document.getElementById('tab-invoices').innerHTML=`
     ${showInvForm?`
     <div class="card">
@@ -1564,6 +1568,11 @@ function renderInvoices(){
         ${linesHtml}
         <button class="btn-outline" style="margin-bottom:10px" onclick="addLine()">+ إضافة صنف</button>
         <div class="divider"></div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">خصم % على إجمالي الفاتورة</div><input type="number" min="0" max="100" id="inv_overall_discount" value="${invOverallDiscount||''}" placeholder="0" onchange="updateInvOverallDiscount(this.value)"></div>
+        </div>
+        ${invDiscPct>0?`<div class="bonus-box">✂️ خصم ${invDiscPct}% على إجمالي الفاتورة (- ${fmt(invDiscAmount)} ج) — الإجمالي قبل الخصم: ${fmt(subtotal)} ج</div>`:''}
+        <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
           <div class="btn-row">
@@ -1575,7 +1584,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];invOverallDiscount=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -1600,20 +1609,14 @@ function editInvoice(id){
   if(!inv)return;
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
+  invOverallDiscount=Number(inv.overallDiscount)||0;
   showInvForm=true;
   invDetailId=null;
   renderInvoices();
 }
 
-function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});renderInvoices();}
-function removeLine(id){invLines=invLines.filter(l=>l.id!==id);renderInvoices();}
-function updateLine(id,field,value){
-  invLines=invLines.map(l=>{
-    if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',price:p?.price?Number(p.price):l.price};}
-    return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
-  });
-  // نحفظ اختيار العميل والتاريخ قبل الرندر
+// إعادة رسم فورم الفاتورة مع الحفاظ على العميل المختار والتاريخ (بيتصفروا لو عملنا render عادي)
+function rerenderInvoiceFormKeepFields(){
   const savedClient=document.getElementById('inv_client')?.value;
   const savedClientText=document.getElementById('inv_client_search')?.value;
   const savedDate=document.getElementById('inv_date')?.value;
@@ -1622,6 +1625,18 @@ function updateLine(id,field,value){
     if(savedClient){const el=document.getElementById('inv_client');if(el)el.value=savedClient;const st=document.getElementById('inv_client_search');if(st)st.value=savedClientText||'';}
     if(savedDate){const el=document.getElementById('inv_date');if(el)el.value=savedDate;}
   },0);
+}
+
+function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderInvoiceFormKeepFields();}
+function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
+function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rerenderInvoiceFormKeepFields();}
+function updateLine(id,field,value){
+  invLines=invLines.map(l=>{
+    if(l.id!==id)return l;
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',price:p?.price?Number(p.price):l.price};}
+    return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
+  });
+  rerenderInvoiceFormKeepFields();
 }
 
 function saveInvoice(){
@@ -1674,14 +1689,16 @@ function saveInvoice(){
       }
     }
   }
-  const total=invLines.reduce((s,l)=>{
+  const subtotal=invLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
   },0);
+  const overallDiscount=Number(invOverallDiscount)||0;
+  const total=subtotal-(subtotal*overallDiscount/100);
   const invId = editInvoiceId || uid();
   const invNumber = removedInv ? removedInv.number : (invoices.length>0?Math.max(...invoices.map(i=>i.number||0)):0)+1;
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),total,createdAt};
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
   invoices.push(inv);
   // خصم الكمية الفعلية + البونص من المخزن
   invLines.forEach(l=>{
@@ -1690,7 +1707,7 @@ function saveInvoice(){
       movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];invOverallDiscount=0;renderInvoices();
 }
 
 function deleteInvoice(id){
@@ -1723,6 +1740,7 @@ async function printInvoice(invId){
       <div><strong>التاريخ:</strong> ${inv.date}</div>
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    ${inv.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(inv.subtotal)} جنيه</div><div>خصم ${inv.overallDiscount}% على الفاتورة: -${fmt(inv.subtotal-inv.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>`;
   await sendDocument(`فاتورة #${inv.number}`, body, `فاتورة-${inv.number}.pdf`);
 }
@@ -1775,6 +1793,7 @@ function renderInvDetail(){
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
+        ${inv.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${inv.overallDiscount}% على إجمالي الفاتورة (- ${fmt(inv.subtotal-inv.total)} ج) — الإجمالي قبل الخصم: ${fmt(inv.subtotal)} ج</div>`:''}
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printInvoice('${inv.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
@@ -3084,6 +3103,7 @@ async function printSupplierStatement(sid){
 
 // ===== PURCHASES =====
 let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
+let purOverallDiscount=0;
 let showPurForm=false;
 let purDetailId=null;
 let editPurchaseId=null;
@@ -3172,10 +3192,13 @@ function renderPurchases(){
       </div>`;
     }).join('');
 
-    const purTotal=purchaseLines.reduce((s,l)=>{
+    const purSubtotal=purchaseLines.reduce((s,l)=>{
       const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
       return s+(Number(l.qty)*afterDiscount);
     },0);
+    const purDiscPct=Number(purOverallDiscount)||0;
+    const purDiscAmount=purSubtotal*purDiscPct/100;
+    const purTotal=purSubtotal-purDiscAmount;
     formHtml=`<div class="card">
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
@@ -3187,6 +3210,11 @@ function renderPurchases(){
         <div class="section-title">📦 أصناف فاتورة المشتريات</div>
         ${linesHtml}
         <button class="btn-outline" style="margin-bottom:10px" onclick="addPurLine()">+ إضافة صنف</button>
+        <div class="divider"></div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">خصم % على إجمالي الفاتورة</div><input type="number" min="0" max="100" id="pur_overall_discount" value="${purOverallDiscount||''}" placeholder="0" onchange="updatePurOverallDiscount(this.value)"></div>
+        </div>
+        ${purDiscPct>0?`<div class="bonus-box">✂️ خصم ${purDiscPct}% على إجمالي الفاتورة (- ${fmt(purDiscAmount)} ج) — الإجمالي قبل الخصم: ${fmt(purSubtotal)} ج</div>`:''}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
@@ -3203,7 +3231,7 @@ function renderPurchases(){
     ${formHtml}
     <div class="search-row">
       <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${purSearch}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
-      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -3228,19 +3256,14 @@ function editPurchase(id){
   if(!pur)return;
   editPurchaseId=id;
   purchaseLines=(pur.lines||[]).map(l=>({...l}));
+  purOverallDiscount=Number(pur.overallDiscount)||0;
   showPurForm=true;
   purDetailId=null;
   renderPurchases();
 }
 
-function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});renderPurchases();}
-function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);renderPurchases();}
-function updatePurLine(id,field,value){
-  purchaseLines=purchaseLines.map(l=>{
-    if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
-    return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
-  });
+// إعادة رسم فورم فاتورة المشتريات مع الحفاظ على المورد المختار والتاريخ (بيتصفروا لو عملنا render عادي)
+function rerenderPurchaseFormKeepFields(){
   const savedSup=document.getElementById('pur_supplier')?.value;
   const savedSupText=document.getElementById('pur_supplier_search')?.value;
   const savedDate=document.getElementById('pur_date')?.value;
@@ -3251,15 +3274,29 @@ function updatePurLine(id,field,value){
   },0);
 }
 
+function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderPurchaseFormKeepFields();}
+function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);rerenderPurchaseFormKeepFields();}
+function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rerenderPurchaseFormKeepFields();}
+function updatePurLine(id,field,value){
+  purchaseLines=purchaseLines.map(l=>{
+    if(l.id!==id)return l;
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
+    return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
+  });
+  rerenderPurchaseFormKeepFields();
+}
+
 function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
   const date=document.getElementById('pur_date')?.value||today();
   if(!supplierId){alert('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
-  const total=purchaseLines.reduce((s,l)=>{
+  const subtotal=purchaseLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
   },0);
+  const overallDiscount=Number(purOverallDiscount)||0;
+  const total=subtotal-(subtotal*overallDiscount/100);
 
   let removedPur=null;
   if(editPurchaseId){
@@ -3271,7 +3308,7 @@ function savePurchase(){
   const purId = editPurchaseId || uid();
   const purNum = removedPur ? removedPur.number : (purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
   const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
-  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),total,createdAt};
+  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
   purchases.push(pur);
   // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
   purchaseLines.forEach(l=>{
@@ -3280,7 +3317,7 @@ function savePurchase(){
       movements.push({id:uid(),productId:l.productId,type:'in',qty:totalQty,date,note:'ف.مشتريات #'+purNum+(l.bonus>0?` (${l.qty} شراء + ${l.bonus} بونص)`:``),purchaseId:pur.id,expiry:l.expiry||''});
     }
   });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;renderPurchases();
 }
 
 function deletePurchase(id){
@@ -3316,6 +3353,7 @@ function renderPurDetail(){
         <thead><tr><th>المنتج</th><th>الصلاحية</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
         <tbody>${linesRows}</tbody>
       </table></div>
+      ${pur.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${pur.overallDiscount}% على إجمالي الفاتورة (- ${fmt(pur.subtotal-pur.total)} ج) — الإجمالي قبل الخصم: ${fmt(pur.subtotal)} ج</div>`:''}
       <div class="btn-row" style="margin-top:12px">
         <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchase('${pur.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
         <button class="btn orange" onclick="editPurchase('${pur.id}')">✏️ تعديل</button>
@@ -3344,6 +3382,7 @@ async function printPurchase(purId){
       <div><strong>التاريخ:</strong> ${pur.date}</div>
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    ${pur.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(pur.subtotal)} جنيه</div><div>خصم ${pur.overallDiscount}% على الفاتورة: -${fmt(pur.subtotal-pur.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>`;
   await sendDocument(`فاتورة مشتريات #${pur.number}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
 }
