@@ -226,6 +226,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   <div id="tab-expenses" style="display:none"></div>
   <div id="tab-treasury" style="display:none"></div>
   <div id="tab-pricelist" style="display:none"></div>
+  <div id="tab-banks" style="display:none"></div>
 </div>
 
 <!-- زر التواصل السريع (واتساب) -->
@@ -278,10 +279,11 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
+let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
 let treasuryOpening=0;
 let repNotes=[];
 let clientNotes=[];
@@ -365,11 +367,13 @@ const save=()=>{
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.repNotes,repNotes);
   idbSet(KEYS.clientNotes,clientNotes);
+  idbSet(KEYS.checksPayable,checksPayable);
+  idbSet(KEYS.checksReceivable,checksReceivable);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -385,6 +389,8 @@ async function loadAllData(){
   treasuryOpening=Number(tOpen)||0;
   repNotes=rNotes||[];
   clientNotes=cNotes||[];
+  checksPayable=chkPay||[];
+  checksReceivable=chkRec||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -500,7 +506,8 @@ const TAB_DEFS=[
   {id:'reports',icon:'📊',label:'التقارير'},
   {id:'expenses',icon:'💸',label:'مصاريف المندوب'},
   {id:'treasury',icon:'🏦',label:'الخزنة'},
-  {id:'pricelist',icon:'📋',label:'قائمة الأسعار'}
+  {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
+  {id:'banks',icon:'🏛️',label:'البنوك'}
 ];
 // بيتأكد إن الترتيب المحفوظ لسه متطابق مع التبويبات الموجودة فعلاً (لو تبويب اتضاف أو اتشال بعدين)
 function sanitizeTabOrder(saved){
@@ -581,6 +588,7 @@ function render(){
   else if(currentTab==='expenses')renderExpenses();
   else if(currentTab==='treasury')renderTreasury();
   else if(currentTab==='pricelist')renderPriceList();
+  else if(currentTab==='banks')renderBanks();
 }
 
 // رصيد المورد = رصيد افتتاحي + مشتريات - مدفوع - مردود مشتريات
@@ -894,7 +902,24 @@ function renderHome(){
         </table>
       </div>
     </div>`:''}
-    ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}`;
+    ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}
+    ${(()=>{
+      const soon=new Date(); soon.setDate(soon.getDate()+7);
+      const soonStr=soon.toISOString().slice(0,10);
+      const dueSoon=[
+        ...checksPayable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'دفع'})),
+        ...checksReceivable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'قبض'}))
+      ].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+      if(!dueSoon.length) return '';
+      const dueRows=dueSoon.map(c=>{
+        const overdue=c.dueDate<today();
+        return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;cursor:pointer" onclick="banksSubView='${c.kind==='دفع'?'payable':'receivable'}';switchTab('banks')">
+          <span>${checkHolderDisplay(c)} — شيك ${c.kind} #${c.number}</span>
+          <span style="color:${overdue?'#C0392B':'#D68910'};font-weight:bold">${fmt(c.amount)} ج (${c.dueDate}${overdue?' متأخر':''})</span>
+        </div>`;
+      }).join('');
+      return `<div class="card warn-box"><div class="card-head orange">🏛️ شيكات مستحقة خلال 7 أيام</div><div class="card-body">${dueRows}</div></div>`;
+    })()}`;
 }
 
 // ===== CLIENTS =====
@@ -2626,19 +2651,25 @@ function treasuryData(day){
   const incoming=payments.filter(p=>p.date===day).map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:p.amount};
-  }).sort((a,b)=>a.date.localeCompare(b.date));
+  });
+  const inChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate===day).map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
+  incoming.push(...inChecks);
+  incoming.sort((a,b)=>a.date.localeCompare(b.date));
   const outSup=supplierPayments.filter(p=>p.date===day).map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:p.amount};
   });
   const outExp=expenses.filter(e=>e.date===day).map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
-  const outgoing=[...outSup,...outExp].sort((a,b)=>a.date.localeCompare(b.date));
+  const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day).map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
+  const outgoing=[...outSup,...outExp,...outChecks].sort((a,b)=>a.date.localeCompare(b.date));
 
-  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر
+  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات المحصّلة/المصروفة فعلياً)
   const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
+  const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day).reduce((s,c)=>s+c.amount,0);
   const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
   const priorOutExp=expenses.filter(e=>e.date<day).reduce((s,e)=>s+e.amount,0);
-  const dayOpening=treasuryOpening+priorIn-priorOutSup-priorOutExp;
+  const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day).reduce((s,c)=>s+c.amount,0);
+  const dayOpening=treasuryOpening+priorIn+priorInChecks-priorOutSup-priorOutExp-priorOutChecks;
 
   const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
   const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
@@ -2782,6 +2813,262 @@ async function printPriceListPdf(){
     </div>
     ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الشركة المصنعة</th><th>المادة الفعالة</th><th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
   await sendDocument('قائمة الأسعار', body, `قائمة-الأسعار-${today()}.pdf`);
+}
+
+// ===== البنوك (شيكات الدفع وشيكات القبض) =====
+let banksSubView='payable'; // 'payable' = شيكات الدفع | 'receivable' = شيكات القبض
+let editCheckId=null;
+let settlingCheckId=null;
+let chkUseCustomHolder=false;
+let banksStatusFilter='all'; // all | pending | done | bounced
+let banksSearch='';
+
+function currentChecksArr(){ return banksSubView==='payable'?checksPayable:checksReceivable; }
+function checkHolderOptsArr(subview){ return subview==='payable' ? suppliers.map(s=>({id:s.id,label:s.name})) : clients.map(c=>({id:c.id,label:c.name})); }
+// بيرجع اسم صاحب الشيك: لو مرتبط بعميل/مورد بيدوّر عليه بالاسم الحالي، ولو مش لاقيه (اتحذف) أو كان اسم حر بيرجع الاسم المحفوظ وقت الإدخال
+function checkHolderDisplay(c){
+  if(!c) return '—';
+  if(c.holderType==='custom') return c.holderName||'—';
+  const arr=c.holderType==='supplier'?suppliers:clients;
+  const found=arr.find(x=>x.id===c.holderId);
+  return found?found.name:(c.holderName||'—');
+}
+
+function switchBanksSubView(v){
+  banksSubView=v; editCheckId=null; settlingCheckId=null; chkUseCustomHolder=false; banksStatusFilter='all'; banksSearch='';
+  renderBanks();
+}
+function toggleChkHolderMode(){ chkUseCustomHolder=!chkUseCustomHolder; renderBanks(); }
+function resetCheckForm(){ editCheckId=null; chkUseCustomHolder=false; renderBanks(); }
+function editCheck(id){
+  const c=currentChecksArr().find(x=>x.id===id);
+  if(!c)return;
+  editCheckId=id; chkUseCustomHolder=c.holderType==='custom'; settlingCheckId=null;
+  renderBanks();
+}
+
+function saveCheck(){
+  const isPayable=banksSubView==='payable';
+  const number=document.getElementById('chk_number')?.value?.trim();
+  const amount=Number(document.getElementById('chk_amount')?.value||0);
+  const bank=document.getElementById('chk_bank')?.value?.trim();
+  const dueDate=document.getElementById('chk_due')?.value||'';
+  const note=document.getElementById('chk_note')?.value?.trim()||'';
+  let holderType, holderId=null, holderName='';
+  if(chkUseCustomHolder){
+    holderType='custom';
+    holderName=document.getElementById('chk_holder_custom')?.value?.trim()||'';
+  }else{
+    holderId=document.getElementById('chk_holder')?.value||'';
+    holderType=isPayable?'supplier':'client';
+    const arr=isPayable?suppliers:clients;
+    const found=arr.find(x=>x.id===holderId);
+    holderName=found?found.name:'';
+  }
+  if(!number){alert('اكتب رقم الشيك');return;}
+  if(!amount||amount<=0){alert('أدخل مبلغ صحيح');return;}
+  if(!holderName){alert(chkUseCustomHolder?'اكتب اسم صاحب الشيك':'اختر صاحب الشيك من القايمة');return;}
+  if(!bank){alert('اكتب اسم البنك');return;}
+  if(!dueDate){alert('اختار تاريخ الاستحقاق');return;}
+
+  const arr=currentChecksArr();
+  if(editCheckId){
+    const c=arr.find(x=>x.id===editCheckId);
+    if(c){ c.number=number; c.amount=amount; c.holderType=holderType; c.holderId=holderId||null; c.holderName=holderName; c.bank=bank; c.dueDate=dueDate; c.note=note; }
+  }else{
+    arr.push({id:uid(),number,amount,holderType,holderId:holderId||null,holderName,bank,dueDate,note,status:'pending',settledDate:null,createdDate:today()});
+  }
+  save();
+  resetCheckForm();
+}
+
+function deleteCheck(id){
+  if(!confirm('متأكد من حذف الشيك ده؟'))return;
+  if(banksSubView==='payable') checksPayable=checksPayable.filter(c=>c.id!==id);
+  else checksReceivable=checksReceivable.filter(c=>c.id!==id);
+  save();
+  renderBanks();
+}
+
+function startSettleCheck(id){ settlingCheckId=id; renderBanks(); }
+function cancelSettleCheck(){ settlingCheckId=null; renderBanks(); }
+function confirmSettleCheck(id){
+  const dateVal=document.getElementById('chk_settle_date_'+id)?.value||today();
+  const c=currentChecksArr().find(x=>x.id===id);
+  if(!c)return;
+  c.status='done'; c.settledDate=dateVal;
+  save();
+  settlingCheckId=null;
+  renderBanks();
+}
+function markCheckBounced(id){
+  if(!confirm('تأكيد إن الشيك ده ارتد؟'))return;
+  const c=currentChecksArr().find(x=>x.id===id);
+  if(!c)return;
+  c.status='bounced'; c.settledDate=null;
+  save();
+  renderBanks();
+}
+function revertCheckStatus(id){
+  const c=currentChecksArr().find(x=>x.id===id);
+  if(!c)return;
+  c.status='pending'; c.settledDate=null;
+  save();
+  renderBanks();
+}
+
+function renderBanks(){
+  const isPayable=banksSubView==='payable';
+  const arrAll=currentChecksArr();
+  const editingChk=editCheckId?arrAll.find(c=>c.id===editCheckId):null;
+  const holderOpts=checkHolderOptsArr(banksSubView);
+
+  const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${banksStatusFilter===key?'#1A5276':'#D5D8DC'};color:${banksStatusFilter===key?'#fff':'#333'}" onclick="banksStatusFilter='${key}';renderBanks()">${label}</button>`;
+
+  let filtered=[...arrAll];
+  if(banksStatusFilter!=='all') filtered=filtered.filter(c=>c.status===banksStatusFilter);
+  if(banksSearch.trim()){
+    const q=banksSearch.trim();
+    filtered=filtered.filter(c=>c.number.includes(q)||checkHolderDisplay(c).includes(q)||(c.bank||'').includes(q));
+  }
+  filtered.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+
+  const pendingItems=arrAll.filter(c=>c.status==='pending');
+  const totalPending=pendingItems.reduce((s,c)=>s+c.amount,0);
+  const overdueItems=pendingItems.filter(c=>c.dueDate<today());
+  const totalOverdue=overdueItems.reduce((s,c)=>s+c.amount,0);
+
+  const rows=filtered.length?filtered.map(c=>{
+    const overdue=c.status==='pending'&&c.dueDate<today();
+    const statusBadge=c.status==='pending'
+      ?`<span class="badge orange">لسه</span>`
+      :c.status==='done'
+        ?`<span class="badge green">${isPayable?'تم الصرف':'تم التحصيل'}</span>`
+        :`<span class="badge red">مرتد</span>`;
+    const actionsOrForm = settlingCheckId===c.id
+      ? `<div class="form-row" style="padding:0 14px 10px;align-items:flex-end;margin:0">
+           <div class="form-group"><div class="lbl">تاريخ ${isPayable?'الصرف':'التحصيل'} الفعلي</div><input type="date" id="chk_settle_date_${c.id}" value="${today()}"></div>
+           <button class="btn-sm green" onclick="confirmSettleCheck('${c.id}')">✓ تأكيد</button>
+           <button class="btn-sm" style="background:#AAB7B8" onclick="cancelSettleCheck()">إلغاء</button>
+         </div>`
+      : `<div class="list-item-actions">
+           ${c.status==='pending'?`
+             <button class="btn-sm green" onclick="startSettleCheck('${c.id}')">✅ ${isPayable?'تم الصرف':'تم التحصيل'}</button>
+             <button class="btn-sm red" onclick="markCheckBounced('${c.id}')">↩️ مرتد</button>
+             <button class="btn-sm blue" onclick="editCheck('${c.id}')">✏️ تعديل</button>
+             <button class="btn-sm" style="background:#AAB7B8" onclick="deleteCheck('${c.id}')">🗑 حذف</button>
+           `:c.status==='done'?`
+             <button class="btn-sm" style="background:#AAB7B8" onclick="revertCheckStatus('${c.id}')">↩️ رجوع لحالة لسه</button>
+             <button class="btn-sm red" onclick="deleteCheck('${c.id}')">🗑 حذف</button>
+           `:`
+             <button class="btn-sm blue" onclick="revertCheckStatus('${c.id}')">↩️ رجوع لحالة لسه</button>
+             <button class="btn-sm blue" onclick="editCheck('${c.id}')">✏️ تعديل</button>
+             <button class="btn-sm red" onclick="deleteCheck('${c.id}')">🗑 حذف</button>
+           `}
+         </div>`;
+    return `<div class="list-item">
+      <div class="list-item-head">
+        <div>
+          <div class="list-item-name">${checkHolderDisplay(c)} ${overdue?'<span class="badge red">متأخر</span>':''}</div>
+          <div class="list-item-sub">🏦 ${c.bank} · شيك رقم #${c.number} · 📅 استحقاق ${c.dueDate}${c.status==='done'?` · ✅ ${c.settledDate}`:''}</div>
+        </div>
+        <div class="list-item-bal">
+          <div class="list-item-bal-num" style="color:${isPayable?'#C0392B':'#1E8449'}">${fmt(c.amount)} ج</div>
+          <div class="list-item-bal-lbl">${statusBadge}</div>
+        </div>
+      </div>
+      ${c.note?`<div style="padding:0 14px 6px;font-size:12px;color:#717D7E">📝 ${c.note}</div>`:''}
+      ${actionsOrForm}
+    </div>`;
+  }).join(''):`<div class="empty">لا توجد شيكات ${banksStatusFilter!=='all'||banksSearch.trim()?'مطابقة':''}</div>`;
+
+  document.getElementById('tab-banks').innerHTML=`
+    <div class="page-title" style="margin-bottom:14px">🏛️ البنوك</div>
+    <div class="btn-row" style="margin-bottom:14px">
+      <button class="btn-sm" style="padding:9px 16px;font-size:13px;background:${isPayable?'#1A5276':'#D5D8DC'};color:${isPayable?'#fff':'#333'}" onclick="switchBanksSubView('payable')">📤 شيكات الدفع</button>
+      <button class="btn-sm" style="padding:9px 16px;font-size:13px;background:${!isPayable?'#1A5276':'#D5D8DC'};color:${!isPayable?'#fff':'#333'}" onclick="switchBanksSubView('receivable')">📥 شيكات القبض</button>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head ${editingChk?'orange':'green'}">${editingChk?'✏️ تعديل الشيك':'➕ إضافة '+(isPayable?'شيك دفع':'شيك قبض')+' جديد'}</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">رقم الشيك *</div><input type="text" id="chk_number" placeholder="مثال: 123456" value="${editingChk?editingChk.number:''}"></div>
+          <div class="form-group"><div class="lbl">مبلغ الشيك *</div><input type="number" id="chk_amount" min="0" placeholder="0" value="${editingChk?editingChk.amount:''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <div class="lbl" style="display:flex;justify-content:space-between">
+              <span>${isPayable?'صاحب الشيك (المستفيد) *':'صاحب الشيك (العميل) *'}</span>
+              <span style="font-size:11px;color:#2E86C1;cursor:pointer;font-weight:normal" onclick="toggleChkHolderMode()">${chkUseCustomHolder?'↩ اختار من القايمة':'✎ اسم يدوي؟'}</span>
+            </div>
+            ${chkUseCustomHolder
+              ?`<input type="text" id="chk_holder_custom" placeholder="اكتب الاسم..." value="${editingChk&&editingChk.holderType==='custom'?editingChk.holderName:''}">`
+              :searchableSelectHtml('chk_holder', holderOpts, isPayable?'🔍 دور على المورد...':'🔍 دور على العميل...', (editingChk&&editingChk.holderType!=='custom')?editingChk.holderId:'')}
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">البنك *</div><input type="text" id="chk_bank" placeholder="مثال: البنك الأهلي" value="${editingChk?editingChk.bank:''}"></div>
+          <div class="form-group"><div class="lbl">تاريخ الاستحقاق *</div><input type="date" id="chk_due" value="${editingChk?editingChk.dueDate:''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="chk_note" placeholder="..." value="${editingChk?(editingChk.note||''):''}"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn ${editingChk?'orange':'green'}" onclick="saveCheck()">${editingChk?'✓ حفظ التعديل':'✓ حفظ الشيك'}</button>
+          ${editingChk?`<button class="btn-outline" onclick="resetCheckForm()">إلغاء</button>`:''}
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="border-right:4px solid ${isPayable?'#C0392B':'#1E8449'};margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-size:12px;color:#717D7E;margin-bottom:2px">إجمالي الشيكات لسه (${pendingItems.length})</div>
+          <div style="font-size:22px;font-weight:bold;color:${isPayable?'#C0392B':'#1E8449'}">${fmt(totalPending)} ج</div>
+        </div>
+        ${overdueItems.length?`<div>
+          <div style="font-size:12px;color:#717D7E;margin-bottom:2px">متأخرة (${overdueItems.length})</div>
+          <div style="font-size:22px;font-weight:bold;color:#C0392B">${fmt(totalOverdue)} ج</div>
+        </div>`:''}
+      </div>
+    </div>
+
+    <div class="search-row" style="align-items:center;flex-wrap:wrap">
+      <input type="text" style="flex:1;min-width:140px;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px" placeholder="🔍 بحث برقم الشيك/الاسم/البنك..." value="${banksSearch}" oninput="searchInputHandler(this,v=>banksSearch=v,renderBanks)">
+      ${arrAll.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printChecksPdf('${banksSubView}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير PDF</button>`:''}
+    </div>
+    <div class="btn-row" style="margin-bottom:12px">
+      ${filterBtn('all','الكل')}
+      ${filterBtn('pending','لسه')}
+      ${filterBtn('done',isPayable?'تم الصرف':'تم التحصيل')}
+      ${filterBtn('bounced','مرتد')}
+    </div>
+
+    ${rows}`;
+}
+
+async function printChecksPdf(subview){
+  const isPayable=subview==='payable';
+  const arr=(isPayable?checksPayable:checksReceivable).slice().sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const statusLabel=c=>c.status==='pending'?'لسه':c.status==='done'?(isPayable?'تم الصرف':'تم التحصيل'):'مرتد';
+  const rows=arr.map(c=>`<tr>
+      <td>${c.number}</td>
+      <td>${checkHolderDisplay(c)}</td>
+      <td>${c.bank}</td>
+      <td>${c.dueDate}</td>
+      <td style="font-weight:bold">${fmt(c.amount)}</td>
+      <td>${statusLabel(c)}</td>
+    </tr>`).join('');
+  const total=arr.reduce((s,c)=>s+c.amount,0);
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      <div><strong>عدد الشيكات:</strong> ${arr.length}</div>
+    </div>
+    ${arr.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد شيكات</div>':`<table><thead><tr><th>رقم الشيك</th><th>${isPayable?'المستفيد':'العميل'}</th><th>البنك</th><th>الاستحقاق</th><th>المبلغ</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="doc-total">إجمالي ${isPayable?'شيكات الدفع':'شيكات القبض'}: ${fmt(total)} جنيه</div>`}`;
+  await sendDocument(isPayable?'تقرير شيكات الدفع':'تقرير شيكات القبض', body, `${isPayable?'شيكات-الدفع':'شيكات-القبض'}-${today()}.pdf`);
 }
 
 // ===== ACTIVATION SYSTEM =====
