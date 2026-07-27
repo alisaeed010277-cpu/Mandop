@@ -6,12 +6,12 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="البيطري المتكامل">
+<meta name="apple-mobile-web-app-title" content="صديقك المحاسبي">
 <meta name="theme-color" content="#1A5276">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>مدير البيطري المتكامل</title>
+<title>صديقك المحاسبي</title>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -64,6 +64,7 @@ input[type=text],input[type=number],input[type=date],select,input[type=tel]{bord
 .btn-sm.red{background:#C0392B;}
 .btn-sm.green{background:#1E8449;}
 .btn-sm.purple{background:#7D3C98;}
+.btn-sm.orange{background:#D68910;}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{background:#1A5276;color:#fff;padding:8px 10px;text-align:right;font-size:12px;}
@@ -154,7 +155,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 
 <div id="splashScreen">
   <div class="splash-icon"><svg width="70" height="70" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg></div>
-  <div class="splash-title">مدير البيطري المتكامل</div>
+  <div class="splash-title">صديقك المحاسبي</div>
   <div class="splash-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
   <div class="splash-line"></div>
   <div class="splash-dev">Ali Saeed (ElNokhba)</div>
@@ -165,7 +166,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 
 <div class="header">
   <div>
-    <div class="header-title"><svg width="26" height="26" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-left:6px"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg> مدير البيطري المتكامل</div>
+    <div class="header-title"><svg width="26" height="26" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-left:6px"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg> صديقك المحاسبي</div>
     <div class="header-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
     <div id="companyBar" style="margin-top:3px"></div>
   </div>
@@ -230,7 +231,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 </div>
 
 <!-- زر التواصل السريع (واتساب) -->
-<button class="whatsapp-float" onclick="window.open('https://wa.me/201552623744?text=' + encodeURIComponent('مرحباً، أحتاج مساعدة بخصوص تطبيق مدير البيطري المتكامل'), '_blank')" title="تواصل واتساب" aria-label="تواصل واتساب">
+<button class="whatsapp-float" onclick="window.open('https://wa.me/201552623744?text=' + encodeURIComponent('مرحباً، أحتاج مساعدة بخصوص تطبيق صديقك المحاسبي'), '_blank')" title="تواصل واتساب" aria-label="تواصل واتساب">
   <svg viewBox="0 0 24 24" fill="#fff"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.148.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12.001 2C6.478 2 2 6.478 2 12c0 1.85.502 3.585 1.376 5.073L2 22l5.06-1.352A9.94 9.94 0 0 0 12 22c5.523 0 10-4.478 10-10S17.523 2 12.001 2zm0 18.2c-1.618 0-3.132-.44-4.43-1.203l-.318-.19-3.006.803.803-2.93-.207-.328A8.17 8.17 0 0 1 3.8 12c0-4.53 3.671-8.2 8.2-8.2s8.2 3.67 8.2 8.2-3.671 8.2-8.199 8.2z"/></svg>
   <span>التواصل للمساعدة</span>
 </button>
@@ -279,11 +280,12 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
+let bankAccounts=[]; // حسابات الشركة البنكية
 let treasuryOpening=0;
 let repNotes=[];
 let clientNotes=[];
@@ -369,11 +371,12 @@ const save=()=>{
   idbSet(KEYS.clientNotes,clientNotes);
   idbSet(KEYS.checksPayable,checksPayable);
   idbSet(KEYS.checksReceivable,checksReceivable);
+  idbSet(KEYS.bankAccounts,bankAccounts);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -391,6 +394,7 @@ async function loadAllData(){
   clientNotes=cNotes||[];
   checksPayable=chkPay||[];
   checksReceivable=chkRec||[];
+  bankAccounts=bAcc||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -1025,14 +1029,14 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
       <div style="text-align:right">
         <div class="doc-title">${companyProfile.name}</div>
         ${companyProfile.phone?`<div style="font-size:12px;color:#717D7E;margin-top:2px">${companyProfile.phone}</div>`:''}
-      </div>` : `<div class="doc-title">مدير البيطري المتكامل</div>`;
+      </div>` : `<div class="doc-title">صديقك المحاسبي</div>`;
   return `<div class="doc-header">
       <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
       <div class="doc-meta">${title}</div>
     </div>
     ${bodyHtml}
     <div class="doc-footer" style="display:flex;align-items:center;gap:5px;justify-content:flex-start;direction:ltr;text-align:left">
-      ${smallAppLogo}<span>مدير البيطري المتكامل — Developed by: Ali Saeed (ElNokhba) — 01552623744</span>
+      ${smallAppLogo}<span>صديقك المحاسبي — Developed by: Ali Saeed (ElNokhba) — 01552623744</span>
     </div>`;
 }
 
@@ -2151,6 +2155,7 @@ function deleteReturn(id){
 let stockSubTab='overview';
 let stockDetailId=null;
 let showProductForm=false;
+let editProductId=null;
 let showMovForm=false;
 let stockListSearch='';
 let currentMovType='in';
@@ -2216,6 +2221,7 @@ function renderStockOverview(){
       </div>
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="stockDetailId='${p.id}';renderStock()">📋 الحركات</button>
+        <button class="btn-sm orange" onclick="editProduct('${p.id}')">✏️ تعديل</button>
         <button class="btn-sm red" onclick="deleteProduct('${p.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -2225,36 +2231,41 @@ function renderStockOverview(){
       <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
-    ${showProductForm?`
+    ${showProductForm?(()=>{
+      const editingP=editProductId?stock.find(p=>p.id===editProductId):null;
+      return `
     <div class="card">
-      <div class="card-head green">إضافة منتج جديد</div>
+      <div class="card-head ${editingP?'orange':'green'}">${editingP?'✏️ تعديل بيانات المنتج':'إضافة منتج جديد'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${editingP?editingP.name:''}"></div>
           <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
-            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر...">
+            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${editingP?(editingP.unit||''):''}">
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة"></div>
-          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة"></div>
+          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${editingP?(editingP.manufacturer||''):''}"></div>
+          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${editingP?(editingP.activeIngredient||''):''}"></div>
         </div>
+        ${editingP?'':`
         <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" placeholder="0"></div>
           <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${today()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية"></div>
-        </div>
+        </div>`}
         <div class="form-row">
-          <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0"></div>
+          <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0" value="${editingP?(editingP.price||''):''}"></div>
         </div>
+        ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
         <div class="btn-row">
-          <button class="btn green" onclick="addProduct()">+ إضافة</button>
-          <button class="btn-outline" onclick="showProductForm=false;renderStock()">إلغاء</button>
+          <button class="btn ${editingP?'orange':'green'}" onclick="saveProduct()">${editingP?'✓ حفظ التعديل':'+ إضافة'}</button>
+          <button class="btn-outline" onclick="editProductId=null;showProductForm=false;renderStock()">إلغاء</button>
         </div>
       </div>
-    </div>`:''}
+    </div>`;
+    })():''}
     ${showMovForm?`
     <div class="card">
       <div class="card-head">تسجيل حركة مخزن</div>
@@ -2287,22 +2298,39 @@ function renderStockOverview(){
       </div>
     </div>`:''}
     <div class="btn-row" style="margin-bottom:10px">
-      ${!showProductForm?`<button class="btn blue" onclick="showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
+      ${!showProductForm?`<button class="btn blue" onclick="editProductId=null;showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
       ${!showMovForm?`<button class="btn green" onclick="showMovForm=true;renderStock()">+ حركة مخزن</button>`:''}
     </div>
     ${filteredStock.length===0?`<div class="empty">${stock.length===0?'لا توجد منتجات. أضف منتجاتك أولاً.':'لا توجد نتائج بحث'}</div>`:items}`;
 }
 
-function addProduct(){
+function editProduct(id){
+  editProductId=id;
+  showProductForm=true;
+  renderStock();
+}
+function saveProduct(){
   const name=document.getElementById('p_name')?.value.trim();
   const unit=document.getElementById('p_unit')?.value||'وحدة';
   const manufacturer=document.getElementById('p_manufacturer')?.value.trim()||'';
   const activeIngredient=document.getElementById('p_active')?.value.trim()||'';
+  const price=Number(document.getElementById('p_price')?.value||0);
+  if(!name){alert('أدخل اسم المنتج');return;}
+  if(editProductId){
+    const p=stock.find(p=>p.id===editProductId);
+    if(!p){editProductId=null;showProductForm=false;renderStock();return;}
+    p.name=name; p.unit=unit;
+    if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
+    if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
+    if(price>0)p.price=price; else delete p.price;
+    save();
+    editProductId=null; showProductForm=false;
+    renderStock();
+    return;
+  }
   const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
   const openingDate=document.getElementById('p_opening_date')?.value||today();
   const openingExpiry=document.getElementById('p_opening_expiry')?.value||'';
-  const price=Number(document.getElementById('p_price')?.value||0);
-  if(!name){alert('أدخل اسم المنتج');return;}
   const newProduct={id:uid(),name,unit};
   if(manufacturer)newProduct.manufacturer=manufacturer;
   if(activeIngredient)newProduct.activeIngredient=activeIngredient;
@@ -2412,7 +2440,7 @@ async function doExportShare(){
   if(navigator.share){
     try{
       if(navigator.canShare && navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من مدير البيطري المتكامل'});
+        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من صديقك المحاسبي'});
       }else{
         await navigator.share({title:'نسخة احتياطية - '+fileName,text:'تم حفظ الملف على جهازك، ارفعه على جوجل درايف أو جيميل من مدير الملفات.'});
       }
@@ -2652,7 +2680,7 @@ function treasuryData(day){
     const c=clients.find(c=>c.id===p.clientId);
     return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:p.amount};
   });
-  const inChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate===day).map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
+  const inChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   incoming.push(...inChecks);
   incoming.sort((a,b)=>a.date.localeCompare(b.date));
   const outSup=supplierPayments.filter(p=>p.date===day).map(p=>{
@@ -2660,15 +2688,15 @@ function treasuryData(day){
     return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:p.amount};
   });
   const outExp=expenses.filter(e=>e.date===day).map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
-  const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day).map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
+  const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
   const outgoing=[...outSup,...outExp,...outChecks].sort((a,b)=>a.date.localeCompare(b.date));
 
-  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات المحصّلة/المصروفة فعلياً)
+  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً؛ شيكات البنك ليها حساباتها الخاصة)
   const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
-  const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day).reduce((s,c)=>s+c.amount,0);
+  const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
   const priorOutExp=expenses.filter(e=>e.date<day).reduce((s,e)=>s+e.amount,0);
-  const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day).reduce((s,c)=>s+c.amount,0);
+  const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const dayOpening=treasuryOpening+priorIn+priorInChecks-priorOutSup-priorOutExp-priorOutChecks;
 
   const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
@@ -2815,13 +2843,21 @@ async function printPriceListPdf(){
   await sendDocument('قائمة الأسعار', body, `قائمة-الأسعار-${today()}.pdf`);
 }
 
-// ===== البنوك (شيكات الدفع وشيكات القبض) =====
-let banksSubView='payable'; // 'payable' = شيكات الدفع | 'receivable' = شيكات القبض
+// ===== البنوك (شيكات الدفع وشيكات القبض والحساب البنكي) =====
+const EGYPT_BANKS=['البنك الأهلي المصري','بنك مصر','البنك التجاري الدولي CIB','بنك القاهرة','البنك العربي الأفريقي الدولي','بنك QNB الأهلي','بنك HSBC مصر','بنك الإسكندرية','البنك العقاري المصري العربي','بنك فيصل الإسلامي المصري','مصرف أبوظبي الإسلامي - مصر','بنك التعمير والإسكان','بنك كريدي أجريكول مصر','البنك السعودي المصري','الشركة المصرفية العربية الدولية','بنك المشرق مصر','بنك الكويت الوطني - مصر','بنك عودة مصر','بنك أبوظبي التجاري - مصر','البنك الزراعي المصري','بنك ناصر الاجتماعي','البنك المتحد','بنك الإمارات دبي الوطني - مصر','البنك المصري لتنمية الصادرات'];
+
+let banksSubView='payable'; // 'payable' = شيكات الدفع | 'receivable' = شيكات القبض | 'accounts' = الحساب البنكي
 let editCheckId=null;
 let settlingCheckId=null;
+let settlingDestination='cash'; // 'cash' (الخزنة) | 'bank' (حساب بنكي) — بيتحدد وقت تسوية الشيك
+let settlingBankAccountId='';
 let chkUseCustomHolder=false;
 let banksStatusFilter='all'; // all | pending | done | bounced
 let banksSearch='';
+let bankAccountDetailId=null; // لعرض كشف حساب بنكي معين لما يبقى فيه أكتر من حساب
+let editBankAccId=null;
+let bankAccUseCustomName=false;
+let showAddAccountForm=false;
 
 function currentChecksArr(){ return banksSubView==='payable'?checksPayable:checksReceivable; }
 function checkHolderOptsArr(subview){ return subview==='payable' ? suppliers.map(s=>({id:s.id,label:s.name})) : clients.map(c=>({id:c.id,label:c.name})); }
@@ -2836,6 +2872,7 @@ function checkHolderDisplay(c){
 
 function switchBanksSubView(v){
   banksSubView=v; editCheckId=null; settlingCheckId=null; chkUseCustomHolder=false; banksStatusFilter='all'; banksSearch='';
+  bankAccountDetailId=null; editBankAccId=null; bankAccUseCustomName=false; showAddAccountForm=false;
   renderBanks();
 }
 function toggleChkHolderMode(){ chkUseCustomHolder=!chkUseCustomHolder; renderBanks(); }
@@ -2890,13 +2927,29 @@ function deleteCheck(id){
   renderBanks();
 }
 
-function startSettleCheck(id){ settlingCheckId=id; renderBanks(); }
+function startSettleCheck(id){
+  settlingCheckId=id;
+  settlingDestination='cash';
+  settlingBankAccountId=bankAccounts.length===1?bankAccounts[0].id:'';
+  renderBanks();
+}
+function setSettleDestination(dest){
+  settlingDestination=dest;
+  if(dest==='bank'&&bankAccounts.length===1) settlingBankAccountId=bankAccounts[0].id;
+  renderBanks();
+}
 function cancelSettleCheck(){ settlingCheckId=null; renderBanks(); }
 function confirmSettleCheck(id){
   const dateVal=document.getElementById('chk_settle_date_'+id)?.value||today();
+  const destination=settlingDestination||'cash';
+  let bankAccountId=null;
+  if(destination==='bank'){
+    bankAccountId=bankAccounts.length===1?bankAccounts[0].id:(document.getElementById('chk_dest_bank')?.value||'');
+    if(!bankAccountId){alert('اختر الحساب البنكي');return;}
+  }
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
-  c.status='done'; c.settledDate=dateVal;
+  c.status='done'; c.settledDate=dateVal; c.destination=destination; c.bankAccountId=destination==='bank'?bankAccountId:null;
   save();
   settlingCheckId=null;
   renderBanks();
@@ -2905,19 +2958,169 @@ function markCheckBounced(id){
   if(!confirm('تأكيد إن الشيك ده ارتد؟'))return;
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
-  c.status='bounced'; c.settledDate=null;
+  c.status='bounced'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
   save();
   renderBanks();
 }
 function revertCheckStatus(id){
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
-  c.status='pending'; c.settledDate=null;
+  c.status='pending'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
   save();
   renderBanks();
 }
 
+// ===== الحسابات البنكية =====
+function bankAccountLabel(id){
+  const a=bankAccounts.find(x=>x.id===id);
+  return a?`${a.bankName} - ${a.accountNumber}`:'حساب محذوف';
+}
+function bankAccountBalance(id){
+  const acc=bankAccounts.find(a=>a.id===id);
+  if(!acc) return 0;
+  const inSum=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).reduce((s,c)=>s+c.amount,0);
+  const outSum=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).reduce((s,c)=>s+c.amount,0);
+  return Number(acc.opening||0)+inSum-outSum;
+}
+function bankAccountTransactions(id){
+  const inTx=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'in',label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
+  const outTx=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'out',label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
+  return [...inTx,...outTx].sort((a,b)=>a.date.localeCompare(b.date));
+}
+function openAddAccountForm(){ editBankAccId=null; bankAccUseCustomName=false; showAddAccountForm=true; renderBanks(); }
+function cancelAddAccountForm(){ editBankAccId=null; showAddAccountForm=false; renderBanks(); }
+function toggleBankAccCustomName(){ bankAccUseCustomName=!bankAccUseCustomName; renderBanks(); }
+function editBankAccount(id){
+  const a=bankAccounts.find(x=>x.id===id);
+  if(!a)return;
+  editBankAccId=id; bankAccUseCustomName=!EGYPT_BANKS.includes(a.bankName); showAddAccountForm=true;
+  renderBanks();
+}
+function saveBankAccount(){
+  const bankName=bankAccUseCustomName?(document.getElementById('bankacc_bank_custom')?.value?.trim()||''):(document.getElementById('bankacc_bank')?.value||'');
+  const accountNumber=document.getElementById('bankacc_number')?.value?.trim()||'';
+  const opening=Number(document.getElementById('bankacc_opening')?.value||0);
+  if(!bankName){alert(bankAccUseCustomName?'اكتب اسم البنك':'اختر البنك من القايمة');return;}
+  if(!accountNumber){alert('اكتب رقم الحساب');return;}
+  if(editBankAccId){
+    const a=bankAccounts.find(x=>x.id===editBankAccId);
+    if(a){ a.bankName=bankName; a.accountNumber=accountNumber; a.opening=opening; }
+  }else{
+    bankAccounts.push({id:uid(),bankName,accountNumber,opening,createdDate:today()});
+  }
+  save();
+  editBankAccId=null; showAddAccountForm=false; bankAccUseCustomName=false;
+  renderBanks();
+}
+function deleteBankAccount(id){
+  const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id);
+  const msg=hasTx?'الحساب ده متسجل عليه حركات شيكات فعلية. حذفه هيمسح بياناته بس الشيكات هتفضل موجودة في سجلها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
+  if(!confirm(msg))return;
+  bankAccounts=bankAccounts.filter(a=>a.id!==id);
+  if(bankAccountDetailId===id) bankAccountDetailId=null;
+  save();
+  renderBanks();
+}
+
+function banksSegmentedControlHtml(){
+  const seg=(key,label)=>`<button class="btn-sm" style="padding:9px 14px;font-size:13px;background:${banksSubView===key?'#1A5276':'#D5D8DC'};color:${banksSubView===key?'#fff':'#333'}" onclick="switchBanksSubView('${key}')">${label}</button>`;
+  return `<div class="btn-row" style="margin-bottom:14px">
+    ${seg('payable','📤 شيكات الدفع')}
+    ${seg('receivable','📥 شيكات القبض')}
+    ${seg('accounts','🏦 الحساب البنكي')}
+  </div>`;
+}
+
+function renderAccountForm(editingAcc){
+  const bankOpts=EGYPT_BANKS.map(b=>({id:b,label:b}));
+  return `<div class="card" style="margin-bottom:14px">
+    <div class="card-head ${editingAcc?'orange':'green'}">${editingAcc?'✏️ تعديل بيانات الحساب البنكي':'➕ إضافة حساب بنكي'}</div>
+    <div class="card-body">
+      <div class="form-row">
+        <div class="form-group" style="flex:2">
+          <div class="lbl" style="display:flex;justify-content:space-between">
+            <span>اسم البنك *</span>
+            <span style="font-size:11px;color:#2E86C1;cursor:pointer;font-weight:normal" onclick="toggleBankAccCustomName()">${bankAccUseCustomName?'↩ اختار من القايمة':'✎ بنك تاني؟'}</span>
+          </div>
+          ${bankAccUseCustomName
+            ?`<input type="text" id="bankacc_bank_custom" placeholder="اكتب اسم البنك..." value="${editingAcc&&bankAccUseCustomName?editingAcc.bankName:''}">`
+            :searchableSelectHtml('bankacc_bank', bankOpts, '🔍 دور على البنك...', (editingAcc&&!bankAccUseCustomName)?editingAcc.bankName:'')}
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">رقم الحساب *</div><input type="text" id="bankacc_number" placeholder="رقم الحساب" value="${editingAcc?editingAcc.accountNumber:''}"></div>
+        <div class="form-group"><div class="lbl">رصيد أول المدة</div><input type="number" id="bankacc_opening" placeholder="0" value="${editingAcc?(editingAcc.opening||''):''}"></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn ${editingAcc?'orange':'green'}" onclick="saveBankAccount()">${editingAcc?'✓ حفظ التعديل':'✓ حفظ الحساب'}</button>
+        <button class="btn-outline" onclick="cancelAddAccountForm()">إلغاء</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderAccountDetail(acc){
+  const tx=bankAccountTransactions(acc.id);
+  const rows=tx.map(t=>`<div class="tr-item">
+      <div class="tr-date">${t.date}</div>
+      <div class="tr-label">${t.label}<span class="tr-note"> (${t.note})</span></div>
+      <div class="tr-amount ${t.type==='in'?'in':'out'}">${t.type==='in'?'+':'-'} ${fmt(t.amount)}</div>
+    </div>`).join('');
+  const balance=bankAccountBalance(acc.id);
+  return `
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head blue">🏦 ${acc.bankName} <span style="font-weight:normal;font-size:12px">— حساب رقم ${acc.accountNumber}</span></div>
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div><div style="font-size:12px;color:#717D7E">رصيد أول المدة</div><div style="font-weight:bold">${fmt(acc.opening||0)} ج</div></div>
+          <div><div style="font-size:12px;color:#717D7E">الرصيد الحالي</div><div style="font-size:22px;font-weight:bold;color:${balance>=0?'#1E8449':'#C0392B'}">${fmt(balance)} ج</div></div>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn-sm blue" onclick="editBankAccount('${acc.id}')">✏️ تعديل بيانات الحساب</button>
+          <button class="btn-sm red" onclick="deleteBankAccount('${acc.id}')">🗑 حذف الحساب</button>
+        </div>
+      </div>
+    </div>
+    ${bankAccounts.length>1?`<button class="btn-outline" style="margin-bottom:12px" onclick="bankAccountDetailId=null;renderBanks()">→ كل الحسابات</button>`:''}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">📋 كشف الحساب</div>
+      <div class="card-body">${tx.length===0?'<div class="empty">لسه مفيش حركات على الحساب ده</div>':`<div class="treasury-list">${rows}</div>`}</div>
+    </div>`;
+}
+
+function renderBankAccounts(){
+  const editingAcc=editBankAccId?bankAccounts.find(a=>a.id===editBankAccId):null;
+  if(bankAccounts.length===0){
+    return `<div class="empty" style="margin-bottom:10px">لسه مفيش حساب بنكي مسجل للشركة</div>${renderAccountForm(null)}`;
+  }
+  if(bankAccountDetailId||bankAccounts.length===1){
+    const acc=bankAccountDetailId?bankAccounts.find(a=>a.id===bankAccountDetailId):bankAccounts[0];
+    let out=renderAccountDetail(acc);
+    if(showAddAccountForm) out+=renderAccountForm(editingAcc);
+    else if(bankAccounts.length===1&&!bankAccountDetailId) out+=`<button class="btn-outline" onclick="openAddAccountForm()">+ إضافة حساب بنكي تاني</button>`;
+    return out;
+  }
+  // أكتر من حساب ومفيش واحد متفتح لسه — نعرض القايمة
+  const rows=bankAccounts.map(a=>{
+    const bal=bankAccountBalance(a.id);
+    return `<div class="list-item" style="cursor:pointer" onclick="bankAccountDetailId='${a.id}';renderBanks()">
+      <div class="list-item-head">
+        <div><div class="list-item-name">🏦 ${a.bankName}</div><div class="list-item-sub">رقم الحساب: ${a.accountNumber}</div></div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:${bal>=0?'#1E8449':'#C0392B'}">${fmt(bal)} ج</div></div>
+      </div>
+    </div>`;
+  }).join('');
+  return `${rows}${showAddAccountForm?renderAccountForm(editingAcc):`<button class="btn-outline" style="margin-top:8px" onclick="openAddAccountForm()">+ إضافة حساب بنكي</button>`}`;
+}
+
 function renderBanks(){
+  if(banksSubView==='accounts'){
+    document.getElementById('tab-banks').innerHTML=`
+      <div class="page-title" style="margin-bottom:14px">🏛️ البنوك</div>
+      ${banksSegmentedControlHtml()}
+      ${renderBankAccounts()}`;
+    return;
+  }
   const isPayable=banksSubView==='payable';
   const arrAll=currentChecksArr();
   const editingChk=editCheckId?arrAll.find(c=>c.id===editCheckId):null;
@@ -2946,10 +3149,23 @@ function renderBanks(){
         ?`<span class="badge green">${isPayable?'تم الصرف':'تم التحصيل'}</span>`
         :`<span class="badge red">مرتد</span>`;
     const actionsOrForm = settlingCheckId===c.id
-      ? `<div class="form-row" style="padding:0 14px 10px;align-items:flex-end;margin:0">
-           <div class="form-group"><div class="lbl">تاريخ ${isPayable?'الصرف':'التحصيل'} الفعلي</div><input type="date" id="chk_settle_date_${c.id}" value="${today()}"></div>
-           <button class="btn-sm green" onclick="confirmSettleCheck('${c.id}')">✓ تأكيد</button>
-           <button class="btn-sm" style="background:#AAB7B8" onclick="cancelSettleCheck()">إلغاء</button>
+      ? `<div style="padding:0 14px 4px">
+           <div class="form-row" style="align-items:flex-end;margin:0 0 6px">
+             <div class="form-group"><div class="lbl">تاريخ ${isPayable?'الصرف':'التحصيل'} الفعلي</div><input type="date" id="chk_settle_date_${c.id}" value="${today()}"></div>
+           </div>
+           ${bankAccounts.length>0?`
+           <div class="lbl" style="margin-bottom:4px">الوجهة</div>
+           <div class="btn-row" style="margin:0 0 6px">
+             <button class="btn-sm" style="background:${settlingDestination==='cash'?'#1A5276':'#D5D8DC'};color:${settlingDestination==='cash'?'#fff':'#333'}" onclick="setSettleDestination('cash')">💵 كاش (الخزنة)</button>
+             <button class="btn-sm" style="background:${settlingDestination==='bank'?'#1A5276':'#D5D8DC'};color:${settlingDestination==='bank'?'#fff':'#333'}" onclick="setSettleDestination('bank')">🏦 حساب بنكي</button>
+           </div>
+           ${settlingDestination==='bank'&&bankAccounts.length>1?`<div class="form-group" style="margin-bottom:6px">${searchableSelectHtml('chk_dest_bank', bankAccounts.map(a=>({id:a.id,label:a.bankName+' - '+a.accountNumber})), '🔍 اختار الحساب...', settlingBankAccountId)}</div>`:''}
+           ${settlingDestination==='bank'&&bankAccounts.length===1?`<div style="font-size:12px;color:#717D7E;margin-bottom:6px">هيترمي في: ${bankAccountLabel(bankAccounts[0].id)}</div>`:''}
+           `:''}
+           <div class="btn-row" style="margin:0 0 10px">
+             <button class="btn-sm green" onclick="confirmSettleCheck('${c.id}')">✓ تأكيد</button>
+             <button class="btn-sm" style="background:#AAB7B8" onclick="cancelSettleCheck()">إلغاء</button>
+           </div>
          </div>`
       : `<div class="list-item-actions">
            ${c.status==='pending'?`
@@ -2970,7 +3186,7 @@ function renderBanks(){
       <div class="list-item-head">
         <div>
           <div class="list-item-name">${checkHolderDisplay(c)} ${overdue?'<span class="badge red">متأخر</span>':''}</div>
-          <div class="list-item-sub">🏦 ${c.bank} · شيك رقم #${c.number} · 📅 استحقاق ${c.dueDate}${c.status==='done'?` · ✅ ${c.settledDate}`:''}</div>
+          <div class="list-item-sub">🏦 ${c.bank} · شيك رقم #${c.number} · 📅 استحقاق ${c.dueDate}${c.status==='done'?` · ✅ ${c.settledDate} · ${c.destination==='bank'?'🏦 '+bankAccountLabel(c.bankAccountId):'💵 كاش'}`:''}</div>
         </div>
         <div class="list-item-bal">
           <div class="list-item-bal-num" style="color:${isPayable?'#C0392B':'#1E8449'}">${fmt(c.amount)} ج</div>
@@ -2984,10 +3200,7 @@ function renderBanks(){
 
   document.getElementById('tab-banks').innerHTML=`
     <div class="page-title" style="margin-bottom:14px">🏛️ البنوك</div>
-    <div class="btn-row" style="margin-bottom:14px">
-      <button class="btn-sm" style="padding:9px 16px;font-size:13px;background:${isPayable?'#1A5276':'#D5D8DC'};color:${isPayable?'#fff':'#333'}" onclick="switchBanksSubView('payable')">📤 شيكات الدفع</button>
-      <button class="btn-sm" style="padding:9px 16px;font-size:13px;background:${!isPayable?'#1A5276':'#D5D8DC'};color:${!isPayable?'#fff':'#333'}" onclick="switchBanksSubView('receivable')">📥 شيكات القبض</button>
-    </div>
+    ${banksSegmentedControlHtml()}
 
     <div class="card" style="margin-bottom:14px">
       <div class="card-head ${editingChk?'orange':'green'}">${editingChk?'✏️ تعديل الشيك':'➕ إضافة '+(isPayable?'شيك دفع':'شيك قبض')+' جديد'}</div>
@@ -3052,6 +3265,7 @@ async function printChecksPdf(subview){
   const isPayable=subview==='payable';
   const arr=(isPayable?checksPayable:checksReceivable).slice().sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   const statusLabel=c=>c.status==='pending'?'لسه':c.status==='done'?(isPayable?'تم الصرف':'تم التحصيل'):'مرتد';
+  const destLabel=c=>c.status!=='done'?'—':(c.destination==='bank'?bankAccountLabel(c.bankAccountId):'كاش (الخزنة)');
   const rows=arr.map(c=>`<tr>
       <td>${c.number}</td>
       <td>${checkHolderDisplay(c)}</td>
@@ -3059,6 +3273,7 @@ async function printChecksPdf(subview){
       <td>${c.dueDate}</td>
       <td style="font-weight:bold">${fmt(c.amount)}</td>
       <td>${statusLabel(c)}</td>
+      <td>${destLabel(c)}</td>
     </tr>`).join('');
   const total=arr.reduce((s,c)=>s+c.amount,0);
   const body=`
@@ -3066,7 +3281,7 @@ async function printChecksPdf(subview){
       <div><strong>تاريخ التقرير:</strong> ${today()}</div>
       <div><strong>عدد الشيكات:</strong> ${arr.length}</div>
     </div>
-    ${arr.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد شيكات</div>':`<table><thead><tr><th>رقم الشيك</th><th>${isPayable?'المستفيد':'العميل'}</th><th>البنك</th><th>الاستحقاق</th><th>المبلغ</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table>
+    ${arr.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد شيكات</div>':`<table><thead><tr><th>رقم الشيك</th><th>${isPayable?'المستفيد':'العميل'}</th><th>البنك</th><th>الاستحقاق</th><th>المبلغ</th><th>الحالة</th><th>الوجهة</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي ${isPayable?'شيكات الدفع':'شيكات القبض'}: ${fmt(total)} جنيه</div>`}`;
   await sendDocument(isPayable?'تقرير شيكات الدفع':'تقرير شيكات القبض', body, `${isPayable?'شيكات-الدفع':'شيكات-القبض'}-${today()}.pdf`);
 }
@@ -4132,7 +4347,7 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
   lockScreen.innerHTML = `
     ${fromTrial?`<button onclick="_closeLockScreenFromTrial()" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer">✕ رجوع</button>`:''}
     <div style="font-size:50px;margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
-    <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">مدير البيطري المتكامل</div>
+    <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">صديقك المحاسبي</div>
     ${expiredMsg}
     <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:20px 24px;margin-bottom:24px;width:100%;max-width:320px;">
       <div style="font-size:13px;opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
