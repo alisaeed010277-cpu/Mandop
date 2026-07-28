@@ -1001,9 +1001,14 @@ function openClientDetail(id){clientDetailId=id;renderClients();}
 
 // ===== توليد PDF ومشاركته مباشرة (بدون أي مكتبات خارجية — يفضل البرنامج شغال أوفلاين بالكامل) =====
 
+// أبعاد ورقة A4 عند دقة 96dpi — تُستخدم عشان أي مستند/PDF في البرنامج يطلع مضبوط على مقاس A4
+const A4_WIDTH_PX = 794;
+const A4_HEIGHT_PX = 1123;
+
 const DOC_STYLE = `
   *{box-sizing:border-box;margin:0;padding:0;}
-  .doc-wrap{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#1C2833;background:#fff;padding:24px;}
+  @page{size:A4;margin:12mm;}
+  .doc-wrap{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#1C2833;background:#fff;padding:24px;display:flex;flex-direction:column;min-height:${A4_HEIGHT_PX}px;}
   body{padding:24px;}
   .doc-header{display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #1A5276;padding-bottom:14px;margin-bottom:18px;}
   .doc-header-left{display:flex;align-items:center;gap:12px;}
@@ -1020,6 +1025,9 @@ const DOC_STYLE = `
   .doc-sum-box{flex:1;min-width:120px;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;text-align:center;}
   .doc-sum-box .n{font-size:16px;font-weight:bold;color:#1A5276;}
   .doc-sum-box .l{font-size:11px;color:#717D7E;margin-top:2px;}
+  .doc-signature{margin-top:auto;padding-top:40px;text-align:right;}
+  .doc-signature .lbl{font-size:13px;font-weight:bold;margin-bottom:34px;}
+  .doc-signature .line{width:200px;margin-right:0;margin-left:auto;border-top:1px dotted #717D7E;}
   .doc-footer{text-align:center;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:10px;margin-top:24px;}
 `;
 
@@ -1057,19 +1065,21 @@ function printDocument(title, bodyHtml){
 async function renderDocToJpeg(title, bodyHtml){
   const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 70 70"><defs><linearGradient id="pg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
   const holder=document.createElement('div');
-  holder.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1;width:760px;';
+  holder.style.cssText=`position:fixed;left:-9999px;top:0;z-index:-1;width:${A4_WIDTH_PX}px;`;
   holder.innerHTML=`<style>${DOC_STYLE}</style><div class="doc-wrap" id="_pdfDocRoot">${buildDocInnerHtml(title, bodyHtml, logoSvg)}</div>`;
   document.body.appendChild(holder);
   await new Promise(r=>setTimeout(r,60));
   const rootEl=holder.querySelector('#_pdfDocRoot');
-  const w=rootEl.offsetWidth||760;
-  const h=rootEl.offsetHeight||400;
+  const w=rootEl.offsetWidth||A4_WIDTH_PX;
+  const contentH=rootEl.offsetHeight||400;
+  // ارتفاع الصفحة النهائي: بنثبته على ارتفاع A4 كحد أدنى (فراغ فاضي لو المحتوى قليل)، ولو المحتوى أطول من صفحة A4 واحدة نسيبه يكمل زي ما هو من غير ما نقصّ منه حاجة
+  const h=Math.max(contentH, A4_HEIGHT_PX);
   const serializer=new XMLSerializer();
   const styleStr=serializer.serializeToString(holder.querySelector('style'));
   const rootStr=serializer.serializeToString(rootEl);
   document.body.removeChild(holder);
 
-  const svgStr=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${styleStr}${rootStr}</div></foreignObject></svg>`;
+  const svgStr=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${contentH}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">${styleStr}${rootStr}</div></foreignObject></svg>`;
   const svgDataUrl='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgStr);
 
   const img=new Image();
@@ -1082,7 +1092,7 @@ async function renderDocToJpeg(title, bodyHtml){
   canvas.width=w*scale; canvas.height=h*scale;
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,w*scale,contentH*scale);
 
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.92));
   return {blob, cssWidth:w, cssHeight:h, pxWidth:canvas.width, pxHeight:canvas.height};
@@ -1770,7 +1780,8 @@ async function printInvoice(invId){
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${inv.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(inv.subtotal)} جنيه</div><div>خصم ${inv.overallDiscount}% على الفاتورة: -${fmt(inv.subtotal-inv.total)} جنيه</div></div>`:''}
-    <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>`;
+    <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>
+    <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
   await sendDocument(`فاتورة #${inv.number}`, body, `فاتورة-${inv.number}.pdf`);
 }
 
@@ -3885,7 +3896,8 @@ async function printPurchase(purId){
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${pur.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(pur.subtotal)} جنيه</div><div>خصم ${pur.overallDiscount}% على الفاتورة: -${fmt(pur.subtotal-pur.total)} جنيه</div></div>`:''}
-    <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>`;
+    <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>
+    <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
   await sendDocument(`فاتورة مشتريات #${pur.number}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
 }
 
