@@ -1169,18 +1169,41 @@ function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
 }
 
 // الدالة الرئيسية: تولّد الـ PDF، تعرض معاينة (فيها زرار طباعة مباشر)، ولو المستخدم ضغط إرسال تفتح شاشة المشاركة (واتساب وغيره)، ولو مش مدعوم بترجع لنافذة الطباعة القديمة تلقائيًا
+// بعض الأجهزة (زي واتساب على الكمبيوتر) بتظهر اسم الملف بالعربي كرموز غريبة لو الاسم فيه حروف عربية.
+// عشان نضمن إن اسم ملف الـ PDF يبقى شكله سليم على أي جهاز (موبايل أو كمبيوتر)، بنحوّل الاسم بس (مش محتوى المستند نفسه) لحروف لاتينية آمنة.
+const ARABIC_TO_LATIN_MAP={
+  'ا':'a','أ':'a','إ':'e','آ':'aa','ب':'b','ت':'t','ث':'th','ج':'g','ح':'h','خ':'kh',
+  'د':'d','ذ':'z','ر':'r','ز':'z','س':'s','ش':'sh','ص':'s','ض':'d','ط':'t','ظ':'z',
+  'ع':'a','غ':'gh','ف':'f','ق':'k','ك':'k','ل':'l','م':'m','ن':'n','ه':'h','و':'w',
+  'ي':'y','ى':'a','ة':'a','ء':'','ئ':'e','ؤ':'o','ٱ':'a',
+  '٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9'
+};
+function safeFileName(str){
+  if(!str) return 'file';
+  let out='';
+  for(const ch of String(str)){
+    if(ARABIC_TO_LATIN_MAP[ch]!==undefined) out+=ARABIC_TO_LATIN_MAP[ch];
+    else if(/[A-Za-z0-9._-]/.test(ch)) out+=ch;
+    else if(/\s/.test(ch)) out+=' ';
+    // أي رمز تاني (تشكيل، علامات ترقيم عربي..) بيتجاهل بدل ما يتحول لرموز غريبة
+  }
+  out=out.replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^[-.]+|[-.]+$/g,'');
+  return out||'file';
+}
+
 async function sendDocument(title, bodyHtml, filename){
+  const safeFilename=safeFileName(filename);
   try{
     const {pdfBlob, jpegBlob}=await generateDocumentPdfBlob(title, bodyHtml);
     await showPdfPreviewModal(jpegBlob, async ()=>{
-      const file=new File([pdfBlob], filename, {type:'application/pdf'});
+      const file=new File([pdfBlob], safeFilename, {type:'application/pdf'});
       if(navigator.canShare && navigator.canShare({files:[file]})){
         await navigator.share({files:[file], title});
         return;
       }
       const url=URL.createObjectURL(pdfBlob);
       const a=document.createElement('a');
-      a.href=url; a.download=filename;
+      a.href=url; a.download=safeFilename;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url),5000);
     }, ()=>printDocument(title, bodyHtml));
