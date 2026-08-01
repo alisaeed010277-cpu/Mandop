@@ -280,12 +280,14 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
 let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
 let bankAccounts=[]; // حسابات الشركة البنكية
+let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأولى من نظام المحاسبة)
+let journalEntries=[]; // القيود اليومية (دفتر الأستاذ الخفي وراء كل حركة)
 let treasuryOpening=0;
 let repNotes=[];
 let clientNotes=[];
@@ -372,11 +374,13 @@ const save=()=>{
   idbSet(KEYS.checksPayable,checksPayable);
   idbSet(KEYS.checksReceivable,checksReceivable);
   idbSet(KEYS.bankAccounts,bankAccounts);
+  idbSet(KEYS.chartOfAccounts,chartOfAccounts);
+  idbSet(KEYS.journalEntries,journalEntries);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -395,6 +399,8 @@ async function loadAllData(){
   checksPayable=chkPay||[];
   checksReceivable=chkRec||[];
   bankAccounts=bAcc||[];
+  chartOfAccounts=coa||[];
+  journalEntries=jrnl||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -412,7 +418,194 @@ async function loadAllData(){
     save();
     [KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns].forEach(k=>localStorage.removeItem(k));
   }
+
+  // المرحلة الأولى من نظام الحسابات: تجهيز دليل الحسابات + ترحيل كل الحركات القديمة لقيود يومية (مرة واحدة بس أول ما التحديث ده يشتغل)
+  seedAccountingIfNeeded();
 }
+
+
+// ====================================================================
+// المرحلة الأولى من نظام المحاسبة: دليل الحسابات + محرك القيود اليومية
+// ====================================================================
+// دليل حسابات افتراضي ثابت (مش قابل للتعديل دلوقتي — ده أساس المرحلة الأولى بس)
+const DEFAULT_CHART_OF_ACCOUNTS=[
+  {id:'cash',    code:'1110', name:'الخزنة',                     type:'asset'},
+  {id:'bank',    code:'1120', name:'البنوك',                     type:'asset'},
+  {id:'ar',      code:'1200', name:'العملاء',                     type:'asset'},
+  {id:'inventory',code:'1300',name:'المخزون',                    type:'asset'},
+  {id:'ap',      code:'2100', name:'الموردون',                    type:'liability'},
+  {id:'equity',  code:'3100', name:'رأس المال وأرباح مرحّلة',      type:'equity'},
+  {id:'sales',   code:'4100', name:'إيرادات المبيعات',            type:'revenue'},
+  {id:'cogs',    code:'5200', name:'تكلفة البضاعة المباعة',       type:'expense'},
+  {id:'opex',    code:'5100', name:'مصاريف تشغيلية',              type:'expense'},
+  {id:'directcost',code:'5300',name:'تكلفة مباشرة',               type:'expense'},
+  {id:'discountAllowed',code:'5400',name:'خصم مسموح به (عملاء)',   type:'expense'},
+  {id:'discountEarned',code:'4200',name:'خصم مكتسب (موردين)',      type:'revenue'},
+];
+function getAccount(id){ return chartOfAccounts.find(a=>a.id===id); }
+
+// تسجيل قيد يومية جديد. lines: [{accountId, debit, credit}]. sourceType+sourceId بيربطوا القيد بالحركة الأصلية (فاتورة/دفعة/مصروف..) عشان نقدر نمسحه أو نعيد ترحيله لو الحركة اتعدّلت أو اتمسحت
+function postJournal(sourceType, sourceId, date, description, lines){
+  const totalDebit=lines.reduce((s,l)=>s+(Number(l.debit)||0),0);
+  const totalCredit=lines.reduce((s,l)=>s+(Number(l.credit)||0),0);
+  if(Math.abs(totalDebit-totalCredit)>0.01){
+    console.error('قيد غير متوازن (مدين ≠ دائن)، تم تجاهله:',sourceType,sourceId,totalDebit,totalCredit);
+    return;
+  }
+  if(totalDebit===0) return; // مفيش داعي نسجل قيد بصفر
+  journalEntries.push({id:uid(),date,description,sourceType,sourceId,lines,createdAt:new Date().toISOString()});
+}
+// مسح كل القيود المرتبطة بحركة معينة (بيتستخدم قبل إعادة الترحيل عند التعديل، أو عند الحذف)
+function removeJournalBySource(sourceType, sourceId){
+  journalEntries=journalEntries.filter(j=>!(j.sourceType===sourceType && j.sourceId===sourceId));
+}
+// رصيد حساب معين: بيرجع {debit, credit} — العمود اللي المفروض يظهر فيه الرصيد حسب طبيعة الحساب
+function accountBalance(accountId){
+  let totalDebit=0, totalCredit=0;
+  journalEntries.forEach(j=>{
+    j.lines.forEach(l=>{
+      if(l.accountId===accountId){ totalDebit+=Number(l.debit)||0; totalCredit+=Number(l.credit)||0; }
+    });
+  });
+  const net=totalDebit-totalCredit;
+  return {totalDebit, totalCredit, debit: net>=0?net:0, credit: net<0?-net:0};
+}
+
+// متوسط تكلفة الصنف المرجح — بيتحسب من الصفر كل مرة من الرصيد الافتتاحي + كل فواتير الشراء بترتيبها الزمني، عشان يفضل صحيح حتى لو اتعدّلت أو اتمسحت فاتورة شراء قديمة (من غير ما نحتاج نخزن أو نصحح رقم متراكم)
+function productAvgCost(productId){
+  const p=stock.find(s=>s.id===productId);
+  if(!p) return 0;
+  let qty=0, value=0;
+  const openingMov=movements.find(m=>m.productId===productId && m.note==='رصيد افتتاحي');
+  if(openingMov && p.costPrice>0){ qty=openingMov.qty; value=openingMov.qty*p.costPrice; }
+  const purLines=purchases
+    .flatMap(pur=>pur.lines.filter(l=>l.productId===productId).map(l=>({...l,purDiscount:pur.overallDiscount||0,sortKey:(pur.date||'')+'|'+(pur.createdAt||'')})))
+    .sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+  purLines.forEach(l=>{
+    const addedQty=Number(l.qty)+(Number(l.bonus)||0);
+    if(addedQty<=0) return;
+    const lineCost=Number(l.qty)*Number(l.price)*(1-(Number(l.discount)||0)/100)*(1-(Number(l.purDiscount)||0)/100);
+    value+=lineCost; qty+=addedQty;
+  });
+  return qty>0 ? value/qty : (p.costPrice||0);
+}
+// إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات بأحدث متوسط تكلفة معروف لكل صنف — بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، عشان لو مندوب سجّل صنف من غير سعر تكلفة وبعدين حد صحّح السعر، القيود القديمة تتظبط تلقائيًا من غير ما حد يحتاج يرجعلها يدوي
+function reconcileCogsJournals(){
+  invoices.forEach(inv=>{
+    removeJournalBySource('invoiceCogs',inv.id);
+    const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((Number(l.qty)+(Number(l.bonus)||0))*productAvgCost(l.productId)):s,0);
+    if(cogsTotal>0) postJournal('invoiceCogs',inv.id,inv.date,'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
+      [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
+  });
+  returns.forEach(ret=>{
+    removeJournalBySource('returnCogs',ret.id);
+    const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(Number(l.qty)*productAvgCost(l.productId)):s,0);
+    if(cogsTotal>0) postJournal('returnCogs',ret.id,ret.date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
+      [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
+  });
+}
+// ترحيل قيود المرتجعات (مبيعات/مشتريات) الناقصة — بيشتغل كل مرة بس بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يأثر على القيود التاريخية الموجودة
+function backfillReturnJournals(){
+  let changed=false;
+  returns.forEach(ret=>{
+    if(!journalEntries.some(j=>j.sourceType==='return'&&j.sourceId===ret.id)){
+      postJournal('return',ret.id,ret.date,'مردود مبيعات #'+ret.number,
+        [{accountId:'sales',debit:ret.total,credit:0},{accountId:'ar',debit:0,credit:ret.total}]);
+      changed=true;
+    }
+  });
+  purchaseReturns.forEach(ret=>{
+    if(!journalEntries.some(j=>j.sourceType==='purReturn'&&j.sourceId===ret.id)){
+      postJournal('purReturn',ret.id,ret.date,'مردود مشتريات #'+ret.number,
+        [{accountId:'ap',debit:ret.total,credit:0},{accountId:'inventory',debit:0,credit:ret.total}]);
+      changed=true;
+    }
+  });
+  return changed;
+}
+// ترحيل قيود الشيكات المُحصّلة/المصروفة الناقصة (زي شيكات كانت متسجلة "تم التحصيل/الصرف" قبل ما الربط ده يتضاف).
+// القيد بيحرّك الخزنة أو البنك بس، ومقابله حساب "رأس المال" (نفس أسلوب الأرصدة الافتتاحية) — عمدًا من غير أي مساس بحساب العميل/المورد، بناءً على تأكيد صريح إن الشيك يفضل منفصل عن رصيدهم
+function backfillCheckJournals(){
+  let changed=false;
+  const postIfMissing=(c,isPayable)=>{
+    if(c.status!=='done') return;
+    if(journalEntries.some(j=>j.sourceType==='check'&&j.sourceId===c.id)) return;
+    const acct=c.destination==='bank'?'bank':'cash';
+    const desc=(isPayable?'صرف شيك #':'تحصيل شيك #')+c.number+' - '+checkHolderDisplay(c);
+    const lines=isPayable
+      ? [{accountId:'equity',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
+      : [{accountId:acct,debit:c.amount,credit:0},{accountId:'equity',debit:0,credit:c.amount}];
+    postJournal('check',c.id,c.settledDate||c.dueDate||today(),desc,lines);
+    changed=true;
+  };
+  checksPayable.forEach(c=>postIfMissing(c,true));
+  checksReceivable.forEach(c=>postIfMissing(c,false));
+  return changed;
+}
+// بيشتغل مرة واحدة بس (أول ما التحديث ده يوصل لأي جهاز فيه بيانات قديمة): بيجهز دليل الحسابات، وبيرحّل كل الأرصدة الافتتاحية وكل الفواتير/المشتريات/التحصيلات/السدادات/المصاريف الموجودة أصلاً لقيود يومية، عشان ميزان المراجعة يبقى صحيح من أول لحظة
+function seedAccountingIfNeeded(){
+  const isFirstRun=chartOfAccounts.length===0;
+  // نضيف أي حساب جديد اتضاف لدليل الحسابات الافتراضي (في مراحل لاحقة) من غير ما نلمس الموجود أو نكرر الترحيل التاريخي
+  DEFAULT_CHART_OF_ACCOUNTS.forEach(defAcc=>{
+    if(!chartOfAccounts.find(a=>a.id===defAcc.id)) chartOfAccounts.push({...defAcc});
+  });
+  if(!isFirstRun){
+    // مش أول مرة: منعيدش الترحيل التاريخي الكامل، بس نتحقق لو فيه مرتجعات أو تكلفة بضاعة مباعة قيودها ناقصة ونرحّلها
+    backfillReturnJournals();
+    reconcileCogsJournals();
+    backfillCheckJournals();
+    save();
+    return;
+  }
+  journalEntries=[];
+
+  if(treasuryOpening){
+    const amt=Number(treasuryOpening);
+    postJournal('opening','treasury-opening',today(),'رصيد افتتاحي - الخزنة',
+      amt>=0 ? [{accountId:'cash',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+             : [{accountId:'equity',debit:-amt,credit:0},{accountId:'cash',debit:0,credit:-amt}]);
+  }
+  clients.forEach(c=>{
+    const amt=Number(c.opening)||0;
+    if(!amt) return;
+    postJournal('opening','client-opening-'+c.id, c.openingDate||today(), 'رصيد افتتاحي - '+c.name,
+      amt>=0 ? [{accountId:'ar',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+             : [{accountId:'equity',debit:-amt,credit:0},{accountId:'ar',debit:0,credit:-amt}]);
+  });
+  suppliers.forEach(s=>{
+    const amt=Number(s.opening)||0;
+    if(!amt) return;
+    postJournal('opening','supplier-opening-'+s.id, s.openingDate||today(), 'رصيد افتتاحي - '+s.name,
+      amt>=0 ? [{accountId:'equity',debit:amt,credit:0},{accountId:'ap',debit:0,credit:amt}]
+             : [{accountId:'ap',debit:-amt,credit:0},{accountId:'equity',debit:0,credit:-amt}]);
+  });
+  invoices.forEach(inv=>{
+    postJournal('invoice',inv.id,inv.date,'فاتورة مبيعات #'+inv.number,
+      [{accountId:'ar',debit:inv.total,credit:0},{accountId:'sales',debit:0,credit:inv.total}]);
+  });
+  purchases.forEach(pur=>{
+    postJournal('purchase',pur.id,pur.date,'فاتورة مشتريات #'+pur.number,
+      [{accountId:'inventory',debit:pur.total,credit:0},{accountId:'ap',debit:0,credit:pur.total}]);
+  });
+  payments.forEach(p=>{
+    postJournal('payment',p.id,p.date,'تحصيل من عميل',
+      [{accountId:'cash',debit:p.amount,credit:0},{accountId:'ar',debit:0,credit:p.amount}]);
+  });
+  supplierPayments.forEach(p=>{
+    postJournal('supplierPayment',p.id,p.date,'سداد لمورد',
+      [{accountId:'ap',debit:p.amount,credit:0},{accountId:'cash',debit:0,credit:p.amount}]);
+  });
+  expenses.forEach(e=>{
+    const expAccount=e.costType==='direct'?'directcost':'opex';
+    postJournal('expense',e.id,e.date,'مصروف: '+e.label,
+      [{accountId:expAccount,debit:e.amount,credit:0},{accountId:'cash',debit:0,credit:e.amount}]);
+  });
+  backfillReturnJournals();
+  reconcileCogsJournals();
+  backfillCheckJournals();
+  save();
+}
+// ====================================================================
 
 let _id=Date.now();
 const uid=()=>(++_id).toString(36);
@@ -1299,7 +1492,7 @@ async function printClientStatement(cid){
   const events=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,createdAt:''}]:[]),
     ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,createdAt:p.createdAt})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
     ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   let running=0;
@@ -1346,7 +1539,7 @@ function renderClientDetail(){
   const events=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
     ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,id:i.id,createdAt:i.createdAt})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
     ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:r.id,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=events.map(ev=>`<tr ${ev.type==='invoice'?`onclick="openInvoiceFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:ev.type==='return'?`onclick="openReturnFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:''}>
@@ -1766,6 +1959,12 @@ function saveInvoice(){
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
   const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
   invoices.push(inv);
+  removeJournalBySource('invoice', inv.id);
+  postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
+  removeJournalBySource('invoiceCogs', inv.id);
+  const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((Number(l.qty)+(Number(l.bonus)||0))*productAvgCost(l.productId)):s,0);
+  if(cogsTotal>0) postJournal('invoiceCogs', inv.id, date, 'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
+    [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
   // خصم الكمية الفعلية + البونص من المخزن
   invLines.forEach(l=>{
     if(l.productId){
@@ -1780,6 +1979,8 @@ function deleteInvoice(id){
   if(!confirm('هتحذف الفاتورة دي؟'))return;
   invoices=invoices.filter(i=>i.id!==id);
   movements=movements.filter(m=>m.invoiceId!==id);
+  removeJournalBySource('invoice', id);
+  removeJournalBySource('invoiceCogs', id);
   save();renderInvoices();
 }
 
@@ -1906,7 +2107,7 @@ function renderPayments(){
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
-      <td style="white-space:nowrap">${c?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount)} ج</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
+      <td style="white-space:nowrap">${c?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
         <button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>
@@ -1927,6 +2128,9 @@ function renderPayments(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="pay_amount" placeholder="0.00" min="0"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pay_date" value="${today()}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">خصم مسموح به (ج) — اختياري</div><input type="number" id="pay_discount" placeholder="0.00" min="0"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="pay_note" placeholder="كاش / شيك / تحويل..."></div>
@@ -1973,10 +2177,11 @@ async function printPaymentReceipt(pid){
       ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(p.amount)}</div><div class="l">المبلغ المدفوع</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المحصّل نقدًا</div></div>
+      ${p.discount?`<div class="doc-sum-box"><div class="n">${fmt(p.discount)}</div><div class="l">خصم مسموح به</div></div>`:''}
       ${c?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'الرصيد المتبقي عليه':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
     </div>
-    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount)} جنيه</div>`;
+    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount-(p.discount||0))} جنيه${p.discount?` (+ خصم مسموح به ${fmt(p.discount)} ج)`:''}</div>`;
   await sendDocument(`إيصال سداد: ${c?.name||''}`, body, `إيصال-سداد-${c?.name||''}-${p.date}.pdf`);
 }
 
@@ -1994,7 +2199,8 @@ function renderPaymentDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
-        <div style="margin-bottom:10px"><strong>المبلغ المدفوع:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount)} ج</span></div>
+        <div style="margin-bottom:10px"><strong>المبلغ المحصّل نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
+        ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مسموح به:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
         <div class="btn-row">
@@ -2007,6 +2213,7 @@ function renderPaymentDetail(){
 function deletePayment(id){
   if(!confirm('هتحذف عملية السداد دي؟'))return;
   payments=payments.filter(p=>p.id!==id);
+  removeJournalBySource('payment', id);
   save();renderPayments();
 }
 
@@ -2021,12 +2228,20 @@ function renderPayClientInvoices(){
 
 function savePayment(){
   const clientId=document.getElementById('pay_client')?.value;
-  const amount=Number(document.getElementById('pay_amount')?.value||0);
+  const cashAmount=Number(document.getElementById('pay_amount')?.value||0);
+  const discount=Number(document.getElementById('pay_discount')?.value||0);
   const date=document.getElementById('pay_date')?.value||today();
   const note=document.getElementById('pay_note')?.value||'';
   const invoiceId=document.getElementById('pay_invoice')?.value||null;
-  if(!clientId||!amount){alert('اختر عميل وأدخل المبلغ');return;}
-  payments.push({id:uid(),clientId,invoiceId,amount,date,note,createdAt:new Date().toISOString()});
+  if(!clientId||(!cashAmount&&!discount)){alert('اختر عميل وأدخل المبلغ');return;}
+  const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد العميل (نقدي + خصم)
+  const pay={id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
+  payments.push(pay);
+  const lines=[];
+  if(cashAmount>0) lines.push({accountId:'cash',debit:cashAmount,credit:0});
+  if(discount>0) lines.push({accountId:'discountAllowed',debit:discount,credit:0});
+  lines.push({accountId:'ar',debit:0,credit:amount});
+  postJournal('payment', pay.id, date, discount>0?`تحصيل من عميل (شامل خصم مسموح ${fmt(discount)} ج)`:'تحصيل من عميل', lines);
   save();showPayForm=false;renderPayments();
 }
 
@@ -2172,6 +2387,11 @@ function saveReturn(){
   const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
   const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
   returns.push(ret);
+  postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
+    [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
+  const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(Number(l.qty)*productAvgCost(l.productId)):s,0);
+  if(cogsTotal>0) postJournal('returnCogs',ret.id,date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
+    [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
   // المرتجع بيرجع للمخزن (وارد)
   retLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'مردود مبيعات #'+ret.number,returnId:ret.id,expiry:l.expiry||''});
@@ -2186,6 +2406,8 @@ function deleteReturn(id){
   if(!confirm('هتحذف المرتجع ده؟'))return;
   returns=returns.filter(r=>r.id!==id);
   movements=movements.filter(m=>m.returnId!==id);
+  removeJournalBySource('return',id);
+  removeJournalBySource('returnCogs',id);
   save();renderReturns();
 }
 
@@ -2292,9 +2514,11 @@ function renderStockOverview(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية"></div>
-        </div>`}
+        </div>
+        <div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لو حطيت رصيد أول (كمية)، احرص تدخل سعر الشراء/التكلفة تحت عشان قيمتها تظهر صح في تقاريرك المالية</div>`}
         <div class="form-row">
           <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0" value="${editingP?(editingP.price||''):''}"></div>
+          <div class="form-group"><div class="lbl">سعر الشراء/التكلفة — اختياري</div><input type="number" id="p_cost_price" min="0" placeholder="0" value="${editingP?(editingP.costPrice||''):''}"></div>
         </div>
         ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
         <div class="btn-row">
@@ -2353,6 +2577,7 @@ function saveProduct(){
   const manufacturer=document.getElementById('p_manufacturer')?.value.trim()||'';
   const activeIngredient=document.getElementById('p_active')?.value.trim()||'';
   const price=Number(document.getElementById('p_price')?.value||0);
+  const costPrice=Number(document.getElementById('p_cost_price')?.value||0);
   if(!name){alert('أدخل اسم المنتج');return;}
   if(editProductId){
     const p=stock.find(p=>p.id===editProductId);
@@ -2361,6 +2586,14 @@ function saveProduct(){
     if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
     if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
     if(price>0)p.price=price; else delete p.price;
+    if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
+    // لو الصنف ده ليه رصيد افتتاحي (كمية) واتضاف/اتعدّل سعر التكلفة، نصحح قيد الافتتاحية بالقيمة الجديدة (أو نسجله لأول مرة لو كان ناقص)
+    const openingMov=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
+    removeJournalBySource('stockOpening', p.id);
+    if(openingMov && costPrice>0){
+      postJournal('stockOpening', p.id, openingMov.date, 'رصيد افتتاحي مخزون - '+name,
+        [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
+    }
     save();
     editProductId=null; showProductForm=false;
     renderStock();
@@ -2369,13 +2602,22 @@ function saveProduct(){
   const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
   const openingDate=document.getElementById('p_opening_date')?.value||today();
   const openingExpiry=document.getElementById('p_opening_expiry')?.value||'';
+  if(openingQty>0 && costPrice<=0){
+    const proceed=confirm('من غير سعر التكلفة، الكمية دي مش هتظهر في تقاريرك المالية (ميزان المراجعة والميزانية). تحب تكمل من غيرها؟');
+    if(!proceed) return;
+  }
   const newProduct={id:uid(),name,unit};
   if(manufacturer)newProduct.manufacturer=manufacturer;
   if(activeIngredient)newProduct.activeIngredient=activeIngredient;
   if(price>0)newProduct.price=price;
+  if(costPrice>0)newProduct.costPrice=costPrice;
   stock.push(newProduct);
   if(openingQty>0){
     movements.push({id:uid(),productId:newProduct.id,type:'in',qty:openingQty,date:openingDate,note:'رصيد افتتاحي',expiry:openingExpiry});
+    if(costPrice>0){
+      postJournal('stockOpening', newProduct.id, openingDate, 'رصيد افتتاحي مخزون - '+name,
+        [{accountId:'inventory',debit:openingQty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingQty*costPrice}]);
+    }
   }
   save();showProductForm=false;renderStock();
 }
@@ -2383,6 +2625,7 @@ function deleteProduct(id){
   if(!confirm('هتحذف المنتج ده؟'))return;
   stock=stock.filter(p=>p.id!==id);
   movements=movements.filter(m=>m.productId!==id);
+  removeJournalBySource('stockOpening', id);
   save();renderStock();
 }
 function saveMovement(){
@@ -2446,7 +2689,9 @@ function exportData(){
   document.getElementById('exportModal').style.display='flex';
 }
 function buildExportBlob(){
-  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,exportDate:new Date().toISOString()};
+  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
+    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,
+    exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
 function markExported(){
@@ -2555,8 +2800,23 @@ function importData(){
         if(Array.isArray(data.supplierPayments)){supplierPayments=data.supplierPayments;}else{oldFileWarning=true;}
         if(Array.isArray(data.purchaseReturns)){purchaseReturns=data.purchaseReturns;}else{oldFileWarning=true;}
         if(Array.isArray(data.expenses)){expenses=data.expenses;}
-        if(oldFileWarning) alert('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجع أو الموردين) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
-        save();alert('✅ تم استيراد البيانات بنجاح!');render();
+        if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
+        if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
+        if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
+        if(Array.isArray(data.bankAccounts)){bankAccounts=data.bankAccounts;}else{oldFileWarning=true;}
+        if(data.companyProfile&&typeof data.companyProfile==='object'){companyProfile=data.companyProfile;}else{oldFileWarning=true;}
+        if(Array.isArray(data.chartOfAccounts)&&Array.isArray(data.journalEntries)){
+          chartOfAccounts=data.chartOfAccounts;
+          journalEntries=data.journalEntries;
+        }else{
+          // ملف قديم مفيهوش دليل حسابات/قيود: نصفّرهم عشان النظام يعيد بناءهم تلقائيًا من البيانات المستوردة (نفس آلية الترحيل الأولى)، بدل ما يفضل قيد قديم مش متطابق مع البيانات الجديدة
+          chartOfAccounts=[];
+          journalEntries=[];
+          oldFileWarning=true;
+        }
+        if(oldFileWarning) alert('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجعات أو الموردين أو الشيكات أو الحسابات) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
+        seedAccountingIfNeeded();
+        alert('✅ تم استيراد البيانات بنجاح!');render();
       }catch(err){alert('حصل خطأ في قراءة الملف!');}
     };
     reader.readAsText(file);
@@ -2565,6 +2825,8 @@ function importData(){
 }
 
 let expenseQuickFilter='month';
+let financialReportView='trial'; // 'trial' | 'income' | 'balance' | 'ledger' | 'cashflow' — أي تقرير مالي معروض دلوقتي
+let ledgerAccountId=''; // الحساب المختار حاليًا في شاشة دفتر الأستاذ العام
 
 let showNoteForm=false;
 function renderExpenses(){
@@ -2590,10 +2852,12 @@ function renderExpenses(){
 
   const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${expenseQuickFilter===key?'#1A5276':'#D5D8DC'};color:${expenseQuickFilter===key?'#fff':'#333'}" onclick="expenseQuickFilter='${key}';renderExpenses()">${label}</button>`;
 
+  const costTypeLabel={direct:'مباشر',indirect:'غير مباشر'};
+  const costNatureLabel={fixed:'ثابت',variable:'متغير'};
   const rows=filtered.map(e=>`
     <div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${e.label}</div><div class="list-item-sub">📅 ${e.date}</div></div>
+        <div><div class="list-item-name">${e.label}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#C0392B">${fmt(e.amount)} ج</div></div>
       </div>
       <div class="list-item-actions">
@@ -2614,6 +2878,22 @@ function renderExpenses(){
           </div>
           <div class="form-row">
             <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${today()}"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><div class="lbl">نوع المصروف (اختياري)</div>
+              <select id="exp_cost_type">
+                <option value="">— بدون تصنيف —</option>
+                <option value="indirect">غير مباشر (مصاريف تشغيل عامة)</option>
+                <option value="direct">مباشر (مرتبط بتكلفة البضاعة)</option>
+              </select>
+            </div>
+            <div class="form-group"><div class="lbl">طبيعته (اختياري)</div>
+              <select id="exp_cost_nature">
+                <option value="">— بدون تصنيف —</option>
+                <option value="variable">متغير (بيتغير حسب النشاط)</option>
+                <option value="fixed">ثابت (نفس المبلغ كل مرة)</option>
+              </select>
+            </div>
           </div>
           <button class="btn green" onclick="addExpense()">✓ حفظ المصروف</button>
         </div>
@@ -2696,9 +2976,14 @@ function addExpense(){
   const label=document.getElementById('exp_label')?.value?.trim();
   const amount=Number(document.getElementById('exp_amount')?.value||0);
   const date=document.getElementById('exp_date')?.value||today();
+  const costType=document.getElementById('exp_cost_type')?.value||'';   // '' | 'direct' | 'indirect'
+  const costNature=document.getElementById('exp_cost_nature')?.value||''; // '' | 'fixed' | 'variable'
   if(!label){alert('اكتب بند المصروف');return;}
   if(!amount||amount<=0){alert('أدخل مبلغ صحيح');return;}
-  expenses.push({id:uid(),label,amount,date});
+  const exp={id:uid(),label,amount,date,costType,costNature};
+  expenses.push(exp);
+  const expAccount=costType==='direct'?'directcost':'opex';
+  postJournal('expense', exp.id, date, 'مصروف: '+label, [{accountId:expAccount,debit:amount,credit:0},{accountId:'cash',debit:0,credit:amount}]);
   save();
   renderExpenses();
 }
@@ -2706,6 +2991,7 @@ function addExpense(){
 function deleteExpense(id){
   if(!confirm('متأكد من حذف المصروف ده؟'))return;
   expenses=expenses.filter(e=>e.id!==id);
+  removeJournalBySource('expense', id);
   save();
   renderExpenses();
 }
@@ -2959,6 +3245,7 @@ function saveCheck(){
 
 function deleteCheck(id){
   if(!confirm('متأكد من حذف الشيك ده؟'))return;
+  removeJournalBySource('check',id);
   if(banksSubView==='payable') checksPayable=checksPayable.filter(c=>c.id!==id);
   else checksReceivable=checksReceivable.filter(c=>c.id!==id);
   save();
@@ -2987,7 +3274,16 @@ function confirmSettleCheck(id){
   }
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
+  const isPayable=banksSubView==='payable';
   c.status='done'; c.settledDate=dateVal; c.destination=destination; c.bankAccountId=destination==='bank'?bankAccountId:null;
+  // ترحيل الشيك في القيود: بيحرّك الخزنة أو البنك بس، من غير أي تأثير على رصيد العميل/المورد
+  removeJournalBySource('check',c.id);
+  const acct=destination==='bank'?'bank':'cash';
+  const desc=(isPayable?'صرف شيك #':'تحصيل شيك #')+c.number+' - '+checkHolderDisplay(c);
+  const lines=isPayable
+    ? [{accountId:'equity',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
+    : [{accountId:acct,debit:c.amount,credit:0},{accountId:'equity',debit:0,credit:c.amount}];
+  postJournal('check',c.id,dateVal,desc,lines);
   save();
   settlingCheckId=null;
   renderBanks();
@@ -2996,6 +3292,7 @@ function markCheckBounced(id){
   if(!confirm('تأكيد إن الشيك ده ارتد؟'))return;
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
+  removeJournalBySource('check',c.id); // احتياطي لو كان له قيد تسوية سابق
   c.status='bounced'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
   save();
   renderBanks();
@@ -3003,6 +3300,7 @@ function markCheckBounced(id){
 function revertCheckStatus(id){
   const c=currentChecksArr().find(x=>x.id===id);
   if(!c)return;
+  removeJournalBySource('check',c.id); // بيشيل قيد التسوية لو الشيك كان "تم التحصيل/الصرف"
   c.status='pending'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
   save();
   renderBanks();
@@ -3398,8 +3696,211 @@ function renderReports(){
         </div>
       </div>
       ${renderAgingReportBlock()}
+      ${renderFinancialStatementsBlock(fromVal,toVal)}
     </div>`;
 }
+
+// ====================================================================
+// المرحلة التالتة: التقارير المالية الحقيقية المبنية على دليل الحسابات والقيود (ميزان المراجعة، قائمة الدخل، الميزانية العمومية)
+// ====================================================================
+function renderFinancialStatementsBlock(fromVal,toVal){
+  const viewBtn=(key,label)=>`<button class="btn-sm" style="background:${financialReportView===key?'#1A5276':'#D5D8DC'};color:${financialReportView===key?'#fff':'#333'}" onclick="financialReportView='${key}';renderReports()">${label}</button>`;
+  let body='';
+  if(financialReportView==='trial') body=renderTrialBalanceHtml();
+  else if(financialReportView==='income') body=renderIncomeStatementHtml();
+  else if(financialReportView==='balance') body=renderBalanceSheetHtml();
+  else if(financialReportView==='ledger') body=renderGeneralLedgerHtml();
+  else if(financialReportView==='cashflow') body=renderCashFlowHtml(fromVal,toVal);
+  return `
+  <div class="card" style="margin-top:14px">
+    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📒 التقارير المالية</div>
+    <div class="btn-row" style="margin-bottom:12px">
+      ${viewBtn('trial','ميزان المراجعة')}
+      ${viewBtn('income','قائمة الدخل')}
+      ${viewBtn('balance','الميزانية العمومية')}
+      ${viewBtn('ledger','دفتر الأستاذ العام')}
+      ${viewBtn('cashflow','التدفقات النقدية')}
+    </div>
+    ${financialReportView==='cashflow'?'<div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>':''}
+    ${body}
+  </div>`;
+}
+
+// قائمة التدفقات النقدية (طريقة مباشرة) — بتجمع كل حركة قيود لمست الخزنة أو البنوك خلال الفترة المختارة وبتبوّبها،
+// وبتتأكد إن رصيد أول المدة + صافي التدفق = رصيد آخر المدة (نفس فلسفة التحقق من توازن الميزانية العمومية)
+function renderCashFlowHtml(fromVal,toVal){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  let inClients=0, inChecks=0, outSuppliers=0, outChecks=0, outExpenses=0, openingAdjust=0;
+  journalEntries.forEach(j=>{
+    if(j.date<fromVal||j.date>toVal) return;
+    j.lines.forEach(l=>{
+      if(l.accountId!=='cash'&&l.accountId!=='bank') return;
+      const debit=Number(l.debit)||0, credit=Number(l.credit)||0;
+      if(j.sourceType==='opening'){ openingAdjust+=debit-credit; return; }
+      if(j.sourceType==='payment') inClients+=debit-credit;
+      else if(j.sourceType==='check'){ if(debit>0) inChecks+=debit; else outChecks+=credit; }
+      else if(j.sourceType==='supplierPayment') outSuppliers+=credit-debit;
+      else if(j.sourceType==='expense') outExpenses+=credit-debit;
+    });
+  });
+  const totalIn=inClients+inChecks;
+  const totalOut=outSuppliers+outChecks+outExpenses;
+  const netOperating=totalIn-totalOut;
+  const netFlow=netOperating+openingAdjust;
+
+  const cashBankTotalAsOf=(date,inclusive)=>{
+    let d=0,c=0;
+    journalEntries.forEach(j=>{
+      const within=inclusive?(j.date<=date):(j.date<date);
+      if(!within) return;
+      j.lines.forEach(l=>{ if(l.accountId==='cash'||l.accountId==='bank'){ d+=Number(l.debit)||0; c+=Number(l.credit)||0; } });
+    });
+    return d-c;
+  };
+  const openingBal=cashBankTotalAsOf(fromVal,false);
+  const closingBal=cashBankTotalAsOf(toVal,true);
+  const diff=(openingBal+netFlow)-closingBal;
+
+  const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:5px 0;${opts.bold?'font-weight:bold;border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
+    <div>${label}</div><div style="${opts.color?`color:${opts.color}`:''}">${fmt(val)} ج</div>
+  </div>`;
+
+  return `
+    <div style="font-weight:bold;color:#1A5276;margin-bottom:4px">الأنشطة التشغيلية</div>
+    ${row('متحصلات من العملاء', inClients)}
+    ${inChecks?row('متحصلات شيكات مُحصّلة', inChecks):''}
+    ${row('(-) مدفوعات للموردين', outSuppliers)}
+    ${outChecks?row('(-) شيكات مصروفة', outChecks):''}
+    ${row('(-) مصاريف مدفوعة نقدًا', outExpenses)}
+    ${row('= صافي التدفق من الأنشطة التشغيلية', netOperating, {bold:true, color:netOperating>=0?'#1E8449':'#C0392B'})}
+    ${openingAdjust?row('أرصدة افتتاحية مسجّلة خلال الفترة', openingAdjust):''}
+    ${row('صافي التدفق النقدي للفترة', netFlow, {bold:true, color:netFlow>=0?'#1E8449':'#C0392B'})}
+    <div style="margin-top:12px;padding-top:10px;border-top:2px solid #D5D8DC">
+      ${row('رصيد النقدية (خزنة + بنوك) أول الفترة', openingBal)}
+      ${row('رصيد النقدية (خزنة + بنوك) آخر الفترة', closingBal, {bold:true})}
+    </div>
+    <div style="font-size:11px;color:${Math.abs(diff)<0.01?'#1E8449':'#C0392B'};margin-top:8px">
+      ${Math.abs(diff)<0.01?'✓ رصيد أول المدة + صافي التدفق = رصيد آخر المدة':'⚠ في فرق — يُرجى المراجعة'}
+    </div>`;
+}
+
+function renderGeneralLedgerHtml(){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  if(!ledgerAccountId || !chartOfAccounts.find(a=>a.id===ledgerAccountId)) ledgerAccountId=chartOfAccounts[0].id;
+  const selectHtml=`
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:#717D7E">اختار الحساب</label>
+      <select onchange="ledgerAccountId=this.value;renderReports()" style="width:100%;padding:8px;border-radius:8px;border:1px solid #D5D8DC;margin-top:4px">
+        ${chartOfAccounts.map(a=>`<option value="${a.id}" ${a.id===ledgerAccountId?'selected':''}>${a.name}</option>`).join('')}
+      </select>
+    </div>`;
+  const rows=[];
+  journalEntries.forEach(j=>{
+    j.lines.forEach(l=>{
+      if(l.accountId===ledgerAccountId && ((Number(l.debit)||0)>0 || (Number(l.credit)||0)>0)){
+        rows.push({date:j.date,createdAt:j.createdAt||'',description:j.description,debit:Number(l.debit)||0,credit:Number(l.credit)||0});
+      }
+    });
+  });
+  if(rows.length===0) return selectHtml+'<div class="empty">مفيش حركات مسجّلة على الحساب ده لسه</div>';
+  rows.sort((a,b)=>((a.date||'')+'|'+a.createdAt).localeCompare((b.date||'')+'|'+b.createdAt));
+  let running=0; // موجب = رصيد مدين، سالب = رصيد دائن — بنفس منطق accountBalance بالظبط عشان الرقم النهائي يطابق ميزان المراجعة
+  const rowsHtml=rows.map(r=>{
+    running+=r.debit-r.credit;
+    return `<tr>
+      <td>${r.date}</td>
+      <td style="font-size:12px">${r.description}</td>
+      <td style="text-align:center">${r.debit>0?fmt(r.debit):'—'}</td>
+      <td style="text-align:center">${r.credit>0?fmt(r.credit):'—'}</td>
+      <td style="text-align:center;font-weight:bold;white-space:nowrap">${fmt(Math.abs(running))} ${running>=0?'م':'د'}</td>
+    </tr>`;
+  }).join('');
+  return `${selectHtml}
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>
+    <div style="font-size:11px;color:#AAB7B8;margin-top:6px">الرصيد بعد آخر حركة المفروض يطابق رصيد نفس الحساب في ميزان المراجعة (م = مدين، د = دائن).</div>`;
+}
+
+function renderTrialBalanceHtml(){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  const rows=chartOfAccounts.map(a=>{
+    const b=accountBalance(a.id);
+    if(b.debit===0 && b.credit===0) return null;
+    return {name:a.name, debit:b.debit, credit:b.credit};
+  }).filter(Boolean);
+  const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
+  const totalCredit=rows.reduce((s,r)=>s+r.credit,0);
+  return `
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr><td>${r.name}</td><td style="text-align:center">${r.debit>0?fmt(r.debit):'—'}</td><td style="text-align:center">${r.credit>0?fmt(r.credit):'—'}</td></tr>`).join('')}
+        <tr style="font-weight:bold;background:#F2F3F4"><td>الإجمالي</td><td style="text-align:center">${fmt(totalDebit)}</td><td style="text-align:center">${fmt(totalCredit)}</td></tr>
+      </tbody>
+    </table></div>
+    <div style="font-size:11px;color:${Math.abs(totalDebit-totalCredit)<0.01?'#1E8449':'#C0392B'};margin-top:6px">
+      ${Math.abs(totalDebit-totalCredit)<0.01?'✓ الميزان متوازن (مدين = دائن)':'⚠ في فرق بين المدين والدائن — يُرجى المراجعة'}
+    </div>`;
+}
+
+function renderIncomeStatementHtml(){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  const sales=accountBalance('sales').credit;
+  const cogs=accountBalance('cogs').debit;
+  const grossProfit=sales-cogs;
+  const directCost=accountBalance('directcost').debit;
+  const opex=accountBalance('opex').debit;
+  const discountAllowed=accountBalance('discountAllowed').debit;
+  const discountEarned=accountBalance('discountEarned').credit;
+  const netProfit=grossProfit-directCost-opex-discountAllowed+discountEarned;
+  const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${opts.bold?'font-weight:bold;':''}${opts.border?'border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
+    <div style="${opts.color?`color:${opts.color}`:''}">${label}</div><div style="${opts.color?`color:${opts.color}`:''}">${fmt(val)} ج</div>
+  </div>`;
+  return `
+    ${row('إيرادات المبيعات', sales)}
+    ${row('(-) تكلفة البضاعة المباعة', cogs)}
+    ${row('= مجمل الربح', grossProfit, {bold:true, border:true, color:grossProfit>=0?'#1E8449':'#C0392B'})}
+    ${directCost>0?row('(-) تكلفة مباشرة أخرى (مصاريف مصنّفة)', directCost):''}
+    ${row('(-) مصاريف تشغيلية', opex)}
+    ${discountAllowed>0?row('(-) خصم مسموح به (عملاء)', discountAllowed):''}
+    ${discountEarned>0?row('(+) خصم مكتسب (موردين)', discountEarned):''}
+    ${row('= صافي الربح', netProfit, {bold:true, border:true, color:netProfit>=0?'#1E8449':'#C0392B'})}
+    <div style="font-size:11px;color:#AAB7B8;margin-top:8px">💡 تكلفة البضاعة المباعة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف. لو صنف اتباع من غير ما يكون له سعر شراء مسجّل (رصيد افتتاحي أو فاتورة شراء)، تكلفته بتحسب صفر مؤقتًا لحد ما تتسجّل تكلفته — وقتها الأرقام بتتظبط تلقائيًا من غير أي تعديل يدوي.</div>`;
+}
+
+function renderBalanceSheetHtml(){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  const cash=accountBalance('cash').debit;
+  const bank=accountBalance('bank').debit;
+  const ar=accountBalance('ar').debit;
+  const inventory=accountBalance('inventory').debit;
+  const totalAssets=cash+bank+ar+inventory;
+  const ap=accountBalance('ap').credit;
+  const netIncomeToDate=accountBalance('sales').credit-accountBalance('cogs').debit-accountBalance('directcost').debit-accountBalance('opex').debit-accountBalance('discountAllowed').debit+accountBalance('discountEarned').credit;
+  const eqBal=accountBalance('equity');
+  const equity=(eqBal.totalCredit-eqBal.totalDebit)+netIncomeToDate;
+  const totalLiabEquity=ap+equity;
+  const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:5px 0;${opts.bold?'font-weight:bold;border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
+    <div>${label}</div><div>${fmt(val)} ج</div>
+  </div>`;
+  return `
+    <div style="font-weight:bold;color:#1A5276;margin-bottom:4px">الأصول</div>
+    ${row('الخزنة', cash)}
+    ${row('البنوك', bank)}
+    ${row('العملاء', ar)}
+    ${row('المخزون', inventory)}
+    ${row('إجمالي الأصول', totalAssets, {bold:true})}
+    <div style="font-weight:bold;color:#1A5276;margin:12px 0 4px">الخصوم وحقوق الملكية</div>
+    ${row('الموردون', ap)}
+    ${row('حقوق الملكية (شامل صافي الربح المتراكم)', equity)}
+    ${row('إجمالي الخصوم وحقوق الملكية', totalLiabEquity, {bold:true})}
+    <div style="font-size:11px;color:${Math.abs(totalAssets-totalLiabEquity)<0.01?'#1E8449':'#C0392B'};margin-top:8px">
+      ${Math.abs(totalAssets-totalLiabEquity)<0.01?'✓ الميزانية متوازنة (الأصول = الخصوم + حقوق الملكية)':'⚠ في فرق — يُرجى المراجعة'}
+    </div>`;
+}
+// ====================================================================
 function renderAgingReportBlock(){
   const rows=agingReportRows(today());
   const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
@@ -3544,7 +4045,7 @@ function renderSupplierDetail(){
   // سجل الحركات مدمج: مشتريات + سداد + مردود مشتريات
   let allMoves=[
     ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`,amount:p.total,id:p.id,createdAt:p.createdAt})),
-    ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}`,amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}${p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''}`,amount:p.amount,id:null,createdAt:p.createdAt})),
     ...supPurRet.map(r=>({date:r.date,type:'return',desc:`مردود مشتريات #${r.number}`,amount:r.total,id:r.id,createdAt:r.createdAt})),
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
 
@@ -3607,7 +4108,7 @@ async function printSupplierStatement(sid){
   const events=[
     ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening,createdAt:''}]:[]),
     ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total,lines:p.lines,createdAt:p.createdAt})),
-    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:''),amount:p.amount,createdAt:p.createdAt})),
+    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
     ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   let running=0;
@@ -3850,6 +4351,8 @@ function savePurchase(){
   const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
   const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
   purchases.push(pur);
+  removeJournalBySource('purchase', pur.id);
+  postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+pur.number, [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
   // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
   purchaseLines.forEach(l=>{
     if(l.productId){
@@ -3864,6 +4367,7 @@ function deletePurchase(id){
   if(!confirm('هتحذف فاتورة المشتريات دي؟ الكميات هترجع للمخزن.'))return;
   movements=movements.filter(m=>m.purchaseId!==id);
   purchases=purchases.filter(p=>p.id!==id);
+  removeJournalBySource('purchase', id);
   save();renderPurchases();
 }
 
@@ -3982,7 +4486,7 @@ function renderSupPayTab(){
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td style="white-space:nowrap">${s?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount)} ج</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
+      <td style="white-space:nowrap">${s?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
         <button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
@@ -4004,6 +4508,9 @@ function renderSupPayTab(){
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="sp2_date" value="${today()}"></div>
         </div>
         <div class="form-row">
+          <div class="form-group"><div class="lbl">خصم مكتسب (ج) — اختياري</div><input type="number" id="sp2_discount" placeholder="0.00" min="0"></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="sp2_note" placeholder="كاش / شيك / تحويل..."></div>
         </div>
         <div class="btn-row">
@@ -4021,11 +4528,18 @@ function renderSupPayTab(){
 
 function saveSupplierPaymentTab(){
   const supplierId=document.getElementById('sp2_supplier')?.value;
-  const amount=Number(document.getElementById('sp2_amount')?.value||0);
+  const cashAmount=Number(document.getElementById('sp2_amount')?.value||0);
+  const discount=Number(document.getElementById('sp2_discount')?.value||0);
   const date=document.getElementById('sp2_date')?.value||today();
   const note=document.getElementById('sp2_note')?.value||'';
-  if(!supplierId||!amount){alert('اختر مورد وأدخل المبلغ');return;}
-  supplierPayments.push({id:uid(),supplierId,amount,date,note,createdAt:new Date().toISOString()});
+  if(!supplierId||(!cashAmount&&!discount)){alert('اختر مورد وأدخل المبلغ');return;}
+  const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد المورد (نقدي + خصم)
+  const sp={id:uid(),supplierId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
+  supplierPayments.push(sp);
+  const lines=[{accountId:'ap',debit:amount,credit:0}];
+  if(cashAmount>0) lines.push({accountId:'cash',debit:0,credit:cashAmount});
+  if(discount>0) lines.push({accountId:'discountEarned',debit:0,credit:discount});
+  postJournal('supplierPayment', sp.id, date, discount>0?`سداد لمورد (شامل خصم مكتسب ${fmt(discount)} ج)`:'سداد لمورد', lines);
   save();showSupPayTabForm=false;renderSupPayTab();
 }
 
@@ -4042,10 +4556,11 @@ async function printSupplierPaymentReceipt(pid){
       ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(p.amount)}</div><div class="l">المبلغ المدفوع</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المدفوع نقدًا</div></div>
+      ${p.discount?`<div class="doc-sum-box"><div class="n">${fmt(p.discount)}</div><div class="l">خصم مكتسب</div></div>`:''}
       ${s?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'المتبقي له علينا':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
     </div>
-    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount)} جنيه</div>`;
+    <div class="doc-total">إيصال سداد بمبلغ: ${fmt(p.amount-(p.discount||0))} جنيه${p.discount?` (+ خصم مكتسب ${fmt(p.discount)} ج)`:''}</div>`;
   await sendDocument(`إيصال سداد: ${s?.name||''}`, body, `إيصال-سداد-مورد-${s?.name||''}-${p.date}.pdf`);
 }
 
@@ -4062,7 +4577,8 @@ function renderSupPayTabDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${s?.name||'—'}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
-        <div style="margin-bottom:10px"><strong>المبلغ المدفوع:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount)} ج</span></div>
+        <div style="margin-bottom:10px"><strong>المبلغ المدفوع نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
+        ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مكتسب:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للمورد</button>
@@ -4074,6 +4590,7 @@ function renderSupPayTabDetail(){
 function deleteSupplierPaymentTab(id){
   if(!confirm('هتحذف عملية السداد دي؟'))return;
   supplierPayments=supplierPayments.filter(p=>p.id!==id);
+  removeJournalBySource('supplierPayment', id);
   save();renderSupPayTab();
 }
 
@@ -4228,6 +4745,8 @@ function savePurRet(){
   const retNum=(purchaseReturns.length>0?Math.max(...purchaseReturns.map(r=>r.number||0)):0)+1;
   const ret={id:uid(),number:retNum,supplierId,date,lines:purRetLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
   purchaseReturns.push(ret);
+  postJournal('purReturn',ret.id,date,'مردود مشتريات #'+retNum,
+    [{accountId:'ap',debit:total,credit:0},{accountId:'inventory',debit:0,credit:total}]);
   // مردود المشتريات بيقلل من المخزن (صادر) لأنه بيرجع للمورد
   purRetLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'out',qty:Number(l.qty),date,note:'مردود مشتريات #'+retNum,purchaseReturnId:ret.id,expiry:l.expiry||''});
@@ -4242,6 +4761,7 @@ function deletePurRet(id){
   if(!confirm('هتحذف مردود المشتريات ده؟ الكميات هتترجع تتخصم تاني من المخزن.'))return;
   purchaseReturns=purchaseReturns.filter(r=>r.id!==id);
   movements=movements.filter(m=>m.purchaseReturnId!==id);
+  removeJournalBySource('purReturn',id);
   save();renderPurReturns();
 }
 
