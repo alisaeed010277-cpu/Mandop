@@ -280,10 +280,10 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions'};
 
 // البيانات الرئيسية
-let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[];
+let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[],productions=[];
 let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
 let bankAccounts=[]; // حسابات الشركة البنكية
 let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأولى من نظام المحاسبة)
@@ -376,11 +376,12 @@ const save=()=>{
   idbSet(KEYS.bankAccounts,bankAccounts);
   idbSet(KEYS.chartOfAccounts,chartOfAccounts);
   idbSet(KEYS.journalEntries,journalEntries);
+  idbSet(KEYS.productions,productions);
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -401,6 +402,7 @@ async function loadAllData(){
   bankAccounts=bAcc||[];
   chartOfAccounts=coa||[];
   journalEntries=jrnl||[];
+  productions=prod||[];
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -472,21 +474,37 @@ function accountBalance(accountId){
 }
 
 // متوسط تكلفة الصنف المرجح — بيتحسب من الصفر كل مرة من الرصيد الافتتاحي + كل فواتير الشراء بترتيبها الزمني، عشان يفضل صحيح حتى لو اتعدّلت أو اتمسحت فاتورة شراء قديمة (من غير ما نحتاج نخزن أو نصحح رقم متراكم)
-function productAvgCost(productId){
+function productAvgCost(productId, _visiting){
+  const visiting=_visiting||new Set();
+  if(visiting.has(productId)) return 0; // حماية من دورة تصنيع دائرية (صنف بيدخل في تصنيع نفسه بشكل غير مباشر)
+  visiting.add(productId);
   const p=stock.find(s=>s.id===productId);
-  if(!p) return 0;
+  if(!p){ visiting.delete(productId); return 0; }
   let qty=0, value=0;
   const openingMov=movements.find(m=>m.productId===productId && m.note==='رصيد افتتاحي');
   if(openingMov && p.costPrice>0){ qty=openingMov.qty; value=openingMov.qty*p.costPrice; }
   const purLines=purchases
-    .flatMap(pur=>pur.lines.filter(l=>l.productId===productId).map(l=>({...l,purDiscount:pur.overallDiscount||0,sortKey:(pur.date||'')+'|'+(pur.createdAt||'')})))
-    .sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
-  purLines.forEach(l=>{
-    const addedQty=Number(l.qty)+(Number(l.bonus)||0);
-    if(addedQty<=0) return;
-    const lineCost=Number(l.qty)*Number(l.price)*(1-(Number(l.discount)||0)/100)*(1-(Number(l.purDiscount)||0)/100);
-    value+=lineCost; qty+=addedQty;
+    .flatMap(pur=>pur.lines.filter(l=>l.productId===productId).map(l=>({kind:'purchase',line:l,purDiscount:pur.overallDiscount||0,sortKey:(pur.date||'')+'|'+(pur.createdAt||'')})));
+  const prodLines=productions
+    .filter(op=>op.outputProductId===productId)
+    .map(op=>({kind:'production',op,sortKey:(op.date||'')+'|'+(op.createdAt||'')}));
+  const merged=[...purLines,...prodLines].sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+  merged.forEach(item=>{
+    if(item.kind==='purchase'){
+      const l=item.line;
+      const addedQty=Number(l.qty)+(Number(l.bonus)||0);
+      if(addedQty<=0) return;
+      const lineCost=Number(l.qty)*Number(l.price)*(1-(Number(l.discount)||0)/100)*(1-(Number(item.purDiscount)||0)/100);
+      value+=lineCost; qty+=addedQty;
+    } else {
+      const op=item.op;
+      const addedQty=Number(op.outputQty)||0;
+      if(addedQty<=0) return;
+      const rawCost=(op.inputs||[]).reduce((s,inp)=>s+productAvgCost(inp.productId,visiting)*(Number(inp.qty)||0),0);
+      value+=rawCost+(Number(op.extraCost)||0); qty+=addedQty;
+    }
   });
+  visiting.delete(productId);
   return qty>0 ? value/qty : (p.costPrice||0);
 }
 // إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات بأحدث متوسط تكلفة معروف لكل صنف — بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، عشان لو مندوب سجّل صنف من غير سعر تكلفة وبعدين حد صحّح السعر، القيود القديمة تتظبط تلقائيًا من غير ما حد يحتاج يرجعلها يدوي
@@ -2419,6 +2437,8 @@ let editProductId=null;
 let showMovForm=false;
 let stockListSearch='';
 let currentMovType='in';
+let showProductionForm=false;
+let prodInputLines=[{id:uid(),productId:'',qty:''}];
 
 function renderStock(){
   if(stockDetailId){renderStockDetail();return;}
@@ -2426,10 +2446,12 @@ function renderStock(){
     <div class="sub-tabs">
       <button class="btn ${stockSubTab==='overview'?'blue':'btn-outline'}" onclick="stockSubTab='overview';renderStock()">📦 المنتجات</button>
       <button class="${stockSubTab==='movements'?'btn blue':'btn-outline'}" onclick="stockSubTab='movements';renderStock()">🔄 الحركات</button>
+      <button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>
     </div>
     <div id="stock-content"></div>`;
   if(stockSubTab==='overview')renderStockOverview();
-  else renderStockMovements();
+  else if(stockSubTab==='movements')renderStockMovements();
+  else renderProduction();
 }
 
 async function printStockSummaryPdf(){
@@ -2657,6 +2679,178 @@ function renderStockMovements(){
     ${sorted.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المنتج</th><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>الصلاحية</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 
+// ===== التصنيع: بيحوّل خامة (أو أكتر) لصنف ناتج، بيحدّث المخزون تلقائي، وبيحسب تكلفة الصنف الناتج
+// عن طريق نفس نظام المتوسط المرجح المستخدم في تكلفة البضاعة المباعة (COGS) في باقي التطبيق
+function productionOutputCost(op){
+  const rawCost=(op.inputs||[]).reduce((s,inp)=>s+productAvgCost(inp.productId)*(Number(inp.qty)||0),0);
+  return rawCost+(Number(op.extraCost)||0);
+}
+function addProdLine(){prodInputLines.push({id:uid(),productId:'',qty:''});rerenderProductionFormKeepFields();}
+function removeProdLine(id){prodInputLines=prodInputLines.filter(l=>l.id!==id);rerenderProductionFormKeepFields();}
+function updateProdLine(id,field,value){
+  prodInputLines=prodInputLines.map(l=>l.id!==id?l:{...l,[field]:field==='qty'?Number(value):value});
+  rerenderProductionFormKeepFields();
+}
+// إعادة رسم فورم التصنيع مع الحفاظ على الصنف الناتج وكميته والتاريخ والتكلفة الإضافية (بيتصفروا لو عملنا render عادي)
+function rerenderProductionFormKeepFields(){
+  const savedOutput=document.getElementById('prod_output')?.value;
+  const savedOutputText=document.getElementById('prod_output_search')?.value;
+  const savedOutputQty=document.getElementById('prod_output_qty')?.value;
+  const savedDate=document.getElementById('prod_date')?.value;
+  const savedExtra=document.getElementById('prod_extra_cost')?.value;
+  const savedExpiry=document.getElementById('prod_expiry')?.value;
+  const savedNote=document.getElementById('prod_note')?.value;
+  renderProduction();
+  setTimeout(()=>{
+    if(savedOutput){const el=document.getElementById('prod_output');if(el)el.value=savedOutput;const st=document.getElementById('prod_output_search');if(st)st.value=savedOutputText||'';}
+    if(savedOutputQty){const el=document.getElementById('prod_output_qty');if(el)el.value=savedOutputQty;}
+    if(savedDate){const el=document.getElementById('prod_date');if(el)el.value=savedDate;}
+    if(savedExtra){const el=document.getElementById('prod_extra_cost');if(el)el.value=savedExtra;}
+    if(savedExpiry){const el=document.getElementById('prod_expiry');if(el)el.value=savedExpiry;}
+    if(savedNote){const el=document.getElementById('prod_note');if(el)el.value=savedNote;}
+  },0);
+}
+function saveProduction(){
+  const outputId=document.getElementById('prod_output')?.value;
+  const outputQty=Number(document.getElementById('prod_output_qty')?.value||0);
+  const date=document.getElementById('prod_date')?.value||today();
+  const extraCost=Number(document.getElementById('prod_extra_cost')?.value||0);
+  const expiry=document.getElementById('prod_expiry')?.value||'';
+  const note=document.getElementById('prod_note')?.value||'';
+  const inputs=prodInputLines.filter(l=>l.productId&&Number(l.qty)>0).map(l=>({productId:l.productId,qty:Number(l.qty)}));
+  if(!outputId||!outputQty){alert('اختر الصنف الناتج وأدخل الكمية');return;}
+  if(inputs.length===0){alert('أدخل صنف خام واحد على الأقل بالكمية');return;}
+  if(inputs.some(i=>i.productId===outputId)){alert('الصنف الناتج مينفعش يكون من ضمن الخامات المستخدمة');return;}
+  for(const inp of inputs){
+    if(stockQty(inp.productId)<inp.qty){
+      alert('الكمية المتاحة من "'+(stock.find(s=>s.id===inp.productId)?.name||'')+'" مش كفاية (المتاح: '+stockQty(inp.productId)+')');
+      return;
+    }
+  }
+  const op={id:uid(),date,note,inputs,outputProductId:outputId,outputQty,extraCost:extraCost||undefined,createdAt:new Date().toISOString()};
+  productions.push(op);
+  inputs.forEach(inp=>{
+    movements.push({id:uid(),productId:inp.productId,type:'out',qty:inp.qty,date,note:'مستهلك في تصنيع',productionId:op.id});
+  });
+  movements.push({id:uid(),productId:outputId,type:'in',qty:outputQty,date,note:'ناتج تصنيع',productionId:op.id,expiry});
+  const rawCost=inputs.reduce((s,inp)=>s+productAvgCost(inp.productId)*inp.qty,0);
+  const totalCost=rawCost+extraCost;
+  const lines=[{accountId:'inventory',debit:totalCost,credit:0},{accountId:'inventory',debit:0,credit:rawCost}];
+  if(extraCost>0) lines.push({accountId:'opex',debit:0,credit:extraCost}); // بيحوّل جزء من التكلفة المسجّلة كمصروف فترة (زي أجور التصنيع) لتكلفة داخل قيمة المنتج الناتج
+  postJournal('production', op.id, date, 'عملية تصنيع - '+(stock.find(s=>s.id===outputId)?.name||''), lines);
+  save();
+  showProductionForm=false;
+  prodInputLines=[{id:uid(),productId:'',qty:''}];
+  renderStock();
+}
+function deleteProduction(id){
+  const op=productions.find(x=>x.id===id);
+  if(!op)return;
+  if(!confirm('متأكد من حذف عملية التصنيع دي؟'))return;
+  if(stockQty(op.outputProductId) < op.outputQty){
+    alert('معلش، مينفعش تحذف العملية دي — جزء من الكمية الناتجة اتباع أو اتصرف بالفعل. لازم رصيد الصنف الناتج يكون كافي الأول.');
+    return;
+  }
+  movements=movements.filter(m=>m.productionId!==id);
+  removeJournalBySource('production', id);
+  productions=productions.filter(x=>x.id!==id);
+  save();
+  renderStock();
+}
+function renderProduction(){
+  const outputId=document.getElementById('prod_output')?.value||'';
+  const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
+  const inputOptsArr=stockOptsArr.filter(o=>o.id!==outputId);
+  const linesHtml=prodInputLines.map(l=>{
+    const cost=l.productId?productAvgCost(l.productId):0;
+    const lineTotal=cost*(Number(l.qty)||0);
+    return `<div class="line-box">
+      <div class="form-row">
+        <div class="form-group" style="flex:2">
+          <div class="lbl">الخامة</div>
+          ${searchableSelectHtml(`prodline_${l.id}`, inputOptsArr, '🔍 دور على الخامة...', l.productId, `updateProdLine('${l.id}','productId',document.getElementById('prodline_${l.id}').value)`)}
+        </div>
+        <div class="form-group">
+          <div class="lbl">الكمية المستخدمة</div>
+          <input type="number" min="0" value="${l.qty}" onchange="updateProdLine('${l.id}','qty',this.value)">
+        </div>
+        ${prodInputLines.length>1?`<button class="btn red" style="padding:6px 10px;align-self:flex-end" onclick="removeProdLine('${l.id}')">✕</button>`:''}
+      </div>
+      ${l.productId?`<div style="font-size:11px;color:#717D7E;padding:0 4px 6px">متوسط التكلفة: ${fmt(cost)} ج/وحدة — إجمالي السطر: ${fmt(lineTotal)} ج</div>`:''}
+    </div>`;
+  }).join('');
+  const rawCostPreview=prodInputLines.reduce((s,l)=>s+(l.productId?productAvgCost(l.productId)*(Number(l.qty)||0):0),0);
+  const extraCostPreview=Number(document.getElementById('prod_extra_cost')?.value||0);
+  const outputQtyPreview=Number(document.getElementById('prod_output_qty')?.value||0);
+  const totalCostPreview=rawCostPreview+extraCostPreview;
+  const costPerUnitPreview=outputQtyPreview>0?totalCostPreview/outputQtyPreview:0;
+
+  const sorted=[...productions].sort((a,b)=>((b.date||'')+(b.createdAt||'')).localeCompare((a.date||'')+(a.createdAt||'')));
+  const rows=sorted.map(op=>{
+    const outP=stock.find(s=>s.id===op.outputProductId);
+    const cost=productionOutputCost(op);
+    const inputNames=(op.inputs||[]).map(inp=>{
+      const p=stock.find(s=>s.id===inp.productId);
+      return `${p?.name||'—'} (${inp.qty})`;
+    }).join('، ');
+    return `<div class="list-item">
+      <div class="list-item-head">
+        <div style="flex:1">
+          <div class="list-item-name">🏭 ${outP?.name||'—'} <span style="color:#717D7E;font-weight:normal">× ${op.outputQty}</span></div>
+          <div class="list-item-sub">من: ${inputNames}</div>
+          <div class="list-item-sub">${op.date}${op.note?' — '+op.note:''}</div>
+        </div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1E8449;font-size:16px">${fmt(cost)}</div><div class="list-item-bal-lbl">تكلفة الدفعة</div></div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn-sm red" onclick="deleteProduction('${op.id}')">🗑 حذف</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('stock-content').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      ${!showProductionForm?`<button class="btn green" onclick="showProductionForm=true;prodInputLines=[{id:uid(),productId:'',qty:''}];renderProduction()">+ عملية تصنيع جديدة</button>`:''}
+    </div>
+    ${showProductionForm?`
+    <div class="card">
+      <div class="card-head green">🏭 عملية تصنيع جديدة</div>
+      <div class="card-body">
+        <div class="section-title">الخامات المستخدمة</div>
+        ${linesHtml}
+        <button class="btn-outline" style="margin-bottom:10px" onclick="addProdLine()">+ إضافة خامة</button>
+        <div class="divider"></div>
+        <div class="section-title">الصنف الناتج</div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <div class="lbl">المنتج الناتج</div>
+            ${searchableSelectHtml('prod_output', stockOptsArr, '🔍 دور على الصنف...', outputId, `rerenderProductionFormKeepFields()`)}
+          </div>
+          <div class="form-group"><div class="lbl">الكمية الناتجة</div><input type="number" min="0" id="prod_output_qty" value="${document.getElementById('prod_output_qty')?.value||''}" onchange="rerenderProductionFormKeepFields()"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="prod_date" value="${document.getElementById('prod_date')?.value||today()}"></div>
+          <div class="form-group"><div class="lbl">📅 صلاحية الدفعة الناتجة (اختياري)</div><input type="date" id="prod_expiry" value="${document.getElementById('prod_expiry')?.value||''}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">تكلفة تصنيع إضافية (ج) — اختياري، زي أجور/تعبئة</div><input type="number" min="0" id="prod_extra_cost" placeholder="0.00" value="${document.getElementById('prod_extra_cost')?.value||''}" onchange="rerenderProductionFormKeepFields()"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="prod_note" value="${document.getElementById('prod_note')?.value||''}"></div>
+        </div>
+        <div class="bonus-box">
+          💡 تكلفة الخامات: ${fmt(rawCostPreview)} ج${extraCostPreview>0?` + تكلفة إضافية: ${fmt(extraCostPreview)} ج`:''} = إجمالي التكلفة: <b>${fmt(totalCostPreview)} ج</b>
+          ${outputQtyPreview>0?` — تكلفة الوحدة الناتجة: <b>${fmt(costPerUnitPreview)} ج</b>`:''}
+        </div>
+        <div class="btn-row">
+          <button class="btn green" onclick="saveProduction()">✓ حفظ عملية التصنيع</button>
+          <button class="btn-outline" onclick="showProductionForm=false;renderProduction()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:''}
+    ${sorted.length===0?'<div class="empty">لا توجد عمليات تصنيع مسجّلة</div>':rows}`;
+}
+
 function renderStockDetail(){
   const p=stock.find(p=>p.id===stockDetailId);
   if(!p){stockDetailId=null;renderStock();return;}
@@ -2690,7 +2884,7 @@ function exportData(){
 }
 function buildExportBlob(){
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
-    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,
+    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -2800,6 +2994,7 @@ function importData(){
         if(Array.isArray(data.supplierPayments)){supplierPayments=data.supplierPayments;}else{oldFileWarning=true;}
         if(Array.isArray(data.purchaseReturns)){purchaseReturns=data.purchaseReturns;}else{oldFileWarning=true;}
         if(Array.isArray(data.expenses)){expenses=data.expenses;}
+        if(Array.isArray(data.productions)){productions=data.productions;}
         if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
         if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
         if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
