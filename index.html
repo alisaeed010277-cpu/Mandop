@@ -430,6 +430,21 @@ async function loadAllData(){
 // المرحلة الأولى من نظام المحاسبة: دليل الحسابات + محرك القيود اليومية
 // ====================================================================
 // دليل حسابات افتراضي ثابت (مش قابل للتعديل دلوقتي — ده أساس المرحلة الأولى بس)
+// ===== تصنيف الأصناف: مواد خام وتعبئة وتغليف مقابل المنتج التام =====
+const PRODUCT_CATEGORIES=[
+  {id:'raw',label:'مادة خام'},
+  {id:'container',label:'عبوة'},
+  {id:'cap',label:'غطا'},
+  {id:'insert',label:'روشتة'},
+  {id:'carton',label:'كرتونة / تعبئة خارجية'},
+  {id:'label',label:'تيكيت / استيكر'},
+  {id:'finished',label:'منتج تام'},
+];
+const RAW_CATEGORY_IDS=['raw','container','cap','insert','carton','label'];
+const productCategoryLabel=(catId)=>PRODUCT_CATEGORIES.find(c=>c.id===catId)?.label||'منتج تام';
+// أي منتج قديم من غير تصنيف (اتضاف قبل الميزة دي) بيتعامل معاه كـ"منتج تام" تلقائيًا، عشان يفضل ظاهر زي ما كان بالظبط في كل مكان
+const isRawCategory=(p)=>RAW_CATEGORY_IDS.includes(p.category);
+
 const DEFAULT_CHART_OF_ACCOUNTS=[
   {id:'cash',    code:'1110', name:'الخزنة',                     type:'asset'},
   {id:'bank',    code:'1120', name:'البنوك',                     type:'asset'},
@@ -1776,7 +1791,7 @@ function renderInvoices(){
   const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   let linesHtml=invLines.map(l=>{
-    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
+    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
     const bonusQty=Number(l.bonus)||0;
@@ -2286,7 +2301,7 @@ function renderReturns(){
   }).join('');
 
   let linesHtml=retLines.map(l=>{
-    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
+    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
@@ -2436,6 +2451,7 @@ let showProductForm=false;
 let editProductId=null;
 let showMovForm=false;
 let stockListSearch='';
+let stockCategoryFilter='all'; // 'all' | 'raw' (خامات وتعبئة) | 'finished' (منتج تام)
 let currentMovType='in';
 let showProductionForm=false;
 let prodInputLines=[{id:uid(),productId:'',qty:''}];
@@ -2484,7 +2500,8 @@ async function printStockSummaryPdf(){
 
 function renderStockOverview(){
   const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
-  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch));
+  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch))
+    .filter(p=>stockCategoryFilter==='all'?true:stockCategoryFilter==='raw'?isRawCategory(p):!isRawCategory(p));
   let items=filteredStock.map(p=>{
     const qty=stockQty(p.id);
     const qtyColor=qty<10?'#C0392B':'#1E8449';
@@ -2496,7 +2513,7 @@ function renderStockOverview(){
       <div class="list-item-head">
         <div style="flex:1">
           <div class="list-item-name">${p.name}</div>
-          <div class="list-item-sub">وحدة: ${p.unit}</div>
+          <div class="list-item-sub">وحدة: ${p.unit} &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span></div>
           ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
         </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${qtyColor};font-size:20px">${qty}</div><div class="list-item-bal-lbl">${p.unit}</div></div>
@@ -2513,6 +2530,11 @@ function renderStockOverview(){
       <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
+    <div class="btn-row" style="margin-bottom:10px">
+      <button class="btn-sm ${stockCategoryFilter==='all'?'blue':'btn-outline'}" onclick="stockCategoryFilter='all';renderStock()">الكل</button>
+      <button class="btn-sm ${stockCategoryFilter==='raw'?'blue':'btn-outline'}" onclick="stockCategoryFilter='raw';renderStock()">🏭 خامات وتعبئة</button>
+      <button class="btn-sm ${stockCategoryFilter==='finished'?'blue':'btn-outline'}" onclick="stockCategoryFilter='finished';renderStock()">📦 منتج تام</button>
+    </div>
     ${showProductForm?(()=>{
       const editingP=editProductId?stock.find(p=>p.id===editProductId):null;
       return `
@@ -2523,6 +2545,13 @@ function renderStockOverview(){
           <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${editingP?editingP.name:''}"></div>
           <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
             <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${editingP?(editingP.unit||''):''}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">تصنيف الصنف</div>
+            <select id="p_category">
+              ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${(editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
+            </select>
           </div>
         </div>
         <div class="form-row">
@@ -2600,11 +2629,12 @@ function saveProduct(){
   const activeIngredient=document.getElementById('p_active')?.value.trim()||'';
   const price=Number(document.getElementById('p_price')?.value||0);
   const costPrice=Number(document.getElementById('p_cost_price')?.value||0);
+  const category=document.getElementById('p_category')?.value||'finished';
   if(!name){alert('أدخل اسم المنتج');return;}
   if(editProductId){
     const p=stock.find(p=>p.id===editProductId);
     if(!p){editProductId=null;showProductForm=false;renderStock();return;}
-    p.name=name; p.unit=unit;
+    p.name=name; p.unit=unit; p.category=category;
     if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
     if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
     if(price>0)p.price=price; else delete p.price;
@@ -2628,7 +2658,7 @@ function saveProduct(){
     const proceed=confirm('من غير سعر التكلفة، الكمية دي مش هتظهر في تقاريرك المالية (ميزان المراجعة والميزانية). تحب تكمل من غيرها؟');
     if(!proceed) return;
   }
-  const newProduct={id:uid(),name,unit};
+  const newProduct={id:uid(),name,unit,category};
   if(manufacturer)newProduct.manufacturer=manufacturer;
   if(activeIngredient)newProduct.activeIngredient=activeIngredient;
   if(price>0)newProduct.price=price;
@@ -2760,7 +2790,7 @@ function deleteProduction(id){
 function renderProduction(){
   const outputId=document.getElementById('prod_output')?.value||'';
   const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
-  const inputOptsArr=stockOptsArr.filter(o=>o.id!==outputId);
+  const inputOptsArr=stock.filter(p=>isRawCategory(p)&&p.id!==outputId).map(p=>({id:p.id,label:p.name,sub:`${productCategoryLabel(p.category)} — الرصيد: ${stockQty(p.id)} ${p.unit}`}));
   const linesHtml=prodInputLines.map(l=>{
     const cost=l.productId?productAvgCost(l.productId):0;
     const lineTotal=cost*(Number(l.qty)||0);
