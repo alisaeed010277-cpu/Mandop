@@ -65,6 +65,7 @@ input[type=text],input[type=number],input[type=date],select,input[type=tel]{bord
 .btn-sm.green{background:#1E8449;}
 .btn-sm.purple{background:#7D3C98;}
 .btn-sm.orange{background:#D68910;}
+.btn-sm.btn-outline{background:none;color:#1A5276;border:1px solid #1A5276;}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{background:#1A5276;color:#fff;padding:8px 10px;text-align:right;font-size:12px;}
@@ -972,6 +973,7 @@ function saveEditedName(type, id){
   if(!item)return;
   const newName=document.getElementById('editNameInput').value.trim();
   if(!newName){alert('أدخل الاسم');return;}
+  if(isDuplicateName(list,newName,id)){alert(`في ${type==='client'?'عميل':'مورد'} بنفس الاسم ده موجود بالفعل`);return;}
   item.name=newName;
   save();
   document.getElementById('editNameModal').remove();
@@ -1202,6 +1204,12 @@ function renderClients(){
     ${filtered.length===0?'<div class="empty">لا يوجد عملاء</div>':items}`;
 }
 
+// عشان نمنع تكرار اسم عميل/مورد بنفس الاسم (بعد تجاهل المسافات الزيادة وحالة الأحرف)
+function isDuplicateName(list,name,excludeId){
+  const n=name.trim().toLowerCase();
+  return list.some(x=>x.id!==excludeId&&(x.name||'').trim().toLowerCase()===n);
+}
+
 function addClient(){
   const name=document.getElementById('c_name').value.trim();
   const phone=document.getElementById('c_phone').value.trim();
@@ -1209,6 +1217,7 @@ function addClient(){
   const opening=Number(document.getElementById('c_opening')?.value||0);
   const openingDate=document.getElementById('c_opening_date')?.value||today();
   if(!name){alert('أدخل اسم العميل');return;}
+  if(isDuplicateName(clients,name)){alert('في عميل بنفس الاسم ده موجود بالفعل');return;}
   clients.push({id:uid(),name,phone,area,opening,openingDate,createdAt:today()});
   save();renderClients();
 }
@@ -4239,6 +4248,7 @@ function renderSuppliers(){
 function addSupplier(){
   const name=document.getElementById('sup_name')?.value?.trim();
   if(!name){alert('أدخل اسم المورد');return;}
+  if(isDuplicateName(suppliers,name)){alert('في مورد بنفس الاسم ده موجود بالفعل');return;}
   suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),createdAt:today()});
   save();renderSuppliers();
 }
