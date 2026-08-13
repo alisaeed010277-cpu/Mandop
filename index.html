@@ -2591,6 +2591,7 @@ let stockDetailId=null;
 let showProductForm=false;
 let editProductId=null;
 let productSubUnits=[]; // وحدات البيع بالتجزئة الجاري تحريرها في فورم المنتج المفتوح حاليًا (اختياري)
+let productFormDraft={}; // بيانات فورم المنتج (اسم، وحدة، سعر...) بتتحفظ هنا أول بأول عشان ما تتمسحش لو الفورم اتعاد رسمه (زي وقت إضافة وحدة بيع بالتجزئة)
 let showMovForm=false;
 let stockListSearch='';
 let stockCategoryFilter='all'; // 'all' | 'raw' (خامات وتعبئة) | 'finished' (منتج تام)
@@ -2680,39 +2681,40 @@ function renderStockOverview(){
     </div>
     ${showProductForm?(()=>{
       const editingP=editProductId?stock.find(p=>p.id===editProductId):null;
+      const dv=(field,fallback)=>(field in productFormDraft)?productFormDraft[field]:fallback;
       return `
     <div class="card">
       <div class="card-head ${editingP?'orange':'green'}">${editingP?'✏️ تعديل بيانات المنتج':'إضافة منتج جديد'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${editingP?editingP.name:''}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${dv('name',editingP?editingP.name:'')}" oninput="productFormDraft.name=this.value"></div>
           <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
-            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${editingP?(editingP.unit||''):''}">
+            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${dv('unit',editingP?(editingP.unit||''):'')}" oninput="productFormDraft.unit=this.value">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">تصنيف الصنف</div>
-            <select id="p_category">
-              ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${(editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
+            <select id="p_category" onchange="productFormDraft.category=this.value">
+              ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${dv('category',editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
             </select>
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${editingP?(editingP.manufacturer||''):''}"></div>
-          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${editingP?(editingP.activeIngredient||''):''}"></div>
+          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${dv('manufacturer',editingP?(editingP.manufacturer||''):'')}" oninput="productFormDraft.manufacturer=this.value"></div>
+          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${dv('activeIngredient',editingP?(editingP.activeIngredient||''):'')}" oninput="productFormDraft.activeIngredient=this.value"></div>
         </div>
         ${editingP?'':`
         <div class="form-row">
-          <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" placeholder="0"></div>
-          <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" value="${dv('openingQty','')}" oninput="productFormDraft.openingQty=this.value"></div>
+          <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${dv('openingDate',today())}" onchange="productFormDraft.openingDate=this.value"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية"></div>
+          <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية" value="${dv('openingExpiry','')}" onchange="productFormDraft.openingExpiry=this.value"></div>
         </div>
         <div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لو حطيت رصيد أول (كمية)، احرص تدخل سعر الشراء/التكلفة تحت عشان قيمتها تظهر صح في تقاريرك المالية</div>`}
         <div class="form-row">
-          <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" placeholder="0" value="${editingP?(editingP.price||''):''}"></div>
-          <div class="form-group"><div class="lbl">سعر الشراء/التكلفة — اختياري</div><input type="number" id="p_cost_price" min="0" placeholder="0" value="${editingP?(editingP.costPrice||''):''}"></div>
+          <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" value="${dv('price',editingP?(editingP.price||''):'')}" oninput="productFormDraft.price=this.value"></div>
+          <div class="form-group"><div class="lbl">سعر الشراء/التكلفة — اختياري</div><input type="number" id="p_cost_price" min="0" value="${dv('costPrice',editingP?(editingP.costPrice||''):'')}" oninput="productFormDraft.costPrice=this.value"></div>
         </div>
         ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
         <div class="divider"></div>
@@ -2728,7 +2730,7 @@ function renderStockOverview(){
         <button class="btn-outline" style="margin-bottom:10px" onclick="addSubUnit()">+ إضافة وحدة بيع بالتجزئة</button>
         <div class="btn-row">
           <button class="btn ${editingP?'orange':'green'}" onclick="saveProduct()">${editingP?'✓ حفظ التعديل':'+ إضافة'}</button>
-          <button class="btn-outline" onclick="editProductId=null;productSubUnits=[];showProductForm=false;renderStock()">إلغاء</button>
+          <button class="btn-outline" onclick="editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=false;renderStock()">إلغاء</button>
         </div>
       </div>
     </div>`;
@@ -2765,7 +2767,7 @@ function renderStockOverview(){
       </div>
     </div>`:''}
     <div class="btn-row" style="margin-bottom:10px">
-      ${!showProductForm?`<button class="btn blue" onclick="editProductId=null;productSubUnits=[];showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
+      ${!showProductForm?`<button class="btn blue" onclick="editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
       ${!showMovForm?`<button class="btn green" onclick="showMovForm=true;renderStock()">+ حركة مخزن</button>`:''}
     </div>
     ${filteredStock.length===0?`<div class="empty">${stock.length===0?'لا توجد منتجات. أضف منتجاتك أولاً.':'لا توجد نتائج بحث'}</div>`:items}`;
@@ -2775,6 +2777,7 @@ function editProduct(id){
   editProductId=id;
   const p=stock.find(s=>s.id===id);
   productSubUnits=(p?.subUnits||[]).map(u=>({...u}));
+  productFormDraft={};
   showProductForm=true;
   renderStock();
 }
@@ -2810,7 +2813,7 @@ function saveProduct(){
         [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
     }
     save();
-    editProductId=null; showProductForm=false; productSubUnits=[];
+    editProductId=null; showProductForm=false; productSubUnits=[]; productFormDraft={};
     renderStock();
     return;
   }
@@ -2835,7 +2838,7 @@ function saveProduct(){
         [{accountId:'inventory',debit:openingQty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingQty*costPrice}]);
     }
   }
-  save();showProductForm=false;productSubUnits=[];renderStock();
+  save();showProductForm=false;productSubUnits=[];productFormDraft={};renderStock();
 }
 function deleteProduct(id){
   if(!confirm('هتحذف المنتج ده؟'))return;
