@@ -645,6 +645,12 @@ let _id=Date.now();
 const uid=()=>(++_id).toString(36);
 const today=()=>new Date().toISOString().slice(0,10);
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+// تنسيق كميات مخزون ممكن تكون كسور (لما نبيع بالتجزئة) من غير ما تظهر أرقام عشرية غريبة بسبب حسابات الفاصلة العائمة
+const fmtQty=(n)=>{
+  const x=Number(n||0);
+  if(Math.abs(x-Math.round(x))<1e-6) return String(Math.round(x));
+  return (Math.round(x*100)/100).toString();
+};
 // مفتاح ترتيب زمني دقيق: التاريخ اليدوي أولاً، ثم وقت الإنشاء الفعلي كفاصل عند تساوي التاريخ
 // (بيحل مشكلة فاتورتين في نفس اليوم بفارق دقايق — الترتيب بينهم بيبقى مظبوط دايمًا)
 const tsKey=(r)=>(r.date||'')+'T'+(r.createdAt||'');
@@ -655,7 +661,8 @@ function lineDetailText(l){
   const extras=[];
   if(l.discount>0) extras.push(`خصم ${l.discount}%`);
   if(l.bonus>0) extras.push(`🎁${l.bonus} هدية`);
-  return `${pName} × ${l.qty||0} = ${fmt(lineTotal)}${extras.length?' ('+extras.join('، ')+')':''}`;
+  const uSuffix=l.saleUnit?(' '+lineUnitLabel(l)):'';
+  return `${pName} × ${l.qty||0}${uSuffix} = ${fmt(lineTotal)}${extras.length?' ('+extras.join('، ')+')':''}`;
 }
 function linesDetailHtml(lines){
   if(!lines || !lines.length) return '';
@@ -704,6 +711,27 @@ function agingReportRows(asOf){
   return clients.map(c=>clientAgingBuckets(c.id,asOf)).filter(r=>r&&r.total>0.01).sort((a,b)=>b.total-a.total);
 }
 const stockQty=(pid)=>movements.filter(m=>m.productId===pid).reduce((s,m)=>m.type==='in'?s+m.qty:s-m.qty,0);
+// ===== وحدات البيع بالتجزئة (اختياري لكل صنف) =====
+// كل صنف ممكن يكون له وحدات بيع فرعية اختيارية (زي حبة/شريط من علبة، أو مل من عبوة).
+// المخزون فعليًا بيفضل متسجل بالوحدة الأساسية (p.unit) زي ما هو دايمًا — من غير أي هجرة أو تعديل على البيانات القديمة.
+// وحدة البيع الفرعية بتحمل قيمة qtyPerUnit = عدد وحدات البيع دي في كل وحدة أساسية واحدة (مثلا: 1 علبة = 50 حبة => qtyPerUnit=50)
+function getSubUnit(productId,subUnitId){
+  if(!subUnitId) return null;
+  const p=stock.find(s=>s.id===productId);
+  return (p?.subUnits||[]).find(u=>u.id===subUnitId)||null;
+}
+// بتحول كمية سطر الفاتورة (بأي وحدة اتباعت بيها) لمعادلها بالوحدة الأساسية للصنف — عشان المخزون والتكلفة يفضلوا شغالين زي ما هما بالظبط
+function lineUnitFactor(l){
+  const su=getSubUnit(l.productId,l.saleUnit);
+  return (su&&Number(su.qtyPerUnit)>0)?Number(su.qtyPerUnit):1;
+}
+function lineMainQty(l){ return (Number(l.qty)||0)/lineUnitFactor(l); }
+function lineMainBonus(l){ return (Number(l.bonus)||0)/lineUnitFactor(l); }
+function lineUnitLabel(l){
+  const p=stock.find(s=>s.id===l.productId);
+  const su=getSubUnit(l.productId,l.saleUnit);
+  return su?su.name:(p?.unit||'');
+}
 // بيجيب الكميات مقسمة على تواريخ الصلاحية
 const stockBatches=(pid)=>{
   const batches={};
@@ -1663,7 +1691,7 @@ function deleteClientNote(id){
 // ===== INVOICES =====
 let invDetailId=null;
 let invDetailFromClient=null;
-let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:''}];
+let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',saleUnit:''}];
 let invOverallDiscount=0;
 let showInvForm=false;
 let editInvoiceId=null;
@@ -1703,7 +1731,8 @@ function renderReturnDetail(){
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
     const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
-    return `<tr><td>${pName}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    const uLabel=lineUnitLabel(l);
+    return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   document.getElementById('tab-returns').innerHTML=`
     <div class="back-row">
@@ -1729,7 +1758,8 @@ async function printReturn(retId){
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
     const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
-    return `<tr><td>${pName}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    const uLabel=lineUnitLabel(l);
+    return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -1818,22 +1848,31 @@ function renderInvoices(){
             ${stockBatches(l.productId).map(([exp,q])=>`<option value="${exp}" ${l.expiry===exp?'selected':''}>${exp} (${q})</option>`).join('')}
           </select>
         </div>`:''}
+        ${(()=>{const p=stock.find(s=>s.id===l.productId);const subs=p?.subUnits||[];return subs.length>0?`
         <div class="form-group">
-          <div class="lbl">الكمية</div>
-          <input type="number" min="1" value="${l.qty}" onchange="updateLine('${l.id}','qty',this.value)">
+          <div class="lbl">وحدة البيع</div>
+          <select onchange="updateLineUnit('${l.id}',this.value)">
+            <option value="" ${!l.saleUnit?'selected':''}>${p.unit}</option>
+            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${u.name}</option>`).join('')}
+          </select>
+        </div>`:'';})()}
+        <div class="form-group">
+          <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})</div>
+          <input type="number" min="0" step="any" value="${l.qty}" onchange="updateLine('${l.id}','qty',this.value)">
         </div>
         <div class="form-group">
-          <div class="lbl">السعر (ج)</div>
+          <div class="lbl">السعر (ج / ${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.price}" onchange="updateLine('${l.id}','price',this.value)">
         </div>
       </div>
+      ${l.saleUnit?`<div style="font-size:10.5px;color:#717D7E;padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون</div>`:''}
       <div class="form-row">
         <div class="form-group">
           <div class="lbl">خصم %</div>
           <input type="number" min="0" max="100" value="${l.discount||''}" placeholder="0" onchange="updateLine('${l.id}','discount',this.value)">
         </div>
         <div class="form-group">
-          <div class="lbl">بونص/هدية (وحدة)</div>
+          <div class="lbl">بونص/هدية (${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.bonus||''}" placeholder="0" onchange="updateLine('${l.id}','bonus',this.value)">
         </div>
         <div class="form-group">
@@ -1844,7 +1883,7 @@ function renderInvoices(){
       </div>
       ${bonusQty>0||l.discount>0?`<div class="bonus-box">
         ${l.discount>0?`✂️ خصم ${l.discount}% على السعر`:''}
-        ${bonusQty>0?` &nbsp;🎁 ${bonusQty} وحدة هدية (تُخصم من المخزن بدون حساب)`:''}
+        ${bonusQty>0?` &nbsp;🎁 ${bonusQty} ${lineUnitLabel(l)||'وحدة'} هدية (تُخصم من المخزن بدون حساب)`:''}
       </div>`:''}
     </div>`;
   }).join('');
@@ -1885,7 +1924,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];invOverallDiscount=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -1928,14 +1967,32 @@ function rerenderInvoiceFormKeepFields(){
   },0);
 }
 
-function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderInvoiceFormKeepFields();}
+function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''});rerenderInvoiceFormKeepFields();}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
 function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rerenderInvoiceFormKeepFields();}
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',price:p?.price?Number(p.price):l.price};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',saleUnit:'',price:p?.price?Number(p.price):l.price};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
+  });
+  rerenderInvoiceFormKeepFields();
+}
+// تغيير وحدة البيع لسطر الفاتورة (الوحدة الأساسية أو إحدى وحدات التجزئة) — بيحدّث السعر تلقائي على أساس الوحدة الجديدة
+function updateLineUnit(id,unitId){
+  invLines=invLines.map(l=>{
+    if(l.id!==id)return l;
+    const p=stock.find(s=>s.id===l.productId);
+    if(!unitId){
+      return {...l,saleUnit:'',price:p?.price?Number(p.price):l.price};
+    }
+    const su=(p?.subUnits||[]).find(u=>u.id===unitId);
+    let newPrice=l.price;
+    if(su){
+      if(su.price>0) newPrice=Number(su.price);
+      else if(su.qtyPerUnit>0 && p?.price) newPrice=Number(p.price)/Number(su.qtyPerUnit);
+    }
+    return {...l,saleUnit:unitId,price:newPrice};
   });
   rerenderInvoiceFormKeepFields();
 }
@@ -1967,7 +2024,7 @@ function saveInvoice(){
     if(!l.productId) continue;
     const key=l.productId+'|'+(l.expiry||'__any__');
     if(!needed[key]) needed[key]={productId:l.productId,expiry:l.expiry||'',total:0};
-    needed[key].total+=Number(l.qty)+(Number(l.bonus)||0);
+    needed[key].total+=lineMainQty(l)+lineMainBonus(l); // بالوحدة الأساسية للصنف دايمًا، حتى لو اتباعت السطر بوحدة تجزئة
   }
   for(const key of Object.keys(needed)){
     const {productId,expiry,total}=needed[key];
@@ -2004,17 +2061,19 @@ function saveInvoice(){
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
   removeJournalBySource('invoiceCogs', inv.id);
-  const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((Number(l.qty)+(Number(l.bonus)||0))*productAvgCost(l.productId)):s,0);
+  const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((lineMainQty(l)+lineMainBonus(l))*productAvgCost(l.productId)):s,0);
   if(cogsTotal>0) postJournal('invoiceCogs', inv.id, date, 'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
     [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
-  // خصم الكمية الفعلية + البونص من المخزن
+  // خصم الكمية الفعلية + البونص من المخزن — دايمًا بالوحدة الأساسية للصنف حتى لو السطر اتباع بوحدة تجزئة
   invLines.forEach(l=>{
     if(l.productId){
-      const totalQty=Number(l.qty)+(Number(l.bonus)||0);
-      movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${l.qty} مبيعات + ${l.bonus} بونص)`:``),invoiceId:inv.id,expiry:l.expiry||''});
+      const totalQty=lineMainQty(l)+lineMainBonus(l);
+      const uLabel=lineUnitLabel(l);
+      const soldNote=l.saleUnit?`${l.qty} ${uLabel}`:`${l.qty}`;
+      movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:'')),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];invOverallDiscount=0;renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;renderInvoices();
 }
 
 function deleteInvoice(id){
@@ -2032,14 +2091,15 @@ async function printInvoice(invId){
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
     const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId;
+    const uLabel=lineUnitLabel(l);
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${l.discount}%`);
-    if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
+    if(l.bonus>0) extras.push(`🎁 ${l.bonus}${uLabel?' '+uLabel:''} هدية`);
     return `<tr>
       <td>${pName}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>
-      <td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
+      <td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
     </tr>`;
   }).join('');
   const body=`
@@ -2083,14 +2143,15 @@ function renderInvDetail(){
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
     const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId;
+    const uLabel=lineUnitLabel(l);
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${l.discount}%`);
-    if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
+    if(l.bonus>0) extras.push(`🎁 ${l.bonus}${uLabel?' '+uLabel:''} هدية`);
     return `<tr>
       <td>${pName}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>
-      <td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
+      <td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
     </tr>`;
   }).join('');
   document.getElementById('tab-invoices').innerHTML=`
@@ -2289,7 +2350,7 @@ function savePayment(){
 
 // ===== RETURNS =====
 let showRetForm=false;
-let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:''}];
+let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];
 let retFromDate='',retToDate='';
 
 function renderReturns(){
@@ -2327,13 +2388,20 @@ function renderReturns(){
             ${stockBatches(l.productId).map(([exp,q])=>`<option value="${exp}" ${l.expiry===exp?'selected':''}>${exp} (${q})</option>`).join('')}
           </select>
         </div>`:''}
-        
+        ${(()=>{const p=stock.find(s=>s.id===l.productId);const subs=p?.subUnits||[];return subs.length>0?`
         <div class="form-group">
-          <div class="lbl">الكمية</div>
-          <input type="number" min="1" value="${l.qty}" onchange="updateRetLine('${l.id}','qty',this.value)">
+          <div class="lbl">وحدة الإرجاع</div>
+          <select onchange="updateRetLineUnit('${l.id}',this.value)">
+            <option value="" ${!l.saleUnit?'selected':''}>${p.unit}</option>
+            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${u.name}</option>`).join('')}
+          </select>
+        </div>`:'';})()}
+        <div class="form-group">
+          <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})</div>
+          <input type="number" min="0" step="any" value="${l.qty}" onchange="updateRetLine('${l.id}','qty',this.value)">
         </div>
         <div class="form-group">
-          <div class="lbl">السعر (ج)</div>
+          <div class="lbl">السعر (ج / ${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.price}" onchange="updateRetLine('${l.id}','price',this.value)">
         </div>
         <div class="form-group" style="flex:0;min-width:70px">
@@ -2342,6 +2410,7 @@ function renderReturns(){
         </div>
         ${retLines.length>1?`<button class="btn red" style="padding:6px 10px;align-self:flex-end" onclick="removeRetLine('${l.id}')">✕</button>`:''}
       </div>
+      ${l.saleUnit?`<div style="font-size:10.5px;color:#717D7E;padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون</div>`:''}
     </div>`;
   }).join('');
 
@@ -2377,7 +2446,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:''}];renderReturns()">+ مرتجع جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مرتجع جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2398,13 +2467,34 @@ function renderReturns(){
   `;
 }
 
-function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''});renderReturns();}
+function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''});renderReturns();}
 function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns();}
 function updateRetLine(id,field,value){
   retLines=retLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',saleUnit:''};}
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
+  });
+  const savedClient=document.getElementById('ret_client')?.value;
+  const savedClientText=document.getElementById('ret_client_search')?.value;
+  const savedDate=document.getElementById('ret_date')?.value;
+  renderReturns();
+  if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
+  if(savedDate) document.getElementById('ret_date').value=savedDate;
+}
+// تغيير وحدة الإرجاع لسطر المرتجع (الوحدة الأساسية أو إحدى وحدات التجزئة)
+function updateRetLineUnit(id,unitId){
+  retLines=retLines.map(l=>{
+    if(l.id!==id)return l;
+    const p=stock.find(s=>s.id===l.productId);
+    if(!unitId) return {...l,saleUnit:''};
+    const su=(p?.subUnits||[]).find(u=>u.id===unitId);
+    let newPrice=l.price;
+    if(su){
+      if(su.price>0) newPrice=Number(su.price);
+      else if(su.qtyPerUnit>0 && p?.price) newPrice=Number(p.price)/Number(su.qtyPerUnit);
+    }
+    return {...l,saleUnit:unitId,price:newPrice};
   });
   const savedClient=document.getElementById('ret_client')?.value;
   const savedClientText=document.getElementById('ret_client_search')?.value;
@@ -2431,16 +2521,16 @@ function saveReturn(){
   returns.push(ret);
   postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
     [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
-  const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(Number(l.qty)*productAvgCost(l.productId)):s,0);
+  const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(lineMainQty(l)*productAvgCost(l.productId)):s,0);
   if(cogsTotal>0) postJournal('returnCogs',ret.id,date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
     [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
-  // المرتجع بيرجع للمخزن (وارد)
+  // المرتجع بيرجع للمخزن (وارد) — دايمًا بالوحدة الأساسية للصنف حتى لو الإرجاع كان بوحدة تجزئة
   retLines.forEach(l=>{
-    if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:Number(l.qty),date,note:'مردود مبيعات #'+ret.number,returnId:ret.id,expiry:l.expiry||''});
+    if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:lineMainQty(l),date,note:'مردود مبيعات #'+ret.number+(l.saleUnit?` (${l.qty} ${lineUnitLabel(l)})`:''),returnId:ret.id,expiry:l.expiry||''});
   });
   save();
   showRetForm=false;
-  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
+  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
   renderReturns();
 }
 
@@ -2458,6 +2548,7 @@ let stockSubTab='overview';
 let stockDetailId=null;
 let showProductForm=false;
 let editProductId=null;
+let productSubUnits=[]; // وحدات البيع بالتجزئة الجاري تحريرها في فورم المنتج المفتوح حاليًا (اختياري)
 let showMovForm=false;
 let stockListSearch='';
 let stockCategoryFilter='all'; // 'all' | 'raw' (خامات وتعبئة) | 'finished' (منتج تام)
@@ -2487,7 +2578,7 @@ async function printStockSummaryPdf(){
     return `<tr>
       <td>${p.name}</td>
       <td>${p.unit}</td>
-      <td style="font-weight:bold;color:${qty<10?'#C0392B':'#1E8449'}">${qty}</td>
+      <td style="font-weight:bold;color:${qty<10?'#C0392B':'#1E8449'}">${fmtQty(qty)}</td>
       <td>${p.price?fmt(p.price):'—'}</td>
       <td style="font-size:11px">${batchTxt}</td>
     </tr>`;
@@ -2523,9 +2614,10 @@ function renderStockOverview(){
         <div style="flex:1">
           <div class="list-item-name">${p.name}</div>
           <div class="list-item-sub">وحدة: ${p.unit} &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span></div>
+          ${(p.subUnits&&p.subUnits.length>0)?`<div style="margin-top:3px;font-size:10.5px;color:#8E44AD">🧩 ${p.subUnits.map(u=>`${fmtQty(qty*u.qtyPerUnit)} ${u.name}`).join(' &nbsp;|&nbsp; ')}</div>`:''}
           ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
         </div>
-        <div class="list-item-bal"><div class="list-item-bal-num" style="color:${qtyColor};font-size:20px">${qty}</div><div class="list-item-bal-lbl">${p.unit}</div></div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:${qtyColor};font-size:20px">${fmtQty(qty)}</div><div class="list-item-bal-lbl">${p.unit}</div></div>
       </div>
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="stockDetailId='${p.id}';renderStock()">📋 الحركات</button>
@@ -2581,9 +2673,20 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">سعر الشراء/التكلفة — اختياري</div><input type="number" id="p_cost_price" min="0" placeholder="0" value="${editingP?(editingP.costPrice||''):''}"></div>
         </div>
         ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
+        <div class="divider"></div>
+        <div class="section-title">🧩 بيع بالتجزئة (اختياري)</div>
+        <div style="font-size:11px;color:#717D7E;margin-bottom:8px">لو عايز تبيع أجزاء من "${editingP?(editingP.unit||'الوحدة الأساسية'):'الوحدة الأساسية اللي هتكتبها فوق'}" (زي حبة من العلبة، أو مل من العبوة)، ضيف وحدات البيع دي. المخزون هيفضل متسجل بالوحدة الأساسية زي ما هو، والنظام هيحول تلقائي. من غير ما تضيف حاجة هنا، الصنف هيفضل بيتباع بالوحدة الأساسية بس زي ما هو دلوقتي.</div>
+        ${productSubUnits.map(u=>`
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">اسم وحدة البيع</div><input type="text" placeholder="مثال: حبة" value="${u.name||''}" onchange="updateSubUnit('${u.id}','name',this.value)"></div>
+          <div class="form-group"><div class="lbl">كام فيها الوحدة الأساسية؟</div><input type="number" min="0.0001" step="any" placeholder="مثال: 50" value="${u.qtyPerUnit||''}" onchange="updateSubUnit('${u.id}','qtyPerUnit',this.value)"></div>
+          <div class="form-group"><div class="lbl">سعرها — اختياري</div><input type="number" min="0" placeholder="نسبي لو فاضي" value="${u.price||''}" onchange="updateSubUnit('${u.id}','price',this.value)"></div>
+          <button class="btn red" style="padding:6px 10px" onclick="removeSubUnit('${u.id}')">✕</button>
+        </div>`).join('')}
+        <button class="btn-outline" style="margin-bottom:10px" onclick="addSubUnit()">+ إضافة وحدة بيع بالتجزئة</button>
         <div class="btn-row">
           <button class="btn ${editingP?'orange':'green'}" onclick="saveProduct()">${editingP?'✓ حفظ التعديل':'+ إضافة'}</button>
-          <button class="btn-outline" onclick="editProductId=null;showProductForm=false;renderStock()">إلغاء</button>
+          <button class="btn-outline" onclick="editProductId=null;productSubUnits=[];showProductForm=false;renderStock()">إلغاء</button>
         </div>
       </div>
     </div>`;
@@ -2620,7 +2723,7 @@ function renderStockOverview(){
       </div>
     </div>`:''}
     <div class="btn-row" style="margin-bottom:10px">
-      ${!showProductForm?`<button class="btn blue" onclick="editProductId=null;showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
+      ${!showProductForm?`<button class="btn blue" onclick="editProductId=null;productSubUnits=[];showProductForm=true;renderStock()">+ منتج جديد</button>`:''}
       ${!showMovForm?`<button class="btn green" onclick="showMovForm=true;renderStock()">+ حركة مخزن</button>`:''}
     </div>
     ${filteredStock.length===0?`<div class="empty">${stock.length===0?'لا توجد منتجات. أضف منتجاتك أولاً.':'لا توجد نتائج بحث'}</div>`:items}`;
@@ -2628,8 +2731,15 @@ function renderStockOverview(){
 
 function editProduct(id){
   editProductId=id;
+  const p=stock.find(s=>s.id===id);
+  productSubUnits=(p?.subUnits||[]).map(u=>({...u}));
   showProductForm=true;
   renderStock();
+}
+function addSubUnit(){productSubUnits=[...productSubUnits,{id:uid(),name:'',qtyPerUnit:'',price:''}];renderStock();}
+function removeSubUnit(id){productSubUnits=productSubUnits.filter(u=>u.id!==id);renderStock();}
+function updateSubUnit(id,field,value){
+  productSubUnits=productSubUnits.map(u=>u.id===id?{...u,[field]:value}:u);
 }
 function saveProduct(){
   const name=document.getElementById('p_name')?.value.trim();
@@ -2640,6 +2750,7 @@ function saveProduct(){
   const costPrice=Number(document.getElementById('p_cost_price')?.value||0);
   const category=document.getElementById('p_category')?.value||'finished';
   if(!name){alert('أدخل اسم المنتج');return;}
+  const validSubUnits=productSubUnits.filter(u=>(u.name||'').trim()&&Number(u.qtyPerUnit)>0).map(u=>({id:u.id,name:u.name.trim(),qtyPerUnit:Number(u.qtyPerUnit),price:Number(u.price)>0?Number(u.price):0}));
   if(editProductId){
     const p=stock.find(p=>p.id===editProductId);
     if(!p){editProductId=null;showProductForm=false;renderStock();return;}
@@ -2648,6 +2759,7 @@ function saveProduct(){
     if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
     if(price>0)p.price=price; else delete p.price;
     if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
+    if(validSubUnits.length>0)p.subUnits=validSubUnits; else delete p.subUnits;
     // لو الصنف ده ليه رصيد افتتاحي (كمية) واتضاف/اتعدّل سعر التكلفة، نصحح قيد الافتتاحية بالقيمة الجديدة (أو نسجله لأول مرة لو كان ناقص)
     const openingMov=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
     removeJournalBySource('stockOpening', p.id);
@@ -2656,7 +2768,7 @@ function saveProduct(){
         [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
     }
     save();
-    editProductId=null; showProductForm=false;
+    editProductId=null; showProductForm=false; productSubUnits=[];
     renderStock();
     return;
   }
@@ -2672,6 +2784,7 @@ function saveProduct(){
   if(activeIngredient)newProduct.activeIngredient=activeIngredient;
   if(price>0)newProduct.price=price;
   if(costPrice>0)newProduct.costPrice=costPrice;
+  if(validSubUnits.length>0)newProduct.subUnits=validSubUnits;
   stock.push(newProduct);
   if(openingQty>0){
     movements.push({id:uid(),productId:newProduct.id,type:'in',qty:openingQty,date:openingDate,note:'رصيد افتتاحي',expiry:openingExpiry});
@@ -2680,7 +2793,7 @@ function saveProduct(){
         [{accountId:'inventory',debit:openingQty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingQty*costPrice}]);
     }
   }
-  save();showProductForm=false;renderStock();
+  save();showProductForm=false;productSubUnits=[];renderStock();
 }
 function deleteProduct(id){
   if(!confirm('هتحذف المنتج ده؟'))return;
@@ -3367,7 +3480,7 @@ function renderPriceList(){
   const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   const rows=filtered.map(p=>`
     <div class="pl-row">
-      <div class="pl-name">${p.name}</div>
+      <div class="pl-name">${p.name}${(p.subUnits&&p.subUnits.length>0)?`<div style="font-size:9.5px;color:#8E44AD;font-weight:normal">🧩 ${p.subUnits.map(u=>u.name+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</div>`:''}</div>
       <input type="text" class="pl-manu" value="${p.manufacturer||''}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">
       <input type="text" class="pl-active" value="${p.activeIngredient||''}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">
       <div class="pl-unit">${p.unit}</div>
@@ -3391,7 +3504,7 @@ function renderPriceList(){
 }
 async function printPriceListPdf(){
   const sorted=[...stock].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  const rows=sorted.map(p=>`<tr><td>${p.name}</td><td>${p.manufacturer||'—'}</td><td>${p.activeIngredient||'—'}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
+  const rows=sorted.map(p=>`<tr><td>${p.name}${(p.subUnits&&p.subUnits.length>0)?`<br><small style="color:#8E44AD">🧩 ${p.subUnits.map(u=>u.name+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</small>`:''}</td><td>${p.manufacturer||'—'}</td><td>${p.activeIngredient||'—'}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ القائمة:</strong> ${today()}</div>
