@@ -1860,17 +1860,23 @@ function renderInvoices(){
           <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" step="any" value="${l.qty}" onchange="updateLine('${l.id}','qty',this.value)">
         </div>
+        ${l.saleUnit?`
+        <div class="form-group">
+          <div class="lbl">الإجمالي (ج) — سعر يدوي</div>
+          <input type="number" min="0" step="any" value="${fmtQty((Number(l.qty)||0)*(Number(l.price)||0))}" onchange="updateLineTotal('${l.id}',this.value)">
+        </div>`:`
         <div class="form-group">
           <div class="lbl">السعر (ج / ${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.price}" onchange="updateLine('${l.id}','price',this.value)">
-        </div>
+        </div>`}
       </div>
-      ${l.saleUnit?`<div style="font-size:10.5px;color:#717D7E;padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون</div>`:''}
+      ${l.saleUnit?`<div style="font-size:10.5px;color:#717D7E;padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون — بيع بالتجزئة: اكتب الإجمالي النهائي اللي اتفقتوا عليه مباشرة</div>`:''}
       <div class="form-row">
+        ${!l.saleUnit?`
         <div class="form-group">
           <div class="lbl">خصم %</div>
           <input type="number" min="0" max="100" value="${l.discount||''}" placeholder="0" onchange="updateLine('${l.id}','discount',this.value)">
-        </div>
+        </div>`:''}
         <div class="form-group">
           <div class="lbl">بونص/هدية (${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.bonus||''}" placeholder="0" onchange="updateLine('${l.id}','bonus',this.value)">
@@ -1992,7 +1998,19 @@ function updateLineUnit(id,unitId){
       if(su.price>0) newPrice=Number(su.price);
       else if(su.qtyPerUnit>0 && p?.price) newPrice=Number(p.price)/Number(su.qtyPerUnit);
     }
-    return {...l,saleUnit:unitId,price:newPrice};
+    // في وحدات التجزئة بنكتب الإجمالي يدوي بدل سعر الوحدة، فمفيش داعي لخصم % فوقه
+    return {...l,saleUnit:unitId,price:newPrice,discount:0};
+  });
+  rerenderInvoiceFormKeepFields();
+}
+// تحديث سعر السطر انطلاقًا من "الإجمالي بالجنيه" اللي المستخدم كتبه يدوي (بيستخدم في وحدات التجزئة)
+// بيحول الإجمالي لسعر-للوحدة داخليًا عشان باقي حسابات المخزون والتقارير تفضل شغالة زي ما هي من غير أي تعديل
+function updateLineTotal(id,totalValue){
+  invLines=invLines.map(l=>{
+    if(l.id!==id)return l;
+    const qty=Number(l.qty)||0;
+    const total=Number(totalValue)||0;
+    return {...l,price: qty>0?(total/qty):0};
   });
   rerenderInvoiceFormKeepFields();
 }
@@ -2400,17 +2418,22 @@ function renderReturns(){
           <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" step="any" value="${l.qty}" onchange="updateRetLine('${l.id}','qty',this.value)">
         </div>
+        ${l.saleUnit?`
+        <div class="form-group">
+          <div class="lbl">الإجمالي (ج) — سعر يدوي</div>
+          <input type="number" min="0" step="any" value="${fmtQty((Number(l.qty)||0)*(Number(l.price)||0))}" onchange="updateRetLineTotal('${l.id}',this.value)">
+        </div>`:`
         <div class="form-group">
           <div class="lbl">السعر (ج / ${lineUnitLabel(l)||'وحدة'})</div>
           <input type="number" min="0" value="${l.price}" onchange="updateRetLine('${l.id}','price',this.value)">
-        </div>
+        </div>`}
         <div class="form-group" style="flex:0;min-width:70px">
           <div class="lbl">الإجمالي</div>
           <div style="padding:8px 0;font-weight:bold;color:#1E8449">${fmt(l.qty*l.price)}</div>
         </div>
         ${retLines.length>1?`<button class="btn red" style="padding:6px 10px;align-self:flex-end" onclick="removeRetLine('${l.id}')">✕</button>`:''}
       </div>
-      ${l.saleUnit?`<div style="font-size:10.5px;color:#717D7E;padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون</div>`:''}
+      ${l.saleUnit?`<div style="font-size:10.5px;color:#B9770E;padding:0 2px 4px">⚠️ مرتجع بالتجزئة (${lineUnitLabel(l)}) — استثنائي، ده بيرجع للمخزون كأنه صالح للبيع تاني. يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''}</div>`:''}
     </div>`;
   }).join('');
 
@@ -2503,6 +2526,21 @@ function updateRetLineUnit(id,unitId){
   if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
   if(savedDate) document.getElementById('ret_date').value=savedDate;
 }
+// تحديث سعر سطر المرتجع انطلاقًا من "الإجمالي بالجنيه" اللي المستخدم كتبه يدوي (بيستخدم في وحدات التجزئة)
+function updateRetLineTotal(id,totalValue){
+  retLines=retLines.map(l=>{
+    if(l.id!==id)return l;
+    const qty=Number(l.qty)||0;
+    const total=Number(totalValue)||0;
+    return {...l,price: qty>0?(total/qty):0};
+  });
+  const savedClient=document.getElementById('ret_client')?.value;
+  const savedClientText=document.getElementById('ret_client_search')?.value;
+  const savedDate=document.getElementById('ret_date')?.value;
+  renderReturns();
+  if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
+  if(savedDate) document.getElementById('ret_date').value=savedDate;
+}
 
 function saveReturn(){
   const clientId=document.getElementById('ret_client')?.value;
@@ -2515,6 +2553,10 @@ function saveReturn(){
     if(!l.productId) continue;
     const qty=Number(l.qty);
     if(!qty||qty<=0){alert('أدخل كمية صحيحة لكل صنف');return;}
+  }
+  // مرتجع البيع بالتجزئة استثنائي — لازم تأكيد واعي قبل ما يرجع للمخزون كأنه صالح للبيع تاني
+  if(retLines.some(l=>l.productId&&l.saleUnit)){
+    if(!confirm('في السطور دي مرتجع بالتجزئة (سنتي/حبة/جزء من عبوة). ده استثنائي جدًا وبيرجع الكمية للمخزون كأنها صالحة للبيع تاني. متأكد إنك عايز تكمل؟'))return;
   }
   const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
   const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
