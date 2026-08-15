@@ -3273,8 +3273,9 @@ function importData(){
 }
 
 let expenseQuickFilter='month';
-let financialReportView='trial'; // 'trial' | 'income' | 'balance' | 'ledger' | 'cashflow' — أي تقرير مالي معروض دلوقتي
+let financialReportView='trial'; // 'trial' | 'income' | 'balance' | 'ledger' | 'cashflow' | 'items' — أي تقرير مالي معروض دلوقتي
 let ledgerAccountId=''; // الحساب المختار حاليًا في شاشة دفتر الأستاذ العام
+let itemProfitSort='profit'; // 'profit' | 'qty' — ترتيب تقرير ربحية الأصناف
 
 let showNoteForm=false;
 function renderExpenses(){
@@ -4159,6 +4160,7 @@ function renderFinancialStatementsBlock(fromVal,toVal){
   else if(financialReportView==='balance') body=renderBalanceSheetHtml();
   else if(financialReportView==='ledger') body=renderGeneralLedgerHtml();
   else if(financialReportView==='cashflow') body=renderCashFlowHtml(fromVal,toVal);
+  else if(financialReportView==='items') body=renderItemProfitabilityHtml(fromVal,toVal);
   return `
   <div class="card" style="margin-top:14px">
     <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📒 التقارير المالية</div>
@@ -4168,8 +4170,9 @@ function renderFinancialStatementsBlock(fromVal,toVal){
       ${viewBtn('balance','الميزانية العمومية')}
       ${viewBtn('ledger','دفتر الأستاذ العام')}
       ${viewBtn('cashflow','التدفقات النقدية')}
+      ${viewBtn('items','🏆 ربحية الأصناف')}
     </div>
-    ${financialReportView==='cashflow'?'<div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>':''}
+    ${(financialReportView==='cashflow'||financialReportView==='items')?'<div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>':''}
     ${body}
   </div>`;
 }
@@ -4230,6 +4233,78 @@ function renderCashFlowHtml(fromVal,toVal){
     <div style="font-size:11px;color:${Math.abs(diff)<0.01?'#1E8449':'#C0392B'};margin-top:8px">
       ${Math.abs(diff)<0.01?'✓ رصيد أول المدة + صافي التدفق = رصيد آخر المدة':'⚠ في فرق — يُرجى المراجعة'}
     </div>`;
+}
+
+// تقرير ربحية الأصناف: لكل صنف اتباع في الفترة المختارة — الكمية المباعة (بالوحدة الأساسية)، إجمالي المبيعات، التكلفة (بمتوسط التكلفة المرجح لكل صنف)، والربح.
+// المبيعات بتتحسب بعد خصم أي خصم على السطر + الخصم الإجمالي على الفاتورة (بنفس نسبته)، والتكلفة بتشمل تكلفة أي وحدات بونص اتديت مجانًا مع البيع (عشان الربح يعكس الحقيقة).
+// المرتجعات في نفس الفترة بتتخصم تلقائيًا من نفس الصنف. صنف اتباع بكميات موجبة وبعدين اترجع بالكامل في نفس الفترة مش هيظهر في القائمة.
+function renderItemProfitabilityHtml(fromVal,toVal){
+  const inRange=(date)=>date>=fromVal&&date<=toVal;
+  const map={};
+  const ensure=(pid)=>{
+    if(!map[pid]){
+      const p=stock.find(s=>s.id===pid);
+      map[pid]={name:p?.name||'صنف محذوف', unit:p?.unit||'', qty:0, bonusQty:0, revenue:0, cost:0};
+    }
+    return map[pid];
+  };
+  invoices.filter(i=>inRange(i.date)).forEach(inv=>{
+    const overallFactor=1-((Number(inv.overallDiscount)||0)/100);
+    inv.lines.forEach(l=>{
+      if(!l.productId) return;
+      const e=ensure(l.productId);
+      const afterLineDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      const mainQty=lineMainQty(l), mainBonus=lineMainBonus(l);
+      e.qty+=mainQty;
+      e.bonusQty+=mainBonus;
+      e.revenue+=Number(l.qty)*afterLineDiscount*overallFactor;
+      e.cost+=(mainQty+mainBonus)*productAvgCost(l.productId);
+    });
+  });
+  returns.filter(r=>inRange(r.date)).forEach(ret=>{
+    ret.lines.forEach(l=>{
+      if(!l.productId) return;
+      const e=ensure(l.productId);
+      const mainQty=lineMainQty(l);
+      e.qty-=mainQty;
+      e.revenue-=Number(l.qty)*Number(l.price);
+      e.cost-=mainQty*productAvgCost(l.productId);
+    });
+  });
+  let rows=Object.values(map).filter(r=>Math.abs(r.qty)>0.001||Math.abs(r.revenue)>0.001);
+  if(rows.length===0) return '<div class="empty">لسه مفيش أصناف اتباعت في الفترة دي</div>';
+  rows.forEach(r=>{ r.profit=r.revenue-r.cost; r.margin=r.revenue?(r.profit/r.revenue*100):0; });
+  rows.sort((a,b)=> itemProfitSort==='qty' ? (b.qty-a.qty) : (b.profit-a.profit));
+  const totalRevenue=rows.reduce((s,r)=>s+r.revenue,0);
+  const totalCost=rows.reduce((s,r)=>s+r.cost,0);
+  const totalProfit=totalRevenue-totalCost;
+  const sortBtn=(key,label)=>`<button class="btn-sm" style="background:${itemProfitSort===key?'#1A5276':'#D5D8DC'};color:${itemProfitSort===key?'#fff':'#333'}" onclick="itemProfitSort='${key}';renderReports()">${label}</button>`;
+  const rowsHtml=rows.map(r=>`<tr>
+      <td>${r.name}${r.bonusQty>0.001?`<div style="font-size:10px;color:#AAB7B8">+${fmtQty(r.bonusQty)} بونص</div>`:''}</td>
+      <td style="text-align:center;white-space:nowrap">${fmtQty(r.qty)} ${r.unit}</td>
+      <td style="text-align:center">${fmt(r.revenue)}</td>
+      <td style="text-align:center">${fmt(r.cost)}</td>
+      <td style="text-align:center;font-weight:bold;color:${r.profit>=0?'#1E8449':'#C0392B'}">${fmt(r.profit)}</td>
+      <td style="text-align:center;color:${r.profit>=0?'#1E8449':'#C0392B'}">${r.margin.toFixed(1)}%</td>
+    </tr>`).join('');
+  return `
+    <div class="btn-row" style="margin-bottom:10px">
+      <span style="font-size:11px;color:#717D7E;align-self:center">ترتيب حسب:</span>
+      ${sortBtn('profit','الأعلى ربحًا')}
+      ${sortBtn('qty','الأعلى كمية')}
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>الصنف</th><th>الكمية المباعة</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>الهامش</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="font-weight:bold;background:#F2F3F4">
+        <td>الإجمالي (${rows.length} صنف)</td><td></td>
+        <td style="text-align:center">${fmt(totalRevenue)}</td>
+        <td style="text-align:center">${fmt(totalCost)}</td>
+        <td style="text-align:center;color:${totalProfit>=0?'#1E8449':'#C0392B'}">${fmt(totalProfit)}</td>
+        <td style="text-align:center;color:${totalProfit>=0?'#1E8449':'#C0392B'}">${totalRevenue?(totalProfit/totalRevenue*100).toFixed(1):'0.0'}%</td>
+      </tr></tfoot>
+    </table></div>
+    <div style="font-size:11px;color:#AAB7B8;margin-top:6px">💡 التكلفة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف (شامل تكلفة أي وحدات بونص اتديت مجانًا مع البيع)، والكمية بالوحدة الأساسية للصنف حتى لو جزء من البيع كان بالتجزئة. المرتجعات في نفس الفترة بتتخصم تلقائيًا من نفس الصنف.</div>`;
 }
 
 function renderGeneralLedgerHtml(){
