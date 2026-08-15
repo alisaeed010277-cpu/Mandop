@@ -285,7 +285,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[],productions=[];
@@ -294,6 +294,7 @@ let bankAccounts=[]; // حسابات الشركة البنكية
 let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأولى من نظام المحاسبة)
 let journalEntries=[]; // القيود اليومية (دفتر الأستاذ الخفي وراء كل حركة)
 let treasuryOpening=0;
+let lowStockDefault=10; // الحد العام لتنبيه "قارب على النفاذ" — أي صنف مالوش حد خاص بيه بيستخدم الرقم ده
 let repNotes=[];
 let clientNotes=[];
 let companyProfile={name:'',phone:''};
@@ -374,6 +375,7 @@ const save=()=>{
   idbSet(KEYS.purchaseReturns,purchaseReturns);
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
+  idbSet(KEYS.lowStockDefault,lowStockDefault);
   idbSet(KEYS.repNotes,repNotes);
   idbSet(KEYS.clientNotes,clientNotes);
   idbSet(KEYS.checksPayable,checksPayable);
@@ -385,8 +387,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -408,6 +410,7 @@ async function loadAllData(){
   chartOfAccounts=coa||[];
   journalEntries=jrnl||[];
   productions=prod||[];
+  lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -716,6 +719,11 @@ function agingReportRows(asOf){
   return clients.map(c=>clientAgingBuckets(c.id,asOf)).filter(r=>r&&r.total>0.01).sort((a,b)=>b.total-a.total);
 }
 const stockQty=(pid)=>movements.filter(m=>m.productId===pid).reduce((s,m)=>m.type==='in'?s+m.qty:s-m.qty,0);
+// الحد الفعلي لتنبيه "قارب على النفاذ" لصنف معين: لو ليه حد خاص بيه بيتستخدم، وإلا بيرجع للحد العام
+function lowStockThresholdFor(p){
+  const custom=Number(p?.lowStockThreshold);
+  return custom>0?custom:(Number(lowStockDefault)||10);
+}
 // ===== وحدات البيع بالتجزئة (اختياري لكل صنف) =====
 // كل صنف ممكن يكون له وحدات بيع فرعية اختيارية (زي حبة/شريط من علبة، أو مل من عبوة).
 // المخزون فعليًا بيفضل متسجل بالوحدة الأساسية (p.unit) زي ما هو دايمًا — من غير أي هجرة أو تعديل على البيانات القديمة.
@@ -1111,7 +1119,7 @@ function renderHome(){
   const debtorCount=clients.filter(c=>clientBalance(c.id)>0).length;
   const totalPurchases=purchases.reduce((s,p)=>s+p.total,0);
   const totalSupplierDebt=suppliers.reduce((s,sup)=>s+Math.max(0,supplierBalance(sup.id)),0);
-  const lowStock=stock.filter(p=>stockQty(p.id)<10);
+  const lowStock=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p));
   let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${p.name}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
 
   // جدول العملاء (حسب فلتر المدة إن وُجد)
@@ -2703,13 +2711,13 @@ async function printStockSummaryPdf(){
     return `<tr>
       <td>${p.name}</td>
       <td>${p.unit}</td>
-      <td style="font-weight:bold;color:${qty<10?'#C0392B':'#1E8449'}">${fmtQty(qty)}</td>
+      <td style="font-weight:bold;color:${qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449'}">${fmtQty(qty)}</td>
       <td>${p.price?fmt(p.price):'—'}</td>
       <td style="font-size:11px">${batchTxt}</td>
     </tr>`;
   }).join('');
   const totalItems=stock.length;
-  const lowCount=stock.filter(p=>stockQty(p.id)<10).length;
+  const lowCount=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p)).length;
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ الجرد:</strong> ${today()}</div>
@@ -2729,7 +2737,7 @@ function renderStockOverview(){
     .filter(p=>stockCategoryFilter==='all'?true:stockCategoryFilter==='raw'?isRawCategory(p):!isRawCategory(p));
   let items=filteredStock.map(p=>{
     const qty=stockQty(p.id);
-    const qtyColor=qty<10?'#C0392B':'#1E8449';
+    const qtyColor=qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449';
     const batches=stockBatches(p.id);
     const batchHtml=batches.length>0
       ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${q}</b></span>`).join('')
@@ -2739,6 +2747,7 @@ function renderStockOverview(){
         <div style="flex:1">
           <div class="list-item-name">${p.name}</div>
           <div class="list-item-sub">وحدة: ${p.unit} &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span></div>
+          ${p.lowStockThreshold>0?`<div style="margin-top:2px;font-size:10.5px;color:#2E86C1">🔔 حد تنبيه خاص: ${fmtQty(p.lowStockThreshold)} ${p.unit}</div>`:''}
           ${(p.subUnits&&p.subUnits.length>0)?`<div style="margin-top:3px;font-size:10.5px;color:#8E44AD">🧩 ${p.subUnits.map(u=>`${fmtQty(qty*u.qtyPerUnit)} ${u.name}`).join(' &nbsp;|&nbsp; ')}</div>`:''}
           ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
         </div>
@@ -2752,6 +2761,12 @@ function renderStockOverview(){
     </div>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
+    <div class="card" style="margin-bottom:10px;border-right:4px solid #2E86C1">
+      <div class="card-body" style="padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-size:12px;color:#717D7E;flex:1;min-width:180px">⚙️ الحد العام لتنبيه "قارب على النفاذ" — لأي صنف مالوش حد خاص بيه</div>
+        <input type="number" id="low_stock_default_input" min="0" step="any" value="${lowStockDefault}" style="width:90px;padding:6px 8px;border:1px solid #D5D8DC;border-radius:6px" onchange="saveLowStockDefault(this.value)">
+      </div>
+    </div>
     <div class="search-row" style="align-items:center">
       <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
@@ -2780,6 +2795,9 @@ function renderStockOverview(){
               ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${dv('category',editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
             </select>
           </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">🔔 حد تنبيه "قارب على النفاذ" لهذا الصنف — اختياري</div><input type="number" id="p_low_stock_threshold" min="0" step="any" placeholder="لو فاضي هيستخدم الحد العام (${lowStockDefault})" value="${dv('lowStockThreshold',editingP?(editingP.lowStockThreshold||''):'')}" oninput="productFormDraft.lowStockThreshold=this.value"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${dv('manufacturer',editingP?(editingP.manufacturer||''):'')}" oninput="productFormDraft.manufacturer=this.value"></div>
@@ -2876,6 +2894,7 @@ function saveProduct(){
   const price=Number(document.getElementById('p_price')?.value||0);
   const costPrice=Number(document.getElementById('p_cost_price')?.value||0);
   const category=document.getElementById('p_category')?.value||'finished';
+  const lowStockThreshold=Number(document.getElementById('p_low_stock_threshold')?.value||0);
   if(!name){alert('أدخل اسم المنتج');return;}
   const validSubUnits=productSubUnits.filter(u=>(u.name||'').trim()&&Number(u.qtyPerUnit)>0).map(u=>({id:u.id,name:u.name.trim(),qtyPerUnit:Number(u.qtyPerUnit),price:Number(u.price)>0?Number(u.price):0}));
   if(editProductId){
@@ -2886,6 +2905,7 @@ function saveProduct(){
     if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
     if(price>0)p.price=price; else delete p.price;
     if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
+    if(lowStockThreshold>0)p.lowStockThreshold=lowStockThreshold; else delete p.lowStockThreshold;
     if(validSubUnits.length>0)p.subUnits=validSubUnits; else delete p.subUnits;
     // لو الصنف ده ليه رصيد افتتاحي (كمية) واتضاف/اتعدّل سعر التكلفة، نصحح قيد الافتتاحية بالقيمة الجديدة (أو نسجله لأول مرة لو كان ناقص)
     const openingMov=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
@@ -2911,6 +2931,7 @@ function saveProduct(){
   if(activeIngredient)newProduct.activeIngredient=activeIngredient;
   if(price>0)newProduct.price=price;
   if(costPrice>0)newProduct.costPrice=costPrice;
+  if(lowStockThreshold>0)newProduct.lowStockThreshold=lowStockThreshold;
   if(validSubUnits.length>0)newProduct.subUnits=validSubUnits;
   stock.push(newProduct);
   if(openingQty>0){
@@ -2928,6 +2949,12 @@ function deleteProduct(id){
   movements=movements.filter(m=>m.productId!==id);
   removeJournalBySource('stockOpening', id);
   save();renderStock();
+}
+function saveLowStockDefault(val){
+  const n=Number(val);
+  lowStockDefault=(n>=0)?n:10;
+  save();
+  renderStock();
 }
 function saveMovement(){
   const productId=document.getElementById('mov_product')?.value;
@@ -3163,7 +3190,7 @@ function exportData(){
 }
 function buildExportBlob(){
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
-    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,
+    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -3275,6 +3302,7 @@ function importData(){
         if(Array.isArray(data.expenses)){expenses=data.expenses;}
         if(Array.isArray(data.productions)){productions=data.productions;}
         if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
+        if(typeof data.lowStockDefault!=='undefined'){lowStockDefault=Number(data.lowStockDefault)||10;}
         if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
         if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
         if(Array.isArray(data.bankAccounts)){bankAccounts=data.bankAccounts;}else{oldFileWarning=true;}
