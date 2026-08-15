@@ -665,8 +665,9 @@ function lineDetailText(l){
   const extras=[];
   if(l.discount>0) extras.push(`خصم ${l.discount}%`);
   if(l.bonus>0) extras.push(`🎁${l.bonus} هدية`);
-  const uSuffix=l.saleUnit?(' '+lineUnitLabel(l)):'';
-  return `${pName} × ${l.qty||0}${uSuffix} = ${fmt(lineTotal)}${extras.length?' ('+extras.join('، ')+')':''}`;
+  const unitLabel=lineUnitLabel(l);
+  const uSuffix=unitLabel?` (${unitLabel})`:'';
+  return `${pName}${uSuffix} × ${fmtQty(l.qty||0)} × ${fmt(l.price||0)} = ${fmt(lineTotal)}${extras.length?' ('+extras.join('، ')+')':''}`;
 }
 function linesDetailHtml(lines){
   if(!lines || !lines.length) return '';
@@ -1617,7 +1618,7 @@ async function printClientStatement(cid){
   const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
   const events=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
     ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
@@ -1664,7 +1665,7 @@ function renderClientDetail(){
   const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
   const events=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4)),amount:i.total,id:i.id,createdAt:i.createdAt})),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,createdAt:i.createdAt})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
     ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:r.id,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
@@ -1749,6 +1750,7 @@ let invDetailId=null;
 let invDetailFromClient=null;
 let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',saleUnit:''}];
 let invOverallDiscount=0;
+let invIsCash=false;
 let showInvForm=false;
 let editInvoiceId=null;
 let invSearch='';
@@ -1874,7 +1876,7 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${inv.number}</td><td style="white-space:nowrap">${c?.name||'—'}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
+      <td>${inv.number}</td><td style="white-space:nowrap">${c?.name||'—'}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
@@ -1974,6 +1976,15 @@ function renderInvoices(){
           <div class="form-group"><div class="lbl">خصم % على إجمالي الفاتورة</div><input type="number" min="0" max="100" id="inv_overall_discount" value="${invOverallDiscount||''}" placeholder="0" onchange="updateInvOverallDiscount(this.value)"></div>
         </div>
         ${invDiscPct>0?`<div class="bonus-box">✂️ خصم ${invDiscPct}% على إجمالي الفاتورة (- ${fmt(invDiscAmount)} ج) — الإجمالي قبل الخصم: ${fmt(subtotal)} ج</div>`:''}
+        <div class="form-row">
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:bold;color:#1E8449">
+              <input type="checkbox" id="inv_is_cash" ${invIsCash?'checked':''} onchange="invIsCash=this.checked;rerenderInvoiceFormKeepFields()" style="width:auto">
+              💵 فاتورة كاش — تتحصّل بالكامل فورًا عند الحفظ
+            </label>
+          </div>
+        </div>
+        ${invIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(total)} ج فور حفظ الفاتورة، وهتظهر في كشف الحساب كفاتورة كاش متسددة في نفس اللحظة.</div>`:''}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
@@ -1986,7 +1997,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2012,6 +2023,7 @@ function editInvoice(id){
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
   invOverallDiscount=Number(inv.overallDiscount)||0;
+  invIsCash=!!inv.isCash;
   showInvForm=true;
   invDetailId=null;
   renderInvoices();
@@ -2074,6 +2086,7 @@ function updateLineTotal(id,totalValue){
 function saveInvoice(){
   const clientId=document.getElementById('inv_client')?.value;
   const date=document.getElementById('inv_date')?.value||today();
+  const isCash=document.getElementById('inv_is_cash')?.checked||false;
   if(!clientId){alert('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
 
@@ -2130,7 +2143,10 @@ function saveInvoice(){
   const invId = editInvoiceId || uid();
   const invNumber = removedInv ? removedInv.number : (invoices.length>0?Math.max(...invoices.map(i=>i.number||0)):0)+1;
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
+  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
+  const oldAutoPay = payments.find(p=>p.invoiceId===invId && p.isCashAuto);
+  if(oldAutoPay){ payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
   invoices.push(inv);
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
@@ -2147,11 +2163,20 @@ function saveInvoice(){
       movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:'')),invoiceId:inv.id,expiry:l.expiry||''});
     }
   });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;renderInvoices();
+  // فاتورة كاش: بتسجل سداد فوري تلقائي بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (نقدية/عملاء)
+  if(isCash && total>0){
+    const cashPay={id:uid(),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+inv.number,isCashAuto:true,createdAt:new Date().toISOString()};
+    payments.push(cashPay);
+    postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+inv.number, [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
+  }
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices();
 }
 
 function deleteInvoice(id){
   if(!confirm('هتحذف الفاتورة دي؟'))return;
+  // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
+  const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
+  if(autoPay){ payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
   invoices=invoices.filter(i=>i.id!==id);
   movements=movements.filter(m=>m.invoiceId!==id);
   removeJournalBySource('invoice', id);
@@ -2181,6 +2206,7 @@ async function printInvoice(invId){
       <div><strong>العميل:</strong> ${c?.name||'—'}</div>
       <div><strong>رقم الفاتورة:</strong> #${inv.number}</div>
       <div><strong>التاريخ:</strong> ${inv.date}</div>
+      ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${inv.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(inv.subtotal)} جنيه</div><div>خصم ${inv.overallDiscount}% على الفاتورة: -${fmt(inv.subtotal-inv.total)} جنيه</div></div>`:''}
@@ -2236,7 +2262,7 @@ function renderInvDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date} ${inv.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${inv.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${inv.overallDiscount}% على إجمالي الفاتورة (- ${fmt(inv.subtotal-inv.total)} ج) — الإجمالي قبل الخصم: ${fmt(inv.subtotal)} ج</div>`:''}
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
