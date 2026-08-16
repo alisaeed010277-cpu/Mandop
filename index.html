@@ -2974,7 +2974,7 @@ function renderStockMovements(){
     const p=stock.find(p=>p.id===m.productId);
     return `<tr><td>${p?.name||'—'}</td><td>${m.date}</td>
       <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد':'صادر'}</span></td>
-      <td style="font-weight:bold">${m.qty}</td>
+      <td style="font-weight:bold">${fmtQty(m.qty)}</td>
       <td>${m.expiry||'—'}</td>
       <td>${m.note||'—'}</td></tr>`;
   }).join('');
@@ -3166,7 +3166,7 @@ function renderStockDetail(){
   const rows=moves.map(m=>`<tr>
     <td>${m.date}</td>
     <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد ↓':'صادر ↑'}</span></td>
-    <td style="font-weight:bold">${m.qty}</td><td>${m.note||'—'}</td>
+    <td style="font-weight:bold">${fmtQty(m.qty)}</td><td>${m.note||'—'}</td>
   </tr>`).join('');
   document.getElementById('tab-stock').innerHTML=`
     <div class="back-row">
@@ -3175,8 +3175,8 @@ function renderStockDetail(){
     </div>
     <div class="summary">
       <div class="sum-card blue"><div class="sum-num">${stockQty(p.id)}</div><div class="sum-lbl">الرصيد الحالي (${p.unit})</div></div>
-      <div class="sum-card green"><div class="sum-num">${totalIn}</div><div class="sum-lbl">إجمالي الوارد</div></div>
-      <div class="sum-card red"><div class="sum-num">${totalOut}</div><div class="sum-lbl">إجمالي الصادر</div></div>
+      <div class="sum-card green"><div class="sum-num">${fmtQty(totalIn)}</div><div class="sum-lbl">إجمالي الوارد</div></div>
+      <div class="sum-card red"><div class="sum-num">${fmtQty(totalOut)}</div><div class="sum-lbl">إجمالي الصادر</div></div>
     </div>
     <div class="card">
       <div class="card-head">📋 سجل الحركات</div>
