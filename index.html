@@ -181,6 +181,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
       <button onclick="exportData()" style="background:#27AE60;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">💾 تصدير</button>
       <button onclick="importData()" style="background:#D68910;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">📂 استيراد</button>
       <button onclick="openTabOrderModal()" style="background:#7D3C98;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">⚙️ ترتيب</button>
+      <button onclick="openSyncModal()" style="background:#2E86C1;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔗 ربط الأجهزة</button>
     </div>
   </div>
 </div>
@@ -213,6 +214,15 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div class="btn-row" style="margin-top:14px">
       <button class="btn-outline" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
       <button class="btn blue" onclick="document.getElementById('tabOrderModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
+<div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+    <div id="syncModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('syncModal').style.display='none'">تم</button>
     </div>
   </div>
 </div>
@@ -884,6 +894,92 @@ function resetTabOrder(){
   DB.set('_tabOrder',tabOrder);
   renderTabsBar();
   renderTabOrderList();
+}
+
+// ============================================================
+// مرحلة 2: ربط الأجهزة (Device Sync) — إعداد محلي فقط حاليًا
+// ملاحظة مهمة: الكود ده بيخزن حالة التفعيل ورمز المزامنة على الجهاز
+// بس (زي أي إعداد تاني في التطبيق) - لسه مفيش ولا اتصال واحد بيتبعت
+// لـ Firestore من هنا. يعني حتى لو المستخدم "فعّل" الميزة دلوقتي،
+// مفيش أي بيانات بتتحرك لحد المرحلة الجاية.
+// ============================================================
+let syncEnabled = DB.get('_syncEnabled') || false;
+let syncCode = DB.get('_syncCode') || '';
+
+function openSyncModal(){
+  renderSyncModal();
+  document.getElementById('syncModal').style.display='flex';
+}
+
+function genSyncCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // من غير حروف/أرقام ملبسة زي O/0 و I/1
+  let code='';
+  for(let i=0;i<6;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  syncCode=code;
+  syncEnabled=true;
+  DB.set('_syncEnabled',true);
+  DB.set('_syncCode',code);
+  renderSyncModal();
+}
+
+function joinSyncCode(){
+  const el=document.getElementById('syncJoinInput');
+  if(!el)return;
+  const code=(el.value||'').trim().toUpperCase();
+  if(code.length<4){ alert('اكتب الرمز اللي ظاهر على الجهاز التاني'); return; }
+  syncCode=code;
+  syncEnabled=true;
+  DB.set('_syncEnabled',true);
+  DB.set('_syncCode',code);
+  renderSyncModal();
+}
+
+function copySyncCode(){
+  if(!syncCode)return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(syncCode).then(()=>alert('✅ اتنسخ الرمز')).catch(()=>alert(syncCode));
+  }else{
+    alert(syncCode);
+  }
+}
+
+function disableSync(){
+  if(!confirm('هيقفل ربط الأجهزة على الجهاز ده. متأكد؟'))return;
+  syncEnabled=false;
+  syncCode='';
+  DB.set('_syncEnabled',false);
+  DB.set('_syncCode','');
+  renderSyncModal();
+}
+
+function renderSyncModal(){
+  const wrap=document.getElementById('syncModalContent');
+  if(!wrap)return;
+  if(!syncEnabled){
+    wrap.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:16px;line-height:1.6">
+        ميزة جديدة لسه بتتجرب — بتخليك تربط 2 أو 3 أجهزة ببعض عشان أي عملية تتعمل في جهاز تبان في الباقي أول بأول.
+        <br><br>دلوقتي الميزة <b>مقفولة</b>، والتطبيق شغال زي ما هو بالظبط. مفيش أي تأثير على بياناتك لحد ما تفعّلها بنفسك.
+      </div>
+      <button class="btn blue" style="width:100%" onclick="genSyncCode()">🆕 إنشاء رمز مزامنة جديد</button>
+      <div style="text-align:center;font-size:11px;color:#B2BABB;margin:10px 0">— أو —</div>
+      <input type="text" id="syncJoinInput" placeholder="اكتب رمز جهاز تاني عندك بالفعل" maxlength="8"
+        style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #D5D8DC;border-radius:8px;font-size:13px;text-align:center;margin-bottom:8px;text-transform:uppercase">
+      <button class="btn-outline" style="width:100%" onclick="joinSyncCode()">🔗 الانضمام برمز موجود</button>
+    `;
+  }else{
+    wrap.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">شارك الرمز ده مع أي جهاز تاني عايز تربطه بنفس بياناتك</div>
+      <div style="background:#F4F6F7;border:2px dashed #2E86C1;border-radius:10px;padding:16px;text-align:center;margin-bottom:12px">
+        <div style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
+      </div>
+      <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">الربط الفعلي (مزامنة البيانات نفسها) لسه في الطريق — الرمز ده بس أول خطوة</div>
+      <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
+    `;
+  }
 }
 
 function switchTab(name){
