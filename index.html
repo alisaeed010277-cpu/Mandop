@@ -933,6 +933,42 @@ function pushSyncSnapshot(){
   }catch(e){ console.warn('sync push error (ignored):', e); }
 }
 
+// ============================================================
+// مرحلة 4: استقبال بس (Listen-only) - لسه من غير تطبيق فعلي
+// لما جهاز تاني يبعت تحديث، بس بنوريك إشعار صغير فوق الشاشة يقولك
+// "وصل تحديث" - من غير ما نلمس بياناتك المحلية خالص. الهدف بس نتأكد
+// إن الاستقبال شغال قبل ما نربطه ببيانات حقيقية في المرحلة الجاية.
+// ============================================================
+let __syncListenerActive = false;
+function startSyncListener(){
+  if(!syncEnabled || !syncCode || !__syncDB || __syncListenerActive) return;
+  __syncListenerActive = true;
+  let firstSnapshot = true;
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).onSnapshot(doc=>{
+      if(!doc.exists) return;
+      const data = doc.data();
+      if(firstSnapshot){ firstSnapshot=false; return; } // أول قراءة = الحالة الحالية، مش "تحديث جديد"
+      if(data._updatedBy === __deviceId) return; // ده تحديث إحنا اللي بعتناه، مش من جهاز تاني
+      showSyncBanner('📥 وصل تحديث من جهاز تاني (تجربة استقبال فقط - لسه مبيتطبقش على بياناتك)');
+    }, err=>{ console.warn('sync listen error (ignored):', err); });
+  }catch(e){ console.warn('sync listener setup failed (ignored):', e); }
+}
+
+function showSyncBanner(msg){
+  let b=document.getElementById('syncBanner');
+  if(!b){
+    b=document.createElement('div');
+    b.id='syncBanner';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;background:#2E86C1;color:#fff;text-align:center;padding:10px 8px;font-size:13px;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.25)';
+    document.body.appendChild(b);
+  }
+  b.textContent=msg;
+  b.style.display='block';
+  clearTimeout(window.__syncBannerTimeout);
+  window.__syncBannerTimeout=setTimeout(()=>{ b.style.display='none'; },5000);
+}
+
 function openSyncModal(){
   renderSyncModal();
   document.getElementById('syncModal').style.display='flex';
@@ -946,6 +982,7 @@ function genSyncCode(){
   syncEnabled=true;
   DB.set('_syncEnabled',true);
   DB.set('_syncCode',code);
+  startSyncListener();
   renderSyncModal();
 }
 
@@ -958,6 +995,7 @@ function joinSyncCode(){
   syncEnabled=true;
   DB.set('_syncEnabled',true);
   DB.set('_syncCode',code);
+  startSyncListener();
   renderSyncModal();
 }
 
@@ -1004,14 +1042,15 @@ function renderSyncModal(){
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
-      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك دلوقتي بتتبعت للسيرفر في الخلفية تلقائيًا (تجربة أولية) - لكن لسه مفيش استقبال من الأجهزة التانية</div>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك بتتبعت للسيرفر تلقائيًا، وبيبان إشعار فوق الشاشة لو جهاز تاني بعت تحديث (تجربة استقبال فقط - لسه مش بيتطبق على بياناتك)</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
 }
 
-// زرار تشخيص مباشر: بيبعت كتابة تجريبية صغيرة ويورّي النتيجة فورًا في رسالة،
-// عشان نعرف السبب بالظبط لو البيانات مش بتوصل (من غير الحاجة لأدوات مطورين)
+// زرار تشخيص مباشر: بيبعت بياناتك الحقيقية فعليًا (نفس اللي pushSyncSnapshot
+// بيبعته) ويورّي النتيجة فورًا في رسالة، عشان نمسك أي مشكلة في شكل البيانات
+// نفسها (مش بس مشكلة اتصال عامة) من غير الحاجة لأدوات مطورين
 function testSyncConnection(){
   if(typeof firebase === 'undefined'){
     alert('❌ مكتبة المزامنة معرفتش تتحمل من الإنترنت.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
@@ -1025,15 +1064,26 @@ function testSyncConnection(){
     alert('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
     return;
   }
-  __syncDB.collection('workspaces').doc(syncCode).set({
-    _test:true,
-    _testAt:Date.now()
-  },{merge:true}).then(()=>{
-    alert('✅ الاتصال شغال تمام! البيانات وصلت للسيرفر بنجاح.\nروح Firestore وشوف مستند: '+syncCode);
-  }).catch(err=>{
-    alert('❌ فيه مشكلة في الإرسال:\n'+(err&&err.message?err.message:err));
-  });
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).set({
+      clients, invoices, payments, stock, movements, returns,
+      suppliers, purchases, supplierPayments, purchaseReturns,
+      expenses, treasuryOpening, repNotes, clientNotes,
+      checksPayable, checksReceivable, bankAccounts,
+      chartOfAccounts, journalEntries, productions,
+      companyProfile, lowStockDefault,
+      _updatedBy: __deviceId,
+      _updatedAt: Date.now()
+    }).then(()=>{
+      alert('✅ الاتصال شغال تمام! بياناتك الحقيقية (فواتير، عملاء، مخزون...) وصلت للسيرفر بنجاح.\nروح Firestore وشوف مستند: '+syncCode);
+    }).catch(err=>{
+      alert('❌ فيه مشكلة في إرسال بياناتك الحقيقية:\n'+(err&&err.message?err.message:err));
+    });
+  }catch(err){
+    alert('❌ فيه مشكلة قبل حتى ما نبعت:\n'+(err&&err.message?err.message:err));
+  }
 }
+
 
 function switchTab(name){
   currentTab=name;
@@ -5824,12 +5874,16 @@ try{
   if(typeof firebase !== 'undefined'){
     firebase.initializeApp(__syncFirebaseConfig);
     __syncDB = firebase.firestore();
+    // بيانات الفواتير/المخزون فيها حقول اختيارية ممكن تبقى "undefined" (مثلاً خصم
+    // مش متسجل)، وFirestore بيرفض القيمة دي ويوقف الحفظ كله لو معملناش الإعداد ده.
+    __syncDB.settings({ ignoreUndefinedProperties: true });
   }
 }catch(e){
   // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
   console.warn('sync init skipped:', e);
 }
-// __syncDB لسه مش مستخدم في أي مكان في التطبيق - مجرد تجهيز للمرحلة الجاية
+// لو المزامنة كانت متفعّلة من قبل على الجهاز ده، ابدأ الاستماع تلقائيًا
+try{ if(typeof startSyncListener==='function') startSyncListener(); }catch(e){}
 </script>
 </body>
 </html>
