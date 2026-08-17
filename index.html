@@ -934,11 +934,34 @@ function pushSyncSnapshot(){
 }
 
 // ============================================================
-// مرحلة 4: استقبال بس (Listen-only) - لسه من غير تطبيق فعلي
-// لما جهاز تاني يبعت تحديث، بس بنوريك إشعار صغير فوق الشاشة يقولك
-// "وصل تحديث" - من غير ما نلمس بياناتك المحلية خالص. الهدف بس نتأكد
-// إن الاستقبال شغال قبل ما نربطه ببيانات حقيقية في المرحلة الجاية.
+// مرحلة 7: مزامنة تلقائية بالكامل في الخلفية (من غير بانر ولا نافذة
+// تأكيد تتدوس عليها كل شوية) - دي أول مرة التطبيق فعليًا بيطبق بيانات
+// جهاز تاني لوحده من غير ما ينتظر منك أي فعل. اتعملت بعد ما جرّبنا كل
+// حاجة يدوي (مراحل 4-6) وتأكدنا إنها شغالة صح مع بيانات حقيقية.
+//
+// إجراء أمان واحد بس فاضل: لو إنت دلوقتي بتكتب في فورم (حقل تكست
+// متفوكس عليه) وقت وصول تحديث، إحنا بنطبق ونحفظ التحديث في الخلفية
+// عادي، بس مش بنعمل render() فورًا عشان ميمسحش اللي إنت بتكتبه دلوقتي
+// - أول ما تخلص وتحفظ/تنقل تاب، الشاشة هتبقى محدّثة تلقائي زي العادة.
 // ============================================================
+function isUserActivelyTyping(){
+  const el=document.activeElement;
+  return !!(el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName));
+}
+
+// بتاخد نسخة كاملة جاية من السيرفر، تحسب الفرق، تطبقه، تحفظه محليًا،
+// وترجّع للشاشة تعكسه فورًا (إلا لو إنت مشغول بالكتابة دلوقتي). دي
+// نفس المنطق اللي كان بيتعمل يدوي بعد تأكيدك، دلوقتي بيحصل لوحده
+function applyRemoteSnapshot(remoteData){
+  const {additions,updates,addCount,updCount}=computeIncomingChanges(remoteData);
+  const total=addCount+updCount;
+  if(total===0) return {addCount:0,updCount:0,total:0};
+  applyIncomingChanges(additions,updates);
+  save();
+  if(!isUserActivelyTyping()) render();
+  return {addCount,updCount,total};
+}
+
 let __syncListenerActive = false;
 function startSyncListener(){
   if(!syncEnabled || !syncCode || !__syncDB || __syncListenerActive) return;
@@ -950,23 +973,27 @@ function startSyncListener(){
       const data = doc.data();
       if(firstSnapshot){ firstSnapshot=false; return; } // أول قراءة = الحالة الحالية، مش "تحديث جديد"
       if(data._updatedBy === __deviceId) return; // ده تحديث إحنا اللي بعتناه، مش من جهاز تاني
-      showSyncBanner('📥 وصل تحديث من جهاز تاني — افتح "ربط الأجهزة" واضغط "استلام التحديثات" عشان تطبقه');
+      try{
+        const {total}=applyRemoteSnapshot(data);
+        if(total>0) showSyncBanner('✅ اتزامن تلقائيًا من جهاز تاني ('+total+' عنصر)', '#27AE60');
+      }catch(e){ console.warn('auto-apply sync failed (ignored):', e); }
     }, err=>{ console.warn('sync listen error (ignored):', err); });
   }catch(e){ console.warn('sync listener setup failed (ignored):', e); }
 }
 
-function showSyncBanner(msg){
+function showSyncBanner(msg, color){
   let b=document.getElementById('syncBanner');
   if(!b){
     b=document.createElement('div');
     b.id='syncBanner';
-    b.style.cssText='position:fixed;top:0;left:0;right:0;background:#2E86C1;color:#fff;text-align:center;padding:10px 8px;font-size:13px;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.25)';
+    b.style.cssText='position:fixed;top:0;left:0;right:0;color:#fff;text-align:center;padding:10px 8px;font-size:13px;z-index:9999;box-shadow:0 2px 6px rgba(0,0,0,.25)';
     document.body.appendChild(b);
   }
+  b.style.background=color||'#2E86C1';
   b.textContent=msg;
   b.style.display='block';
   clearTimeout(window.__syncBannerTimeout);
-  window.__syncBannerTimeout=setTimeout(()=>{ b.style.display='none'; },5000);
+  window.__syncBannerTimeout=setTimeout(()=>{ b.style.display='none'; },4000);
 }
 
 // ============================================================
@@ -1004,10 +1031,7 @@ const SYNC_ARRAY_LABELS={
   checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
   clientNotes:'ملاحظات عملاء'
-};
-// عناصر بنوريها للمستخدم في الملخص (مش هنوريه تفاصيل تقنية زي
-// حركات المخزون أو القيود اليومية أو دليل الحسابات عشان متلخبطوش)
-const SYNC_SUMMARY_VISIBLE_KEYS=['clients','invoices','payments','stock','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','repNotes','clientNotes'];
+}; // مستخدمة لو حبينا نبني شاشة سجل مزامنة تفصيلية لاحقًا
 
 // الـ arrays دي متعرّفة بـ let منفصلة على مستوى الملف مش object واحد،
 // فالفانكشن دي بترجع مرجع مباشر لكل واحدة فيهم (نفس الـ array الأصلي
@@ -1075,28 +1099,8 @@ function receiveSyncUpdates(){
   }
   __syncDB.collection('workspaces').doc(syncCode).get().then(doc=>{
     if(!doc.exists){ alert('⚠️ مفيش بيانات متسجلة بالرمز ده لسه على السيرفر.'); return; }
-    const remoteData=doc.data();
-    const {additions,updates,addCount,updCount}=computeIncomingChanges(remoteData);
-    const total=addCount+updCount;
+    const {addCount,updCount,total}=applyRemoteSnapshot(doc.data());
     if(total===0){ alert('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
-    const visibleLines=SYNC_SUMMARY_VISIBLE_KEYS
-      .map(k=>{
-        const addN=(additions[k]||[]).length, updN=(updates[k]||[]).length;
-        if(!addN&&!updN) return null;
-        const parts=[];
-        if(addN) parts.push(addN+' جديد');
-        if(updN) parts.push(updN+' معدّل');
-        return `• ${SYNC_ARRAY_LABELS[k]}: ${parts.join('، ')}`;
-      })
-      .filter(Boolean)
-      .join('\n');
-    const msg='📥 لقينا تحديثات من جهاز تاني:\n\n'+
-      (visibleLines||'(بيانات محاسبية مرتبطة فقط)')+
-      '\n\nتحب تطبقها على الجهاز ده؟\n\n(الحذف لسه مش بيتزامن في المرحلة دي - أي عنصر اتمسح على جهاز تاني هيفضل موجود عندك)';
-    if(!confirm(msg)) return;
-    applyIncomingChanges(additions,updates);
-    save();
-    render();
     alert('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
   }).catch(err=>{
     alert('❌ حصلت مشكلة في استلام التحديثات:\n'+(err&&err.message?err.message:err));
@@ -1176,8 +1180,8 @@ function renderSyncModal(){
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
-      <button class="btn blue" style="width:100%;margin-bottom:8px" onclick="receiveSyncUpdates()">📥 استلام التحديثات دلوقتي</button>
-      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك بتتبعت للسيرفر تلقائيًا، وبيبان إشعار فوق الشاشة لو جهاز تاني بعت تحديث - افتح الشاشة دي واضغط "استلام التحديثات" عشان تشوف وتوافق عليها قبل ما تتطبق</div>
+      <button class="btn blue" style="width:100%;margin-bottom:8px" onclick="receiveSyncUpdates()">📥 مزامنة يدوية دلوقتي</button>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بياناتك بتتزامن تلقائيًا مع أي جهاز تاني معاه نفس الرمز، من غير ما تعمل حاجة - هيظهر إشعار بسيط لو وصل تحديث. الزرار فوق ده للطوارئ بس لو حابب تجبر المزامنة تحصل فورًا</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
