@@ -1003,10 +1003,36 @@ function renderSyncModal(){
         <div style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
+      <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
       <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك دلوقتي بتتبعت للسيرفر في الخلفية تلقائيًا (تجربة أولية) - لكن لسه مفيش استقبال من الأجهزة التانية</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
+}
+
+// زرار تشخيص مباشر: بيبعت كتابة تجريبية صغيرة ويورّي النتيجة فورًا في رسالة،
+// عشان نعرف السبب بالظبط لو البيانات مش بتوصل (من غير الحاجة لأدوات مطورين)
+function testSyncConnection(){
+  if(typeof firebase === 'undefined'){
+    alert('❌ مكتبة المزامنة معرفتش تتحمل من الإنترنت.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
+    return;
+  }
+  if(!__syncDB){
+    alert('❌ الاتصال بمشروع Firebase معملوش صح.\nجرب تقفل التطبيق تمامًا وتفتحه تاني.');
+    return;
+  }
+  if(!syncEnabled || !syncCode){
+    alert('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
+    return;
+  }
+  __syncDB.collection('workspaces').doc(syncCode).set({
+    _test:true,
+    _testAt:Date.now()
+  },{merge:true}).then(()=>{
+    alert('✅ الاتصال شغال تمام! البيانات وصلت للسيرفر بنجاح.\nروح Firestore وشوف مستند: '+syncCode);
+  }).catch(err=>{
+    alert('❌ فيه مشكلة في الإرسال:\n'+(err&&err.message?err.message:err));
+  });
 }
 
 function switchTab(name){
