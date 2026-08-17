@@ -5653,5 +5653,34 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
+
+<!-- ===== مرحلة 1: تجهيز مزامنة الأجهزة (Firebase) =====
+     ملاحظة: بيانات الاتصال دي "مفاتيح عميل" عادية بيتم حمايتها من خلال
+     قواعد الحماية (Security Rules) على السيرفر نفسه، مش بيانات سرية.
+     لسه مفيش أي قراءة أو كتابة أو استدعاء فعلي لأي حاجة في التطبيق -
+     بس تجهيز الاتصال، والخطوة دي لوحدها صفر تأثير على أي مستخدم حالي. -->
+<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore-compat.js"></script>
+<script>
+const __syncFirebaseConfig = {
+  apiKey: "AIzaSyB7VZ6oWoZjut_Gosj2cMqjrNRY_Bl-WEU",
+  authDomain: "sadykak-elmohasby-sync.firebaseapp.com",
+  projectId: "sadykak-elmohasby-sync",
+  storageBucket: "sadykak-elmohasby-sync.firebasestorage.app",
+  messagingSenderId: "571913921467",
+  appId: "1:571913921467:web:464f97579ca83a22815a9e"
+};
+let __syncDB = null;
+try{
+  if(typeof firebase !== 'undefined'){
+    firebase.initializeApp(__syncFirebaseConfig);
+    __syncDB = firebase.firestore();
+  }
+}catch(e){
+  // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
+  console.warn('sync init skipped:', e);
+}
+// __syncDB لسه مش مستخدم في أي مكان في التطبيق - مجرد تجهيز للمرحلة الجاية
+</script>
 </body>
 </html>
