@@ -950,7 +950,7 @@ function startSyncListener(){
       const data = doc.data();
       if(firstSnapshot){ firstSnapshot=false; return; } // أول قراءة = الحالة الحالية، مش "تحديث جديد"
       if(data._updatedBy === __deviceId) return; // ده تحديث إحنا اللي بعتناه، مش من جهاز تاني
-      showSyncBanner('📥 وصل تحديث من جهاز تاني (تجربة استقبال فقط - لسه مبيتطبقش على بياناتك)');
+      showSyncBanner('📥 وصل تحديث من جهاز تاني — افتح "ربط الأجهزة" واضغط "استلام التحديثات" عشان تطبقه');
     }, err=>{ console.warn('sync listen error (ignored):', err); });
   }catch(e){ console.warn('sync listener setup failed (ignored):', e); }
 }
@@ -967,6 +967,105 @@ function showSyncBanner(msg){
   b.style.display='block';
   clearTimeout(window.__syncBannerTimeout);
   window.__syncBannerTimeout=setTimeout(()=>{ b.style.display='none'; },5000);
+}
+
+// ============================================================
+// مرحلة 5: استلام وتطبيق التحديثات الحقيقية (يدوي بالمرحلة دي)
+// دلوقتي أول مرة بنلمس بيانات حقيقية جاية من جهاز تاني. عشان كده
+// المرحلة دي "يدوية" فقط (زرار بتضغط عليه إنت بنفسك بعد ما تشوف
+// ملخص اللي هيتضاف)، ومحدودة الأول بـ"إضافة العناصر الجديدة بس"
+// (اللي مش موجودة عندك محليًا بنفس الـ id) - أي تعديل أو حذف حصل
+// على جهاز تاني لعنصر موجود عندك بالفعل لسه مش بيتزامن في المرحلة
+// دي، هنضيفه لاحقًا بعد ما نتأكد إن الأساس ده شغال 100% وسليم.
+//
+// مهم: إحنا مش بنستخدم فانكشنز الإضافة العادية (addClient, saveInvoice
+// ...) عشان دي بترحّل قيود محاسبية وحركات مخزون تلقائيًا - لو
+// استخدمناها هنا هيحصل ترحيل مزدوج لعملية اتسجلت خلاص على الجهاز
+// التاني. بدل كده بنحقن العناصر الجاهزة زي ما هي (بكل تفاصيلها
+// المحاسبية اللي اتسجلت هناك) مباشرة في المصفوفات المحلية.
+// ============================================================
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes'];
+
+const SYNC_ARRAY_LABELS={
+  clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
+  movements:'حركات مخزون', returns:'مرتجعات مبيعات', suppliers:'موردين',
+  purchases:'فواتير مشتريات', supplierPayments:'مدفوعات موردين',
+  purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
+  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
+  chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
+  clientNotes:'ملاحظات عملاء'
+};
+// عناصر بنوريها للمستخدم في الملخص (مش هنوريه تفاصيل تقنية زي
+// حركات المخزون أو القيود اليومية أو دليل الحسابات عشان متلخبطوش)
+const SYNC_SUMMARY_VISIBLE_KEYS=['clients','invoices','payments','stock','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','repNotes','clientNotes'];
+
+// الـ arrays دي متعرّفة بـ let منفصلة على مستوى الملف مش object واحد،
+// فالفانكشن دي بترجع مرجع مباشر لكل واحدة فيهم (نفس الـ array الأصلي
+// بالظبط، مش نسخة) عشان أي push عليها يأثر على المتغير الحقيقي فورًا
+function getSyncArrayMap(){
+  return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
+    supplierPayments,purchaseReturns,expenses,productions,checksPayable,
+    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes};
+}
+
+// بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع بس
+// العناصر اللي الـ id بتاعها مش موجود محليًا خالص (عناصر جديدة فقط -
+// تعديل/حذف عناصر موجودة لسه مش متضمن في المرحلة دي، بالتصميم)
+function computeIncomingAdditions(remoteData){
+  const map=getSyncArrayMap();
+  const additions={};
+  let total=0;
+  SYNC_ARRAY_KEYS.forEach(key=>{
+    const localArr=map[key]||[];
+    const remoteArr=Array.isArray(remoteData[key])?remoteData[key]:[];
+    const localIds=new Set(localArr.filter(x=>x&&x.id).map(x=>x.id));
+    const newItems=remoteArr.filter(x=>x&&x.id&&!localIds.has(x.id));
+    if(newItems.length){ additions[key]=newItems; total+=newItems.length; }
+  });
+  return {additions,total};
+}
+
+// بتحقن العناصر الجديدة مباشرة في المصفوفات المحلية (من غير المرور
+// على أي فانكشن إضافة عادي) - العناصر دي جاهزة بالكامل زي ما هي
+// اتسجلت على الجهاز الأصلي، بما فيها أي حركات مخزون أو قيود مرتبطة
+function applyIncomingAdditions(additions){
+  const map=getSyncArrayMap();
+  Object.keys(additions).forEach(key=>{
+    if(map[key]) map[key].push(...additions[key]);
+  });
+}
+
+// الزرار اللي بيستلم التحديثات فعليًا - بيجيب آخر نسخة من السيرفر،
+// يوريك ملخص اللي هيتضاف، وميطبقش حاجة غير بعد موافقتك الصريحة
+function receiveSyncUpdates(){
+  if(typeof firebase==='undefined'||!__syncDB){
+    alert('❌ المزامنة مش شغالة على الجهاز ده دلوقتي.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
+    return;
+  }
+  if(!syncEnabled||!syncCode){
+    alert('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
+    return;
+  }
+  __syncDB.collection('workspaces').doc(syncCode).get().then(doc=>{
+    if(!doc.exists){ alert('⚠️ مفيش بيانات متسجلة بالرمز ده لسه على السيرفر.'); return; }
+    const remoteData=doc.data();
+    const {additions,total}=computeIncomingAdditions(remoteData);
+    if(total===0){ alert('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة تتضاف.'); return; }
+    const visibleLines=SYNC_SUMMARY_VISIBLE_KEYS
+      .filter(k=>additions[k]&&additions[k].length)
+      .map(k=>`• ${SYNC_ARRAY_LABELS[k]}: ${additions[k].length}`)
+      .join('\n');
+    const msg='📥 لقينا تحديثات جديدة من جهاز تاني:\n\n'+
+      (visibleLines||'(بيانات محاسبية مرتبطة فقط)')+
+      '\n\nتحب تطبقها على الجهاز ده؟\n\n(هيتضاف عناصر جديدة بس - أي تعديل على عنصر عندك بالفعل مش هيتغير في المرحلة دي)';
+    if(!confirm(msg)) return;
+    applyIncomingAdditions(additions);
+    save();
+    render();
+    alert('✅ تم! اتضاف '+total+' عنصر جديد على الجهاز ده.');
+  }).catch(err=>{
+    alert('❌ حصلت مشكلة في استلام التحديثات:\n'+(err&&err.message?err.message:err));
+  });
 }
 
 function openSyncModal(){
@@ -1042,7 +1141,8 @@ function renderSyncModal(){
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
-      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك بتتبعت للسيرفر تلقائيًا، وبيبان إشعار فوق الشاشة لو جهاز تاني بعت تحديث (تجربة استقبال فقط - لسه مش بيتطبق على بياناتك)</div>
+      <button class="btn blue" style="width:100%;margin-bottom:8px" onclick="receiveSyncUpdates()">📥 استلام التحديثات دلوقتي</button>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك بتتبعت للسيرفر تلقائيًا، وبيبان إشعار فوق الشاشة لو جهاز تاني بعت تحديث - افتح الشاشة دي واضغط "استلام التحديثات" عشان تشوف وتوافق عليها قبل ما تتطبق</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
