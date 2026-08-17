@@ -973,16 +973,26 @@ function showSyncBanner(msg){
 // مرحلة 5: استلام وتطبيق التحديثات الحقيقية (يدوي بالمرحلة دي)
 // دلوقتي أول مرة بنلمس بيانات حقيقية جاية من جهاز تاني. عشان كده
 // المرحلة دي "يدوية" فقط (زرار بتضغط عليه إنت بنفسك بعد ما تشوف
-// ملخص اللي هيتضاف)، ومحدودة الأول بـ"إضافة العناصر الجديدة بس"
-// (اللي مش موجودة عندك محليًا بنفس الـ id) - أي تعديل أو حذف حصل
-// على جهاز تاني لعنصر موجود عندك بالفعل لسه مش بيتزامن في المرحلة
-// دي، هنضيفه لاحقًا بعد ما نتأكد إن الأساس ده شغال 100% وسليم.
+// ملخص اللي هيتغيّر).
 //
 // مهم: إحنا مش بنستخدم فانكشنز الإضافة العادية (addClient, saveInvoice
 // ...) عشان دي بترحّل قيود محاسبية وحركات مخزون تلقائيًا - لو
 // استخدمناها هنا هيحصل ترحيل مزدوج لعملية اتسجلت خلاص على الجهاز
 // التاني. بدل كده بنحقن العناصر الجاهزة زي ما هي (بكل تفاصيلها
 // المحاسبية اللي اتسجلت هناك) مباشرة في المصفوفات المحلية.
+//
+// مرحلة 6: إضافة اكتشاف وتطبيق "التعديلات" على عناصر موجودة بالفعل
+// (مش بس العناصر الجديدة زي المرحلة اللي فاتت). التعديل بيتطبق بنظام
+// last-write-wins بسيط (بناخد النسخة الجاية من السيرفر زي ما هي) من
+// غير أي منطق تعارض معقد - قرار متعمد لأن احتمال إن جهازين يعدّلوا
+// نفس العنصر بالظبط في نفس اللحظة تقريبًا معدوم في طريقة استخدامك
+// الفعلية للتطبيق.
+// **الحذف لسه برّه نطاق المزامنة عمدًا**: عنصر موجود محليًا ومش موجود
+// في نسخة السيرفر مش معناه بالضرورة إنه "اتمسح" على جهاز تاني - ممكن
+// يكون عنصر اتعمل محليًا لسه ما وصلش للسيرفر (لو الجهاز كان أوفلاين
+// لحظة الإنشاء مثلًا). معاملته كحذف تلقائي فيه خطورة إننا نمسح بيانات
+// حقيقية غلط، فده هيتأجل لمرحلة لاحقة بتصميم أوضح (علامة حذف صريحة
+// بدل الاستنتاج من الغياب).
 // ============================================================
 const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes'];
 
@@ -1008,35 +1018,52 @@ function getSyncArrayMap(){
     checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes};
 }
 
-// بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع بس
-// العناصر اللي الـ id بتاعها مش موجود محليًا خالص (عناصر جديدة فقط -
-// تعديل/حذف عناصر موجودة لسه مش متضمن في المرحلة دي، بالتصميم)
-function computeIncomingAdditions(remoteData){
+// بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
+// - additions: عناصر الـ id بتاعها مش موجود محليًا خالص (جديدة)
+// - updates: عناصر موجودة محليًا بنفس الـ id بس محتواها مختلف (اتعدّلت)
+// الحذف (عنصر موجود محليًا ومش موجود في نسخة السيرفر) متعمد إننا
+// متلمسهوش هنا - راجع الشرح في التعليق فوق
+function computeIncomingChanges(remoteData){
   const map=getSyncArrayMap();
-  const additions={};
-  let total=0;
+  const additions={}, updates={};
+  let addCount=0, updCount=0;
   SYNC_ARRAY_KEYS.forEach(key=>{
     const localArr=map[key]||[];
     const remoteArr=Array.isArray(remoteData[key])?remoteData[key]:[];
-    const localIds=new Set(localArr.filter(x=>x&&x.id).map(x=>x.id));
-    const newItems=remoteArr.filter(x=>x&&x.id&&!localIds.has(x.id));
-    if(newItems.length){ additions[key]=newItems; total+=newItems.length; }
+    const localById=new Map(localArr.filter(x=>x&&x.id).map(x=>[x.id,x]));
+    const newItems=[], changedItems=[];
+    remoteArr.forEach(r=>{
+      if(!r||!r.id) return;
+      const l=localById.get(r.id);
+      if(!l){ newItems.push(r); }
+      else if(JSON.stringify(l)!==JSON.stringify(r)){ changedItems.push(r); }
+    });
+    if(newItems.length){ additions[key]=newItems; addCount+=newItems.length; }
+    if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
   });
-  return {additions,total};
+  return {additions,updates,addCount,updCount};
 }
 
-// بتحقن العناصر الجديدة مباشرة في المصفوفات المحلية (من غير المرور
-// على أي فانكشن إضافة عادي) - العناصر دي جاهزة بالكامل زي ما هي
-// اتسجلت على الجهاز الأصلي، بما فيها أي حركات مخزون أو قيود مرتبطة
-function applyIncomingAdditions(additions){
+// بتحقن العناصر الجديدة وبتستبدل العناصر المعدّلة مباشرة في المصفوفات
+// المحلية (من غير المرور على أي فانكشن إضافة/تعديل عادي) - العناصر دي
+// جاهزة بالكامل زي ما هي اتسجلت على الجهاز الأصلي، بما فيها أي حركات
+// مخزون أو قيود مرتبطة. التعديل بيستبدل العنصر بالكامل (last-write-wins)
+function applyIncomingChanges(additions,updates){
   const map=getSyncArrayMap();
   Object.keys(additions).forEach(key=>{
     if(map[key]) map[key].push(...additions[key]);
   });
+  Object.keys(updates).forEach(key=>{
+    const arr=map[key]; if(!arr) return;
+    updates[key].forEach(remoteItem=>{
+      const idx=arr.findIndex(x=>x&&x.id===remoteItem.id);
+      if(idx>-1) arr[idx]=remoteItem;
+    });
+  });
 }
 
 // الزرار اللي بيستلم التحديثات فعليًا - بيجيب آخر نسخة من السيرفر،
-// يوريك ملخص اللي هيتضاف، وميطبقش حاجة غير بعد موافقتك الصريحة
+// يوريك ملخص اللي هيتضاف/يتعدّل، وميطبقش حاجة غير بعد موافقتك الصريحة
 function receiveSyncUpdates(){
   if(typeof firebase==='undefined'||!__syncDB){
     alert('❌ المزامنة مش شغالة على الجهاز ده دلوقتي.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
@@ -1049,20 +1076,28 @@ function receiveSyncUpdates(){
   __syncDB.collection('workspaces').doc(syncCode).get().then(doc=>{
     if(!doc.exists){ alert('⚠️ مفيش بيانات متسجلة بالرمز ده لسه على السيرفر.'); return; }
     const remoteData=doc.data();
-    const {additions,total}=computeIncomingAdditions(remoteData);
-    if(total===0){ alert('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة تتضاف.'); return; }
+    const {additions,updates,addCount,updCount}=computeIncomingChanges(remoteData);
+    const total=addCount+updCount;
+    if(total===0){ alert('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
     const visibleLines=SYNC_SUMMARY_VISIBLE_KEYS
-      .filter(k=>additions[k]&&additions[k].length)
-      .map(k=>`• ${SYNC_ARRAY_LABELS[k]}: ${additions[k].length}`)
+      .map(k=>{
+        const addN=(additions[k]||[]).length, updN=(updates[k]||[]).length;
+        if(!addN&&!updN) return null;
+        const parts=[];
+        if(addN) parts.push(addN+' جديد');
+        if(updN) parts.push(updN+' معدّل');
+        return `• ${SYNC_ARRAY_LABELS[k]}: ${parts.join('، ')}`;
+      })
+      .filter(Boolean)
       .join('\n');
-    const msg='📥 لقينا تحديثات جديدة من جهاز تاني:\n\n'+
+    const msg='📥 لقينا تحديثات من جهاز تاني:\n\n'+
       (visibleLines||'(بيانات محاسبية مرتبطة فقط)')+
-      '\n\nتحب تطبقها على الجهاز ده؟\n\n(هيتضاف عناصر جديدة بس - أي تعديل على عنصر عندك بالفعل مش هيتغير في المرحلة دي)';
+      '\n\nتحب تطبقها على الجهاز ده؟\n\n(الحذف لسه مش بيتزامن في المرحلة دي - أي عنصر اتمسح على جهاز تاني هيفضل موجود عندك)';
     if(!confirm(msg)) return;
-    applyIncomingAdditions(additions);
+    applyIncomingChanges(additions,updates);
     save();
     render();
-    alert('✅ تم! اتضاف '+total+' عنصر جديد على الجهاز ده.');
+    alert('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
   }).catch(err=>{
     alert('❌ حصلت مشكلة في استلام التحديثات:\n'+(err&&err.message?err.message:err));
   });
