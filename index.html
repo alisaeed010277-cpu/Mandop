@@ -394,6 +394,7 @@ const save=()=>{
   idbSet(KEYS.chartOfAccounts,chartOfAccounts);
   idbSet(KEYS.journalEntries,journalEntries);
   idbSet(KEYS.productions,productions);
+  try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
 };
 
 async function loadAllData(){
@@ -905,6 +906,32 @@ function resetTabOrder(){
 // ============================================================
 let syncEnabled = DB.get('_syncEnabled') || false;
 let syncCode = DB.get('_syncCode') || '';
+let __deviceId = DB.get('_deviceId');
+if(!__deviceId){
+  __deviceId = 'dev_' + Math.random().toString(36).slice(2,10);
+  DB.set('_deviceId', __deviceId);
+}
+
+// بيبعت "صورة" كاملة من البيانات الحالية للسيرفر في الخلفية، من غير ما ينتظر
+// أي رد أو يوقف حاجة لو فشل. المرحلة دي إرسال بس (push) - التطبيق لسه مش
+// بيقرا أو يستقبل حاجة من السيرفر، فمفيش أي احتمال إن بيانات جهاز تاني
+// "ترجع" وتغيّر حاجة عندك دلوقتي.
+function pushSyncSnapshot(){
+  if(!syncEnabled || !syncCode || !__syncDB) return;
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).set({
+      clients, invoices, payments, stock, movements, returns,
+      suppliers, purchases, supplierPayments, purchaseReturns,
+      expenses, treasuryOpening, repNotes, clientNotes,
+      checksPayable, checksReceivable, bankAccounts,
+      chartOfAccounts, journalEntries, productions,
+      companyProfile, lowStockDefault,
+      _updatedBy: __deviceId,
+      _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
+    }).catch(e=>{ console.warn('sync push failed (ignored):', e); });
+  }catch(e){ console.warn('sync push error (ignored):', e); }
+}
 
 function openSyncModal(){
   renderSyncModal();
@@ -976,7 +1003,7 @@ function renderSyncModal(){
         <div style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
-      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">الربط الفعلي (مزامنة البيانات نفسها) لسه في الطريق — الرمز ده بس أول خطوة</div>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بيانات جهازك دلوقتي بتتبعت للسيرفر في الخلفية تلقائيًا (تجربة أولية) - لكن لسه مفيش استقبال من الأجهزة التانية</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
