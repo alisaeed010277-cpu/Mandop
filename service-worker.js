@@ -1,41 +1,56 @@
-const CACHE_NAME = 'vet-app-cache-v1';
-const APP_SHELL = [
-  './',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
-];
+// اسم الكاش - غيّرته لنسخة جديدة عشان يجبر تنضيف أي نسخة قديمة متخزنة
+const CACHE_NAME = 'elnokhba-cache-v2';
 
-// عند التثبيت: نخزن نسخة أولية ونفعّل السيرفس ووركر فورًا من غير انتظار
-self.addEventListener('install', event => {
+// أول ما نسخة جديدة من الملف ده تتحمل، تتفعل على طول من غير ما تستنى
+// المستخدم يقفل كل التابات المفتوحة
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+});
+
+// وقت التفعيل: امسح أي كاش قديم باسم مختلف، وخد تحكم في الصفحات
+// المفتوحة فورًا من غير ما يحتاج المستخدم يعمل reload يدوي
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL).catch(()=>{}))
+    caches.keys()
+      .then(names => Promise.all(
+        names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// عند التفعيل: نمسح أي كاش قديم ونتحكم في كل الصفحات المفتوحة فورًا
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
-    )).then(() => self.clients.claim())
-  );
-});
-
-// استراتيجية "الشبكة أولاً": أي فتح للتطبيق وهو أونلاين بيجيب آخر نسخة رفعتها على طول
-// ولو أوفلاين، بيرجع لآخر نسخة محفوظة في الكاش عشان يفضل شغال من غير نت
-self.addEventListener('fetch', event => {
+self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
+  // الصفحة الرئيسية (index.html): يحاول ياخد أحدث نسخة من الإنترنت الأول.
+  // لو النت موجود، هياخد آخر تحديث فورًا (وده اللي كان ناقص وسبب المشكلة).
+  // لو مفيش نت، يرجع للنسخة المحفوظة عشان التطبيق يفضل شغال أوفلاين.
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // باقي الملفات (أيقونات، manifest.json...): ياخدها من الكاش الأول لو
+  // موجودة (أسرع وبيشتغل أوفلاين)، وفي نفس الوقت يحدّثها من النت في الخلفية
   event.respondWith(
-    fetch(req).then(networkRes => {
-      const resClone = networkRes.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
-      return networkRes;
-    }).catch(() => {
-      return caches.match(req).then(cached => cached || caches.match('./'));
+    caches.match(req).then(cached => {
+      const fetchPromise = fetch(req)
+        .then(res => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => cached);
+      return cached || fetchPromise;
     })
   );
 });
