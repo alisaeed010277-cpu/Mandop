@@ -794,7 +794,7 @@ const TAB_DEFS=[
   {id:'purreturns',icon:'↪️',label:'مردود مشتريات'},
   {id:'stock',icon:'📦',label:'المخزن'},
   {id:'reports',icon:'📊',label:'التقارير'},
-  {id:'expenses',icon:'💸',label:'مصاريف المندوب'},
+  {id:'expenses',icon:'💸',label:'المصروفات'},
   {id:'treasury',icon:'🏦',label:'الخزنة'},
   {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
   {id:'banks',icon:'🏛️',label:'البنوك'}
@@ -962,10 +962,26 @@ function isUserActivelyTyping(){
   return !!(el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName));
 }
 
+// إصلاح: كان فيه احتمال إن مزامنة توصل في الخلفية وانت فاتح فورم إدخال
+// (فاتورة/مرتجع/سداد... إلخ) فتعمل render() فوري وتمسح اختيار العميل/المورد
+// اللي لسه ماتحفظش، لأن حقول البحث القابلة للاختيار (searchableSelectHtml)
+// بتخزن الاختيار في الـ DOM بس مش في متغير - فأي render() لغير صاحب الفورم
+// نفسه بيرجّعها فاضية. الحل: بنضيف شرط "فيه فورم مفتوح دلوقتي" جنب شرط
+// "بتكتب دلوقتي"، فلو أي منهم صح بنأجل الـ render() (البيانات بتتحفظ عادي
+// في الخلفية زي ما هي، بس الشاشة مش بترندر فورًا) - أول ما تقفل الفورم أو
+// تنقل تاب هتلاقي كل حاجة محدّثة عادي.
+function isFormInProgress(){
+  return !!(showInvForm||showPurForm||showRetForm||showPurRetForm||
+    showPayForm||showSupPayTabForm||showMovForm||showProductForm||
+    showProductionForm||showAddAccountForm||showNoteForm||showClientNoteForm||
+    (currentTab==='banks'&&banksSubView!=='accounts')||
+    settlingCheckId!==null);
+}
+
 // بتاخد نسخة كاملة جاية من السيرفر، تحسب الفرق (إضافة/تعديل/حذف)،
 // تطبقه، تحفظه محليًا، وترجّع للشاشة تعكسه فورًا (إلا لو إنت مشغول
-// بالكتابة دلوقتي). دي نفس المنطق اللي كان بيتعمل يدوي بعد تأكيدك،
-// دلوقتي بيحصل لوحده
+// بالكتابة، أو فاتح فورم إدخال لسه ماحفظتوش، دلوقتي). دي نفس المنطق
+// اللي كان بيتعمل يدوي بعد تأكيدك، دلوقتي بيحصل لوحده
 function applyRemoteSnapshot(remoteData){
   const {additions,updates,addCount,updCount}=computeIncomingChanges(remoteData);
   const delCount=applyIncomingDeletions(remoteData.deletedIds);
@@ -973,7 +989,7 @@ function applyRemoteSnapshot(remoteData){
   if(total===0) return {addCount:0,updCount:0,delCount:0,total:0};
   applyIncomingChanges(additions,updates);
   save();
-  if(!isUserActivelyTyping()) render();
+  if(!isUserActivelyTyping() && !isFormInProgress()) render();
   return {addCount,updCount,delCount,total};
 }
 
@@ -1826,17 +1842,25 @@ async function generateDocumentPdfBlob(title, bodyHtml){
 }
 
 // نافذة معاينة المستند قبل الإرسال — بترجع Promise تتحل لما المستخدم يقفل النافذة (سواء بعت أو رجع)
+// ملحوظة: المعاينة كانت بتتصغر جدًا وتتزنّق مع المستندات اللي فيها بيانات كتير (فواتير/كشوف طويلة)
+// لسببين: 1) الصورة كانت متثبتة على عرض صغير (380px) 2) تكبير الشاشة بإصبعين (pinch-zoom) كان
+// مقفول على مستوى التطبيق كله. الحل هنا مخصوص بنافذة المعاينة بس: بنكبّر عرض الصورة الافتراضي،
+// وبنفتح التكبير بإصبعين مؤقتًا لحد ما تقفل النافذة (وبعدين بيرجع التطبيق زي ما كان تمامًا).
 function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
   return new Promise((resolve)=>{
     const url=URL.createObjectURL(jpegBlob);
+    const viewportMeta=document.querySelector('meta[name="viewport"]');
+    const originalViewportContent=viewportMeta?viewportMeta.getAttribute('content'):null;
+    if(viewportMeta) viewportMeta.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=5.0');
     const modal=document.createElement('div');
     modal.id='pdfPreviewModal';
     modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
     modal.innerHTML=`
-      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="background:#fff;border-radius:14px;max-width:460px;width:100%;max-height:95vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
         <div style="padding:12px 16px;border-bottom:1px solid #D5D8DC;font-weight:bold;color:#1A5276;text-align:center">👁️ معاينة قبل الإرسال</div>
+        <div style="font-size:10.5px;color:#717D7E;text-align:center;padding:4px 8px;background:#F8F9F9">💡 اسحب للتحريك، وقرّب بإصبعين لو حابب تكبّر أكتر</div>
         <div style="overflow:auto;flex:1;background:#F2F3F4;padding:10px;display:flex;justify-content:center">
-          <img src="${url}" style="width:100%;max-width:380px;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
+          <img src="${url}" style="width:600px;max-width:none;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
         </div>
         <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid #D5D8DC">
           <button id="pdfPreviewBack" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px 6px;font-size:13px;cursor:pointer">→ رجوع</button>
@@ -1845,7 +1869,11 @@ function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
         </div>
       </div>`;
     document.body.appendChild(modal);
-    function cleanup(){ URL.revokeObjectURL(url); modal.remove(); }
+    function cleanup(){
+      URL.revokeObjectURL(url);
+      modal.remove();
+      if(viewportMeta && originalViewportContent!==null) viewportMeta.setAttribute('content',originalViewportContent);
+    }
     modal.querySelector('#pdfPreviewBack').onclick=()=>{ cleanup(); resolve(false); };
     if(onPrint){
       modal.querySelector('#pdfPreviewPrint').onclick=()=>{ try{ onPrint(); }catch(err){ console.error(err); } };
@@ -3805,7 +3833,7 @@ function renderExpenses(){
 
   document.getElementById('tab-expenses').innerHTML=`
     <div style="padding:14px">
-      <div class="page-title" style="margin-bottom:14px">💸 مصاريف المندوب</div>
+      <div class="page-title" style="margin-bottom:14px">💸 المصروفات</div>
 
       <div class="card" style="margin-bottom:14px">
         <div class="card-head green">➕ إضافة مصروف جديد</div>
@@ -4573,22 +4601,12 @@ function renderReports(){
   const fromVal=document.getElementById('rep_from')?.value||defFrom;
   const toVal=document.getElementById('rep_to')?.value||defTo;
 
-  // فلترة بالفترة
-  const inRange=(date)=>date>=fromVal&&date<=toVal;
-  const filteredInv=invoices.filter(i=>inRange(i.date));
-  const filteredPay=payments.filter(p=>inRange(p.date));
-  const filteredRet=returns.filter(r=>inRange(r.date));
-  const filteredPur=purchases.filter(p=>inRange(p.date));
-  const filteredSupPay=supplierPayments.filter(p=>inRange(p.date));
-
-  const totalSales=filteredInv.reduce((s,i)=>s+i.total,0);
-  const totalReturns=filteredRet.reduce((s,r)=>s+r.total,0);
-  const netSales=totalSales-totalReturns;
-  const totalPaid=filteredPay.reduce((s,p)=>s+p.amount,0);
-  const totalPurchases=filteredPur.reduce((s,p)=>s+p.total,0);
-  const totalSupPaid=filteredSupPay.reduce((s,p)=>s+p.amount,0);
-  const grossProfit=netSales-totalPurchases;
-
+  // ملحوظة: ملخص الأرقام العام (إجمالي/صافي المبيعات...إلخ) والتقارير المالية
+  // التانية (ميزان مراجعة/قائمة دخل/ميزانية عمومية/دفتر أستاذ/تدفقات نقدية)
+  // اتشالوا مؤقتًا من واجهة تبويب التقارير بناء على طلب، لحد ما يتم ضبطهم.
+  // الفانكشنز والحسابات بتاعتهم لسه موجودة كاملة في الكود تحت زي ما هي
+  // (renderTrialBalanceHtml, renderIncomeStatementHtml, renderBalanceSheetHtml,
+  // renderGeneralLedgerHtml, renderCashFlowHtml) وسهل ترجيعهم تاني في أي وقت.
   document.getElementById('tab-reports').innerHTML=`
     <div style="padding:14px">
       <div class="page-title" style="margin-bottom:14px">📊 التقارير</div>
@@ -4597,43 +4615,6 @@ function renderReports(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="rep_from" value="${fromVal}" onchange="renderReports()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="rep_to" value="${toVal}" onchange="renderReports()"></div>
-        </div>
-      </div>
-      <div style="display:grid;gap:10px">
-        <div class="card" style="border-right:4px solid #1A5276">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المبيعات</div>
-          <div style="font-size:24px;font-weight:bold;color:#1A5276">${fmt(totalSales)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredInv.length} فاتورة</div>
-        </div>
-        <div class="card" style="border-right:4px solid #C0392B">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المرتجعات</div>
-          <div style="font-size:24px;font-weight:bold;color:#C0392B">${fmt(totalReturns)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredRet.length} مرتجع</div>
-        </div>
-        <div class="card" style="border-right:4px solid #1E8449;background:#F0FAF4">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">صافي المبيعات</div>
-          <div style="font-size:28px;font-weight:bold;color:#1E8449">${fmt(netSales)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">بعد خصم المرتجعات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #8E44AD">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المشتريات</div>
-          <div style="font-size:24px;font-weight:bold;color:#8E44AD">${fmt(totalPurchases)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredPur.length} فاتورة مشتريات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #F39C12;background:#FFFBF0">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">مجمل الربح</div>
-          <div style="font-size:28px;font-weight:bold;color:${grossProfit>=0?'#1E8449':'#C0392B'}">${fmt(Math.abs(grossProfit))} ج ${grossProfit<0?'(خسارة)':''}</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">صافي مبيعات — إجمالي مشتريات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #27AE60">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي التحصيل من العملاء</div>
-          <div style="font-size:24px;font-weight:bold;color:#27AE60">${fmt(totalPaid)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredPay.length} عملية تحصيل</div>
-        </div>
-        <div class="card" style="border-right:4px solid #E74C3C">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المدفوع للموردين</div>
-          <div style="font-size:24px;font-weight:bold;color:#E74C3C">${fmt(totalSupPaid)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredSupPay.length} دفعة</div>
         </div>
       </div>
       ${renderAgingReportBlock()}
@@ -4645,27 +4626,13 @@ function renderReports(){
 // المرحلة التالتة: التقارير المالية الحقيقية المبنية على دليل الحسابات والقيود (ميزان المراجعة، قائمة الدخل، الميزانية العمومية)
 // ====================================================================
 function renderFinancialStatementsBlock(fromVal,toVal){
-  const viewBtn=(key,label)=>`<button class="btn-sm" style="background:${financialReportView===key?'#1A5276':'#D5D8DC'};color:${financialReportView===key?'#fff':'#333'}" onclick="financialReportView='${key}';renderReports()">${label}</button>`;
-  let body='';
-  if(financialReportView==='trial') body=renderTrialBalanceHtml();
-  else if(financialReportView==='income') body=renderIncomeStatementHtml();
-  else if(financialReportView==='balance') body=renderBalanceSheetHtml();
-  else if(financialReportView==='ledger') body=renderGeneralLedgerHtml();
-  else if(financialReportView==='cashflow') body=renderCashFlowHtml(fromVal,toVal);
-  else if(financialReportView==='items') body=renderItemProfitabilityHtml(fromVal,toVal);
+  // مؤقتًا: باقي التقارير المالية (ميزان/دخل/ميزانية/دفتر أستاذ/تدفقات) مشالة
+  // من هنا واتسابت "ربحية الأصناف" بس - راجع الملحوظة فوق في renderReports()
   return `
   <div class="card" style="margin-top:14px">
-    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📒 التقارير المالية</div>
-    <div class="btn-row" style="margin-bottom:12px">
-      ${viewBtn('trial','ميزان المراجعة')}
-      ${viewBtn('income','قائمة الدخل')}
-      ${viewBtn('balance','الميزانية العمومية')}
-      ${viewBtn('ledger','دفتر الأستاذ العام')}
-      ${viewBtn('cashflow','التدفقات النقدية')}
-      ${viewBtn('items','🏆 ربحية الأصناف')}
-    </div>
-    ${(financialReportView==='cashflow'||financialReportView==='items')?'<div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>':''}
-    ${body}
+    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">🏆 ربحية الأصناف</div>
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+    ${renderItemProfitabilityHtml(fromVal,toVal)}
   </div>`;
 }
 
