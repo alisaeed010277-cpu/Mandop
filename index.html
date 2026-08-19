@@ -2724,7 +2724,7 @@ function renderPayments(){
   document.getElementById('tab-payments').innerHTML=`
     ${showPayForm?`
     <div class="card">
-      <div class="card-head green">تسجيل سداد</div>
+      <div class="card-head green">تسجيل تحصيل للعميل</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group"><div class="lbl">العميل *</div>
@@ -2749,7 +2749,7 @@ function renderPayments(){
       </div>
     </div>`:''}
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
-      ${!showPayForm?`<button class="btn green" onclick="showPayForm=true;renderPayments()">+ تسجيل سداد</button>`:''}
+      ${!showPayForm?`<button class="btn green" onclick="showPayForm=true;renderPayments()">+ تسجيل تحصيل للعميل</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2929,7 +2929,7 @@ function renderReturns(){
   document.getElementById('tab-returns').innerHTML=`
     ${showRetForm?`
     <div class="card">
-      <div class="card-head green">↩️ تسجيل مرتجع جديد</div>
+      <div class="card-head green">↩️ تسجيل مردود مبيعات جديد</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -2956,7 +2956,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مرتجع جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مردود مبيعات جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
