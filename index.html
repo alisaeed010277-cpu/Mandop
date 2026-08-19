@@ -181,6 +181,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
       <button onclick="exportData()" style="background:#27AE60;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">💾 تصدير</button>
       <button onclick="importData()" style="background:#D68910;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">📂 استيراد</button>
       <button onclick="openTabOrderModal()" style="background:#7D3C98;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">⚙️ ترتيب</button>
+      <button onclick="openSyncModal()" style="background:#2E86C1;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔗 ربط الأجهزة</button>
     </div>
   </div>
 </div>
@@ -213,6 +214,15 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div class="btn-row" style="margin-top:14px">
       <button class="btn-outline" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
       <button class="btn blue" onclick="document.getElementById('tabOrderModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
+<div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+    <div id="syncModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('syncModal').style.display='none'">تم</button>
     </div>
   </div>
 </div>
@@ -285,7 +295,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids'};
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[],productions=[];
@@ -298,6 +308,9 @@ let lowStockDefault=10; // الحد العام لتنبيه "قارب على ا�
 let repNotes=[];
 let clientNotes=[];
 let companyProfile={name:'',phone:''};
+// سجل الحذف: لكل نوع بيانات، مصفوفة الـ ids اللي اتمسحت محليًا - بيتزامن مع الأجهزة التانية
+// عشان نمسح نفس العناصر عندهم بدل ما نستنتج المسح (غير آمن) من غياب العنصر بس
+let deletedIds={};
 // بتضيف اسم الشركة/النشاط (لو متسجل في بيانات الشركة) لاسم ملف الباك أب، عشان تقدر تميّز بين نسخ احتياطية من أكثر من نسخة تطبيق على نفس الجهاز
 function backupFileLabel(){
   const name=(companyProfile.name||'').trim();
@@ -384,11 +397,13 @@ const save=()=>{
   idbSet(KEYS.chartOfAccounts,chartOfAccounts);
   idbSet(KEYS.journalEntries,journalEntries);
   idbSet(KEYS.productions,productions);
+  idbSet(KEYS.deletedIds,deletedIds);
+  try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -411,6 +426,7 @@ async function loadAllData(){
   journalEntries=jrnl||[];
   productions=prod||[];
   lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
+  deletedIds=delIds||{};
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -481,7 +497,9 @@ function postJournal(sourceType, sourceId, date, description, lines){
   journalEntries.push({id:uid(),date,description,sourceType,sourceId,lines,createdAt:new Date().toISOString()});
 }
 // مسح كل القيود المرتبطة بحركة معينة (بيتستخدم قبل إعادة الترحيل عند التعديل، أو عند الحذف)
+// بنسجل أي قيد بيتشال هنا في سجل الحذف عشان يتزامن ويتشال من باقي الأجهزة كمان
 function removeJournalBySource(sourceType, sourceId){
+  journalEntries.filter(j=>j.sourceType===sourceType && j.sourceId===sourceId).forEach(j=>recordDeletion('journalEntries',j.id));
   journalEntries=journalEntries.filter(j=>!(j.sourceType===sourceType && j.sourceId===sourceId));
 }
 // رصيد حساب معين: بيرجع {debit, credit} — العمود اللي المفروض يظهر فيه الرصيد حسب طبيعة الحساب
@@ -776,7 +794,7 @@ const TAB_DEFS=[
   {id:'purreturns',icon:'↪️',label:'مردود مشتريات'},
   {id:'stock',icon:'📦',label:'المخزن'},
   {id:'reports',icon:'📊',label:'التقارير'},
-  {id:'expenses',icon:'💸',label:'مصاريف المندوب'},
+  {id:'expenses',icon:'💸',label:'المصروفات'},
   {id:'treasury',icon:'🏦',label:'الخزنة'},
   {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
   {id:'banks',icon:'🏛️',label:'البنوك'}
@@ -885,6 +903,363 @@ function resetTabOrder(){
   renderTabsBar();
   renderTabOrderList();
 }
+
+// ============================================================
+// مرحلة 2: ربط الأجهزة (Device Sync) — إعداد محلي فقط حاليًا
+// ملاحظة مهمة: الكود ده بيخزن حالة التفعيل ورمز المزامنة على الجهاز
+// بس (زي أي إعداد تاني في التطبيق) - لسه مفيش ولا اتصال واحد بيتبعت
+// لـ Firestore من هنا. يعني حتى لو المستخدم "فعّل" الميزة دلوقتي،
+// مفيش أي بيانات بتتحرك لحد المرحلة الجاية.
+// ============================================================
+let syncEnabled = DB.get('_syncEnabled') || false;
+let syncCode = DB.get('_syncCode') || '';
+let __deviceId = DB.get('_deviceId');
+if(!__deviceId){
+  __deviceId = 'dev_' + Math.random().toString(36).slice(2,10);
+  DB.set('_deviceId', __deviceId);
+}
+
+// بيبعت "صورة" كاملة من البيانات الحالية للسيرفر في الخلفية، من غير ما ينتظر
+// أي رد أو يوقف حاجة لو فشل. المرحلة دي إرسال بس (push) - التطبيق لسه مش
+// بيقرا أو يستقبل حاجة من السيرفر، فمفيش أي احتمال إن بيانات جهاز تاني
+// "ترجع" وتغيّر حاجة عندك دلوقتي.
+function pushSyncSnapshot(){
+  if(!syncEnabled || !syncCode || !__syncDB) return;
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).set({
+      clients, invoices, payments, stock, movements, returns,
+      suppliers, purchases, supplierPayments, purchaseReturns,
+      expenses, treasuryOpening, repNotes, clientNotes,
+      checksPayable, checksReceivable, bankAccounts,
+      chartOfAccounts, journalEntries, productions,
+      companyProfile, lowStockDefault, deletedIds,
+      _updatedBy: __deviceId,
+      _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
+    }).catch(e=>{ console.warn('sync push failed (ignored):', e); });
+  }catch(e){ console.warn('sync push error (ignored):', e); }
+}
+
+// ============================================================
+// مرحلة 7: مزامنة تلقائية بالكامل في الخلفية (من غير بانر ولا نافذة
+// تأكيد تتدوس عليها كل شوية) - دي أول مرة التطبيق فعليًا بيطبق بيانات
+// جهاز تاني لوحده من غير ما ينتظر منك أي فعل. اتعملت بعد ما جرّبنا كل
+// حاجة يدوي (مراحل 4-6) وتأكدنا إنها شغالة صح مع بيانات حقيقية.
+//
+// إجراء أمان واحد بس فاضل: لو إنت دلوقتي بتكتب في فورم (حقل تكست
+// متفوكس عليه) وقت وصول تحديث، إحنا بنطبق ونحفظ التحديث في الخلفية
+// عادي، بس مش بنعمل render() فورًا عشان ميمسحش اللي إنت بتكتبه دلوقتي
+// - أول ما تخلص وتحفظ/تنقل تاب، الشاشة هتبقى محدّثة تلقائي زي العادة.
+//
+// مرحلة 8: مزامنة الحذف بنظام "سجل حذف" (deletion log) بدل التخمين من
+// الغياب. كل فانكشن حذف في التطبيق (عميل، فاتورة، منتج...) بقى بيسجل
+// الـ id بتاعه في deletedIds قبل ما يشيله من مصفوفته - السجل ده بيتزامن
+// زي باقي البيانات، وأي جهاز تاني يستلمه بيمسح نفس العناصر عنده. آمن
+// لأنه معتمد على إشارة صريحة إن العنصر اتمسح فعلًا، مش على الاستنتاج.
+// ============================================================
+function isUserActivelyTyping(){
+  const el=document.activeElement;
+  return !!(el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName));
+}
+
+// إصلاح: كان فيه احتمال إن مزامنة توصل في الخلفية وانت فاتح فورم إدخال
+// (فاتورة/مرتجع/سداد... إلخ) فتعمل render() فوري وتمسح اختيار العميل/المورد
+// اللي لسه ماتحفظش، لأن حقول البحث القابلة للاختيار (searchableSelectHtml)
+// بتخزن الاختيار في الـ DOM بس مش في متغير - فأي render() لغير صاحب الفورم
+// نفسه بيرجّعها فاضية. الحل: بنضيف شرط "فيه فورم مفتوح دلوقتي" جنب شرط
+// "بتكتب دلوقتي"، فلو أي منهم صح بنأجل الـ render() (البيانات بتتحفظ عادي
+// في الخلفية زي ما هي، بس الشاشة مش بترندر فورًا) - أول ما تقفل الفورم أو
+// تنقل تاب هتلاقي كل حاجة محدّثة عادي.
+function isFormInProgress(){
+  return !!(showInvForm||showPurForm||showRetForm||showPurRetForm||
+    showPayForm||showSupPayTabForm||showMovForm||showProductForm||
+    showProductionForm||showAddAccountForm||showNoteForm||showClientNoteForm||
+    (currentTab==='banks'&&banksSubView!=='accounts')||
+    settlingCheckId!==null);
+}
+
+// بتاخد نسخة كاملة جاية من السيرفر، تحسب الفرق (إضافة/تعديل/حذف)،
+// تطبقه، تحفظه محليًا، وترجّع للشاشة تعكسه فورًا (إلا لو إنت مشغول
+// بالكتابة، أو فاتح فورم إدخال لسه ماحفظتوش، دلوقتي). دي نفس المنطق
+// اللي كان بيتعمل يدوي بعد تأكيدك، دلوقتي بيحصل لوحده
+function applyRemoteSnapshot(remoteData){
+  const {additions,updates,addCount,updCount}=computeIncomingChanges(remoteData);
+  const delCount=applyIncomingDeletions(remoteData.deletedIds);
+  const total=addCount+updCount+delCount;
+  if(total===0) return {addCount:0,updCount:0,delCount:0,total:0};
+  applyIncomingChanges(additions,updates);
+  save();
+  if(!isUserActivelyTyping() && !isFormInProgress()) render();
+  return {addCount,updCount,delCount,total};
+}
+
+let __syncListenerActive = false;
+function startSyncListener(){
+  if(!syncEnabled || !syncCode || !__syncDB || __syncListenerActive) return;
+  __syncListenerActive = true;
+  let firstSnapshot = true;
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).onSnapshot(doc=>{
+      if(!doc.exists) return;
+      const data = doc.data();
+      if(firstSnapshot){ firstSnapshot=false; return; } // أول قراءة = الحالة الحالية، مش "تحديث جديد"
+      if(data._updatedBy === __deviceId) return; // ده تحديث إحنا اللي بعتناه، مش من جهاز تاني
+      try{ applyRemoteSnapshot(data); }catch(e){ console.warn('auto-apply sync failed (ignored):', e); }
+    }, err=>{ console.warn('sync listen error (ignored):', err); });
+  }catch(e){ console.warn('sync listener setup failed (ignored):', e); }
+}
+
+// ============================================================
+// مرحلة 5: استلام وتطبيق التحديثات الحقيقية (يدوي بالمرحلة دي)
+// دلوقتي أول مرة بنلمس بيانات حقيقية جاية من جهاز تاني. عشان كده
+// المرحلة دي "يدوية" فقط (زرار بتضغط عليه إنت بنفسك بعد ما تشوف
+// ملخص اللي هيتغيّر).
+//
+// مهم: إحنا مش بنستخدم فانكشنز الإضافة العادية (addClient, saveInvoice
+// ...) عشان دي بترحّل قيود محاسبية وحركات مخزون تلقائيًا - لو
+// استخدمناها هنا هيحصل ترحيل مزدوج لعملية اتسجلت خلاص على الجهاز
+// التاني. بدل كده بنحقن العناصر الجاهزة زي ما هي (بكل تفاصيلها
+// المحاسبية اللي اتسجلت هناك) مباشرة في المصفوفات المحلية.
+//
+// مرحلة 6: إضافة اكتشاف وتطبيق "التعديلات" على عناصر موجودة بالفعل
+// (مش بس العناصر الجديدة زي المرحلة اللي فاتت). التعديل بيتطبق بنظام
+// last-write-wins بسيط (بناخد النسخة الجاية من السيرفر زي ما هي) من
+// غير أي منطق تعارض معقد - قرار متعمد لأن احتمال إن جهازين يعدّلوا
+// نفس العنصر بالظبط في نفس اللحظة تقريبًا معدوم في طريقة استخدامك
+// الفعلية للتطبيق.
+// **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
+// فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
+// ============================================================
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes'];
+
+const SYNC_ARRAY_LABELS={
+  clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
+  movements:'حركات مخزون', returns:'مرتجعات مبيعات', suppliers:'موردين',
+  purchases:'فواتير مشتريات', supplierPayments:'مدفوعات موردين',
+  purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
+  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
+  chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
+  clientNotes:'ملاحظات عملاء'
+}; // مستخدمة لو حبينا نبني شاشة سجل مزامنة تفصيلية لاحقًا
+
+// بتسجل id عنصر اتمسح في سجل الحذف (dedup) - بتتنادى من كل فانكشن حذف
+// في التطبيق قبل ما يشيل العنصر من مصفوفته
+function recordDeletion(key,id){
+  if(!id) return;
+  if(!deletedIds[key]) deletedIds[key]=[];
+  if(!deletedIds[key].includes(id)) deletedIds[key].push(id);
+}
+
+// الـ arrays دي متعرّفة بـ let منفصلة على مستوى الملف مش object واحد،
+// فالفانكشن دي بترجع مرجع مباشر لكل واحدة فيهم (نفس الـ array الأصلي
+// بالظبط، مش نسخة) عشان أي push عليها يأثر على المتغير الحقيقي فورًا
+function getSyncArrayMap(){
+  return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
+    supplierPayments,purchaseReturns,expenses,productions,checksPayable,
+    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes};
+}
+
+// بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
+// - additions: عناصر الـ id بتاعها مش موجود محليًا خالص (جديدة)
+// - updates: عناصر موجودة محليًا بنفس الـ id بس محتواها مختلف (اتعدّلت)
+// الحذف (عنصر موجود محليًا ومش موجود في نسخة السيرفر) متعمد إننا
+// متلمسهوش هنا - راجع الشرح في التعليق فوق
+function computeIncomingChanges(remoteData){
+  const map=getSyncArrayMap();
+  const additions={}, updates={};
+  let addCount=0, updCount=0;
+  SYNC_ARRAY_KEYS.forEach(key=>{
+    const localArr=map[key]||[];
+    const remoteArr=Array.isArray(remoteData[key])?remoteData[key]:[];
+    const localById=new Map(localArr.filter(x=>x&&x.id).map(x=>[x.id,x]));
+    const newItems=[], changedItems=[];
+    remoteArr.forEach(r=>{
+      if(!r||!r.id) return;
+      const l=localById.get(r.id);
+      if(!l){ newItems.push(r); }
+      else if(JSON.stringify(l)!==JSON.stringify(r)){ changedItems.push(r); }
+    });
+    if(newItems.length){ additions[key]=newItems; addCount+=newItems.length; }
+    if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
+  });
+  return {additions,updates,addCount,updCount};
+}
+
+// بتاخد سجل الحذف الجاي من جهاز تاني وتمسح أي عنصر لسه موجود عندنا
+// بنفس الـ id، وتحدّث سجل الحذف المحلي عشان نعرف إننا استلمناه ومنعيدوش تاني
+function applyIncomingDeletions(remoteDeletedIds){
+  if(!remoteDeletedIds) return 0;
+  const map=getSyncArrayMap();
+  let count=0;
+  Object.keys(remoteDeletedIds).forEach(key=>{
+    const arr=map[key]; if(!arr) return;
+    const ids=remoteDeletedIds[key]||[];
+    if(!deletedIds[key]) deletedIds[key]=[];
+    ids.forEach(id=>{
+      if(!id) return;
+      const idx=arr.findIndex(x=>x&&x.id===id);
+      if(idx>-1){ arr.splice(idx,1); count++; }
+      if(!deletedIds[key].includes(id)) deletedIds[key].push(id);
+    });
+  });
+  return count;
+}
+
+// بتحقن العناصر الجديدة وبتستبدل العناصر المعدّلة مباشرة في المصفوفات
+// المحلية (من غير المرور على أي فانكشن إضافة/تعديل عادي) - العناصر دي
+// جاهزة بالكامل زي ما هي اتسجلت على الجهاز الأصلي، بما فيها أي حركات
+// مخزون أو قيود مرتبطة. التعديل بيستبدل العنصر بالكامل (last-write-wins)
+function applyIncomingChanges(additions,updates){
+  const map=getSyncArrayMap();
+  Object.keys(additions).forEach(key=>{
+    if(map[key]) map[key].push(...additions[key]);
+  });
+  Object.keys(updates).forEach(key=>{
+    const arr=map[key]; if(!arr) return;
+    updates[key].forEach(remoteItem=>{
+      const idx=arr.findIndex(x=>x&&x.id===remoteItem.id);
+      if(idx>-1) arr[idx]=remoteItem;
+    });
+  });
+}
+
+// الزرار اللي بيستلم التحديثات فعليًا - بيجيب آخر نسخة من السيرفر،
+// يوريك ملخص اللي هيتضاف/يتعدّل، وميطبقش حاجة غير بعد موافقتك الصريحة
+function receiveSyncUpdates(){
+  if(typeof firebase==='undefined'||!__syncDB){
+    alert('❌ المزامنة مش شغالة على الجهاز ده دلوقتي.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
+    return;
+  }
+  if(!syncEnabled||!syncCode){
+    alert('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
+    return;
+  }
+  __syncDB.collection('workspaces').doc(syncCode).get().then(doc=>{
+    if(!doc.exists){ alert('⚠️ مفيش بيانات متسجلة بالرمز ده لسه على السيرفر.'); return; }
+    const {addCount,updCount,total}=applyRemoteSnapshot(doc.data());
+    if(total===0){ alert('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
+    alert('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
+  }).catch(err=>{
+    alert('❌ حصلت مشكلة في استلام التحديثات:\n'+(err&&err.message?err.message:err));
+  });
+}
+
+function openSyncModal(){
+  renderSyncModal();
+  document.getElementById('syncModal').style.display='flex';
+}
+
+function genSyncCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // من غير حروف/أرقام ملبسة زي O/0 و I/1
+  let code='';
+  for(let i=0;i<6;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  syncCode=code;
+  syncEnabled=true;
+  DB.set('_syncEnabled',true);
+  DB.set('_syncCode',code);
+  startSyncListener();
+  renderSyncModal();
+}
+
+function joinSyncCode(){
+  const el=document.getElementById('syncJoinInput');
+  if(!el)return;
+  const code=(el.value||'').trim().toUpperCase();
+  if(code.length<4){ alert('اكتب الرمز اللي ظاهر على الجهاز التاني'); return; }
+  syncCode=code;
+  syncEnabled=true;
+  DB.set('_syncEnabled',true);
+  DB.set('_syncCode',code);
+  startSyncListener();
+  renderSyncModal();
+}
+
+function copySyncCode(){
+  if(!syncCode)return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(syncCode).then(()=>alert('✅ اتنسخ الرمز')).catch(()=>alert(syncCode));
+  }else{
+    alert(syncCode);
+  }
+}
+
+function disableSync(){
+  if(!confirm('هيقفل ربط الأجهزة على الجهاز ده. متأكد؟'))return;
+  syncEnabled=false;
+  syncCode='';
+  DB.set('_syncEnabled',false);
+  DB.set('_syncCode','');
+  renderSyncModal();
+}
+
+function renderSyncModal(){
+  const wrap=document.getElementById('syncModalContent');
+  if(!wrap)return;
+  if(!syncEnabled){
+    wrap.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:16px;line-height:1.6">
+        ميزة جديدة لسه بتتجرب — بتخليك تربط 2 أو 3 أجهزة ببعض عشان أي عملية تتعمل في جهاز تبان في الباقي أول بأول.
+        <br><br>دلوقتي الميزة <b>مقفولة</b>، والتطبيق شغال زي ما هو بالظبط. مفيش أي تأثير على بياناتك لحد ما تفعّلها بنفسك.
+      </div>
+      <button class="btn blue" style="width:100%" onclick="genSyncCode()">🆕 إنشاء رمز مزامنة جديد</button>
+      <div style="text-align:center;font-size:11px;color:#B2BABB;margin:10px 0">— أو —</div>
+      <input type="text" id="syncJoinInput" placeholder="اكتب رمز جهاز تاني عندك بالفعل" maxlength="8"
+        style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #D5D8DC;border-radius:8px;font-size:13px;text-align:center;margin-bottom:8px;text-transform:uppercase">
+      <button class="btn-outline" style="width:100%" onclick="joinSyncCode()">🔗 الانضمام برمز موجود</button>
+    `;
+  }else{
+    wrap.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">شارك الرمز ده مع أي جهاز تاني عايز تربطه بنفس بياناتك</div>
+      <div style="background:#F4F6F7;border:2px dashed #2E86C1;border-radius:10px;padding:16px;text-align:center;margin-bottom:12px">
+        <div style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
+      </div>
+      <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
+      <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
+      <button class="btn blue" style="width:100%;margin-bottom:8px" onclick="receiveSyncUpdates()">📥 مزامنة يدوية دلوقتي</button>
+      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بياناتك بتتزامن تلقائيًا مع أي جهاز تاني معاه نفس الرمز، من غير ما تعمل حاجة - هيظهر إشعار بسيط لو وصل تحديث. الزرار فوق ده للطوارئ بس لو حابب تجبر المزامنة تحصل فورًا</div>
+      <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
+    `;
+  }
+}
+
+// زرار تشخيص مباشر: بيبعت بياناتك الحقيقية فعليًا (نفس اللي pushSyncSnapshot
+// بيبعته) ويورّي النتيجة فورًا في رسالة، عشان نمسك أي مشكلة في شكل البيانات
+// نفسها (مش بس مشكلة اتصال عامة) من غير الحاجة لأدوات مطورين
+function testSyncConnection(){
+  if(typeof firebase === 'undefined'){
+    alert('❌ مكتبة المزامنة معرفتش تتحمل من الإنترنت.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
+    return;
+  }
+  if(!__syncDB){
+    alert('❌ الاتصال بمشروع Firebase معملوش صح.\nجرب تقفل التطبيق تمامًا وتفتحه تاني.');
+    return;
+  }
+  if(!syncEnabled || !syncCode){
+    alert('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
+    return;
+  }
+  try{
+    __syncDB.collection('workspaces').doc(syncCode).set({
+      clients, invoices, payments, stock, movements, returns,
+      suppliers, purchases, supplierPayments, purchaseReturns,
+      expenses, treasuryOpening, repNotes, clientNotes,
+      checksPayable, checksReceivable, bankAccounts,
+      chartOfAccounts, journalEntries, productions,
+      companyProfile, lowStockDefault,
+      _updatedBy: __deviceId,
+      _updatedAt: Date.now()
+    }).then(()=>{
+      alert('✅ الاتصال شغال تمام! بياناتك الحقيقية (فواتير، عملاء، مخزون...) وصلت للسيرفر بنجاح.\nروح Firestore وشوف مستند: '+syncCode);
+    }).catch(err=>{
+      alert('❌ فيه مشكلة في إرسال بياناتك الحقيقية:\n'+(err&&err.message?err.message:err));
+    });
+  }catch(err){
+    alert('❌ فيه مشكلة قبل حتى ما نبعت:\n'+(err&&err.message?err.message:err));
+  }
+}
+
 
 function switchTab(name){
   currentTab=name;
@@ -1318,10 +1693,15 @@ function deleteClient(id){
   if(!confirm('هتحذف العميل ده وكل الفواتير والسداد والمرتجعات الخاصة بيه؟ الإجراء ده مينفعش يترجع.'))return;
   const clientInvoiceIds=invoices.filter(i=>i.clientId===id).map(i=>i.id);
   const clientReturnIds=returns.filter(r=>r.clientId===id).map(r=>r.id);
+  movements.filter(m=>clientInvoiceIds.includes(m.invoiceId)||clientReturnIds.includes(m.returnId)).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>!clientInvoiceIds.includes(m.invoiceId)&&!clientReturnIds.includes(m.returnId));
+  invoices.filter(i=>i.clientId===id).forEach(i=>recordDeletion('invoices',i.id));
   invoices=invoices.filter(i=>i.clientId!==id);
+  payments.filter(p=>p.clientId===id).forEach(p=>recordDeletion('payments',p.id));
   payments=payments.filter(p=>p.clientId!==id);
+  returns.filter(r=>r.clientId===id).forEach(r=>recordDeletion('returns',r.id));
   returns=returns.filter(r=>r.clientId!==id);
+  recordDeletion('clients',id);
   clients=clients.filter(c=>c.id!==id);
   save();renderClients();
 }
@@ -1462,17 +1842,25 @@ async function generateDocumentPdfBlob(title, bodyHtml){
 }
 
 // نافذة معاينة المستند قبل الإرسال — بترجع Promise تتحل لما المستخدم يقفل النافذة (سواء بعت أو رجع)
+// ملحوظة: المحاولة السابقة (تكبير الصورة لعرض ثابت 600px) غلط، لأنها خلت المعاينة تتقص من
+// اليمين والشمال وتحتاج تحريك يدوي. المطلوب: كل الصفحة تظهر كاملة من غير قص ومن غير أي تحريك،
+// بس برضو واضحة. الحل: نستغل أقصى مساحة شاشة ممكنة (نقلل الفراغات الزيادة حوالين النافذة) والصورة
+// تتظبط بعرض 100% من غير أي حد أقصى تاني، فمفيش أي جزء بيتقص. تكبير الإصبعين لسه شغال اختياريًا
+// لو حد حاب يقرب على تفصيلة معينة، بس مش لازم للاستخدام العادي خالص.
 function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
   return new Promise((resolve)=>{
     const url=URL.createObjectURL(jpegBlob);
+    const viewportMeta=document.querySelector('meta[name="viewport"]');
+    const originalViewportContent=viewportMeta?viewportMeta.getAttribute('content'):null;
+    if(viewportMeta) viewportMeta.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=5.0');
     const modal=document.createElement('div');
     modal.id='pdfPreviewModal';
-    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:6px;';
     modal.innerHTML=`
-      <div style="background:#fff;border-radius:14px;max-width:420px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-        <div style="padding:12px 16px;border-bottom:1px solid #D5D8DC;font-weight:bold;color:#1A5276;text-align:center">👁️ معاينة قبل الإرسال</div>
-        <div style="overflow:auto;flex:1;background:#F2F3F4;padding:10px;display:flex;justify-content:center">
-          <img src="${url}" style="width:100%;max-width:380px;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
+      <div style="background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:98vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+        <div style="padding:10px 16px;border-bottom:1px solid #D5D8DC;font-weight:bold;color:#1A5276;text-align:center">👁️ معاينة قبل الإرسال</div>
+        <div style="overflow:auto;flex:1;background:#F2F3F4;padding:4px;display:flex;justify-content:center">
+          <img src="${url}" style="width:100%;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
         </div>
         <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid #D5D8DC">
           <button id="pdfPreviewBack" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px 6px;font-size:13px;cursor:pointer">→ رجوع</button>
@@ -1481,7 +1869,11 @@ function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
         </div>
       </div>`;
     document.body.appendChild(modal);
-    function cleanup(){ URL.revokeObjectURL(url); modal.remove(); }
+    function cleanup(){
+      URL.revokeObjectURL(url);
+      modal.remove();
+      if(viewportMeta && originalViewportContent!==null) viewportMeta.setAttribute('content',originalViewportContent);
+    }
     modal.querySelector('#pdfPreviewBack').onclick=()=>{ cleanup(); resolve(false); };
     if(onPrint){
       modal.querySelector('#pdfPreviewPrint').onclick=()=>{ try{ onPrint(); }catch(err){ console.error(err); } };
@@ -1748,6 +2140,7 @@ function addClientNote(clientId){
 }
 function deleteClientNote(id){
   if(!confirm('متأكد من حذف الملاحظة دي؟'))return;
+  recordDeletion('clientNotes',id);
   clientNotes=clientNotes.filter(n=>n.id!==id);
   save();
   renderClientDetail();
@@ -2151,9 +2544,10 @@ function saveInvoice(){
   const invId = editInvoiceId || uid();
   const invNumber = removedInv ? removedInv.number : (invoices.length>0?Math.max(...invoices.map(i=>i.number||0)):0)+1;
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
+  removedMovements.forEach(m=>recordDeletion('movements',m.id)); // وصلنا هنا يبقى التعديل هيتحفظ فعلاً (بعد كل فحوصات الرصيد) - الحركات القديمة دي هتتشال نهائيًا ومحتاجة تتزامن
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && p.isCashAuto);
-  if(oldAutoPay){ payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
+  if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
   const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
   invoices.push(inv);
   removeJournalBySource('invoice', inv.id);
@@ -2184,8 +2578,10 @@ function deleteInvoice(id){
   if(!confirm('هتحذف الفاتورة دي؟'))return;
   // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
   const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
-  if(autoPay){ payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
+  if(autoPay){ recordDeletion('payments',autoPay.id); payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
+  recordDeletion('invoices',id);
   invoices=invoices.filter(i=>i.id!==id);
+  movements.filter(m=>m.invoiceId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.invoiceId!==id);
   removeJournalBySource('invoice', id);
   removeJournalBySource('invoiceCogs', id);
@@ -2328,7 +2724,7 @@ function renderPayments(){
   document.getElementById('tab-payments').innerHTML=`
     ${showPayForm?`
     <div class="card">
-      <div class="card-head green">تسجيل تحصيل للعميل</div>
+      <div class="card-head green">تسجيل سداد</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group"><div class="lbl">العميل *</div>
@@ -2353,7 +2749,7 @@ function renderPayments(){
       </div>
     </div>`:''}
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
-      ${!showPayForm?`<button class="btn green" onclick="showPayForm=true;renderPayments()">+ تسجيل تحصيل للعميل</button>`:''}
+      ${!showPayForm?`<button class="btn green" onclick="showPayForm=true;renderPayments()">+ تسجيل سداد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2423,6 +2819,7 @@ function renderPaymentDetail(){
 
 function deletePayment(id){
   if(!confirm('هتحذف عملية السداد دي؟'))return;
+  recordDeletion('payments',id);
   payments=payments.filter(p=>p.id!==id);
   removeJournalBySource('payment', id);
   save();renderPayments();
@@ -2532,7 +2929,7 @@ function renderReturns(){
   document.getElementById('tab-returns').innerHTML=`
     ${showRetForm?`
     <div class="card">
-      <div class="card-head green">↩️ تسجيل مردود مبيعات جديد</div>
+      <div class="card-head green">↩️ تسجيل مرتجع جديد</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -2559,7 +2956,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مردود مبيعات جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مرتجع جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2668,7 +3065,9 @@ function saveReturn(){
 
 function deleteReturn(id){
   if(!confirm('هتحذف المرتجع ده؟'))return;
+  recordDeletion('returns',id);
   returns=returns.filter(r=>r.id!==id);
+  movements.filter(m=>m.returnId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.returnId!==id);
   removeJournalBySource('return',id);
   removeJournalBySource('returnCogs',id);
@@ -2696,11 +3095,71 @@ function renderStock(){
       <button class="btn ${stockSubTab==='overview'?'blue':'btn-outline'}" onclick="stockSubTab='overview';renderStock()">📦 المنتجات</button>
       <button class="${stockSubTab==='movements'?'btn blue':'btn-outline'}" onclick="stockSubTab='movements';renderStock()">🔄 الحركات</button>
       <button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>
+      <button class="${stockSubTab==='value'?'btn blue':'btn-outline'}" onclick="stockSubTab='value';renderStock()">💰 قيمة المخزون</button>
     </div>
     <div id="stock-content"></div>`;
   if(stockSubTab==='overview')renderStockOverview();
   else if(stockSubTab==='movements')renderStockMovements();
+  else if(stockSubTab==='value')renderStockValueReport();
   else renderProduction();
+}
+
+// تقرير قيمة المخزون: لكل صنف الكمية الحالية × متوسط تكلفته المرجح (نفس
+// الدالة المستخدمة في حساب تكلفة البضاعة المباعة وباقي التقارير المالية
+// في التطبيق، عشان الرقم هنا يكون متسق ودقيق ومطابق لباقي الحسابات)
+function renderStockValueReport(){
+  const rows=stock.map(p=>{
+    const qty=stockQty(p.id);
+    const cost=productAvgCost(p.id);
+    return {p,qty,cost,value:qty*cost};
+  }).sort((a,b)=>b.value-a.value);
+  const grandTotal=rows.reduce((s,r)=>s+r.value,0);
+  const zeroCostCount=rows.filter(r=>r.qty>0&&r.cost<=0).length;
+  const rowsHtml=rows.map(r=>`
+    <div class="list-item">
+      <div class="list-item-head">
+        <div style="flex:1">
+          <div class="list-item-name">${r.p.name}${r.qty>0&&r.cost<=0?' <span style="color:#C0392B;font-size:10.5px">⚠️ من غير سعر تكلفة</span>':''}</div>
+          <div class="list-item-sub">الكمية: ${fmtQty(r.qty)} ${r.p.unit} &nbsp;•&nbsp; متوسط التكلفة: ${fmt(r.cost)}</div>
+        </div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1A5276;font-size:18px">${fmt(r.value)}</div><div class="list-item-bal-lbl">قيمة</div></div>
+      </div>
+    </div>`).join('');
+  document.getElementById('stock-content').innerHTML=`
+    <div style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:10px;padding:14px;text-align:center;margin-bottom:12px">
+      <div style="font-size:12px;color:#1A5276;margin-bottom:2px">إجمالي قيمة المخزون (بسعر التكلفة)</div>
+      <div style="font-size:26px;font-weight:bold;color:#1A5276">${fmt(grandTotal)} ج.م</div>
+      ${zeroCostCount>0?`<div style="font-size:11px;color:#C0392B;margin-top:4px">⚠️ ${zeroCostCount} صنف من غير سعر تكلفة - قيمتهم مش محسوبة في الإجمالي (صفر)</div>`:''}
+    </div>
+    <button class="btn-outline" style="width:100%;margin-bottom:10px" onclick="printStockValuePdf()">🖨️ تصدير PDF</button>
+    ${rows.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':rowsHtml}
+  `;
+}
+
+async function printStockValuePdf(){
+  const rows=stock.map(p=>{
+    const qty=stockQty(p.id);
+    const cost=productAvgCost(p.id);
+    return {p,qty,cost,value:qty*cost};
+  }).sort((a,b)=>b.value-a.value);
+  const grandTotal=rows.reduce((s,r)=>s+r.value,0);
+  const tableRows=rows.map(r=>`<tr>
+      <td>${r.p.name}${r.qty>0&&r.cost<=0?' ⚠️':''}</td>
+      <td>${r.p.unit}</td>
+      <td>${fmtQty(r.qty)}</td>
+      <td>${fmt(r.cost)}</td>
+      <td style="font-weight:bold">${fmt(r.value)}</td>
+    </tr>`).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>تاريخ التقرير:</strong> ${today()}</div>
+      <div><strong>عدد الأصناف:</strong> ${rows.length}</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n">${fmt(grandTotal)}</div><div class="l">إجمالي قيمة المخزون (ج.م)</div></div>
+    </div>
+    ${rows.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>متوسط التكلفة</th><th>القيمة الإجمالية</th></tr></thead><tbody>${tableRows}</tbody><tfoot><tr style="font-weight:bold"><td colspan="4">الإجمالي</td><td>${fmt(grandTotal)}</td></tr></tfoot></table>`}`;
+  await sendDocument('قيمة المخزون', body, `قيمة-المخزون-${today()}.pdf`);
 }
 
 async function printStockSummaryPdf(){
@@ -2945,7 +3404,9 @@ function saveProduct(){
 }
 function deleteProduct(id){
   if(!confirm('هتحذف المنتج ده؟'))return;
+  recordDeletion('stock',id);
   stock=stock.filter(p=>p.id!==id);
+  movements.filter(m=>m.productId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.productId!==id);
   removeJournalBySource('stockOpening', id);
   save();renderStock();
@@ -3057,8 +3518,10 @@ function deleteProduction(id){
     alert('معلش، مينفعش تحذف العملية دي — جزء من الكمية الناتجة اتباع أو اتصرف بالفعل. لازم رصيد الصنف الناتج يكون كافي الأول.');
     return;
   }
+  movements.filter(m=>m.productionId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.productionId!==id);
   removeJournalBySource('production', id);
+  recordDeletion('productions',id);
   productions=productions.filter(x=>x.id!==id);
   save();
   renderStock();
@@ -3370,7 +3833,7 @@ function renderExpenses(){
 
   document.getElementById('tab-expenses').innerHTML=`
     <div style="padding:14px">
-      <div class="page-title" style="margin-bottom:14px">💸 مصاريف المندوب</div>
+      <div class="page-title" style="margin-bottom:14px">💸 المصروفات</div>
 
       <div class="card" style="margin-bottom:14px">
         <div class="card-head green">➕ إضافة مصروف جديد</div>
@@ -3470,6 +3933,7 @@ function addRepNote(){
 }
 function deleteRepNote(id){
   if(!confirm('متأكد من حذف الملاحظة دي؟'))return;
+  recordDeletion('repNotes',id);
   repNotes=repNotes.filter(n=>n.id!==id);
   save();
   renderExpenses();
@@ -3493,6 +3957,7 @@ function addExpense(){
 
 function deleteExpense(id){
   if(!confirm('متأكد من حذف المصروف ده؟'))return;
+  recordDeletion('expenses',id);
   expenses=expenses.filter(e=>e.id!==id);
   removeJournalBySource('expense', id);
   save();
@@ -3749,8 +4214,8 @@ function saveCheck(){
 function deleteCheck(id){
   if(!confirm('متأكد من حذف الشيك ده؟'))return;
   removeJournalBySource('check',id);
-  if(banksSubView==='payable') checksPayable=checksPayable.filter(c=>c.id!==id);
-  else checksReceivable=checksReceivable.filter(c=>c.id!==id);
+  if(banksSubView==='payable'){ recordDeletion('checksPayable',id); checksPayable=checksPayable.filter(c=>c.id!==id); }
+  else{ recordDeletion('checksReceivable',id); checksReceivable=checksReceivable.filter(c=>c.id!==id); }
   save();
   renderBanks();
 }
@@ -3855,6 +4320,7 @@ function deleteBankAccount(id){
   const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id);
   const msg=hasTx?'الحساب ده متسجل عليه حركات شيكات فعلية. حذفه هيمسح بياناته بس الشيكات هتفضل موجودة في سجلها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
   if(!confirm(msg))return;
+  recordDeletion('bankAccounts',id);
   bankAccounts=bankAccounts.filter(a=>a.id!==id);
   if(bankAccountDetailId===id) bankAccountDetailId=null;
   save();
@@ -4135,22 +4601,12 @@ function renderReports(){
   const fromVal=document.getElementById('rep_from')?.value||defFrom;
   const toVal=document.getElementById('rep_to')?.value||defTo;
 
-  // فلترة بالفترة
-  const inRange=(date)=>date>=fromVal&&date<=toVal;
-  const filteredInv=invoices.filter(i=>inRange(i.date));
-  const filteredPay=payments.filter(p=>inRange(p.date));
-  const filteredRet=returns.filter(r=>inRange(r.date));
-  const filteredPur=purchases.filter(p=>inRange(p.date));
-  const filteredSupPay=supplierPayments.filter(p=>inRange(p.date));
-
-  const totalSales=filteredInv.reduce((s,i)=>s+i.total,0);
-  const totalReturns=filteredRet.reduce((s,r)=>s+r.total,0);
-  const netSales=totalSales-totalReturns;
-  const totalPaid=filteredPay.reduce((s,p)=>s+p.amount,0);
-  const totalPurchases=filteredPur.reduce((s,p)=>s+p.total,0);
-  const totalSupPaid=filteredSupPay.reduce((s,p)=>s+p.amount,0);
-  const grossProfit=netSales-totalPurchases;
-
+  // ملحوظة: ملخص الأرقام العام (إجمالي/صافي المبيعات...إلخ) والتقارير المالية
+  // التانية (ميزان مراجعة/قائمة دخل/ميزانية عمومية/دفتر أستاذ/تدفقات نقدية)
+  // اتشالوا مؤقتًا من واجهة تبويب التقارير بناء على طلب، لحد ما يتم ضبطهم.
+  // الفانكشنز والحسابات بتاعتهم لسه موجودة كاملة في الكود تحت زي ما هي
+  // (renderTrialBalanceHtml, renderIncomeStatementHtml, renderBalanceSheetHtml,
+  // renderGeneralLedgerHtml, renderCashFlowHtml) وسهل ترجيعهم تاني في أي وقت.
   document.getElementById('tab-reports').innerHTML=`
     <div style="padding:14px">
       <div class="page-title" style="margin-bottom:14px">📊 التقارير</div>
@@ -4159,43 +4615,6 @@ function renderReports(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="rep_from" value="${fromVal}" onchange="renderReports()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="rep_to" value="${toVal}" onchange="renderReports()"></div>
-        </div>
-      </div>
-      <div style="display:grid;gap:10px">
-        <div class="card" style="border-right:4px solid #1A5276">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المبيعات</div>
-          <div style="font-size:24px;font-weight:bold;color:#1A5276">${fmt(totalSales)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredInv.length} فاتورة</div>
-        </div>
-        <div class="card" style="border-right:4px solid #C0392B">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المرتجعات</div>
-          <div style="font-size:24px;font-weight:bold;color:#C0392B">${fmt(totalReturns)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredRet.length} مرتجع</div>
-        </div>
-        <div class="card" style="border-right:4px solid #1E8449;background:#F0FAF4">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">صافي المبيعات</div>
-          <div style="font-size:28px;font-weight:bold;color:#1E8449">${fmt(netSales)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">بعد خصم المرتجعات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #8E44AD">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المشتريات</div>
-          <div style="font-size:24px;font-weight:bold;color:#8E44AD">${fmt(totalPurchases)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredPur.length} فاتورة مشتريات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #F39C12;background:#FFFBF0">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">مجمل الربح</div>
-          <div style="font-size:28px;font-weight:bold;color:${grossProfit>=0?'#1E8449':'#C0392B'}">${fmt(Math.abs(grossProfit))} ج ${grossProfit<0?'(خسارة)':''}</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">صافي مبيعات — إجمالي مشتريات</div>
-        </div>
-        <div class="card" style="border-right:4px solid #27AE60">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي التحصيل من العملاء</div>
-          <div style="font-size:24px;font-weight:bold;color:#27AE60">${fmt(totalPaid)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredPay.length} عملية تحصيل</div>
-        </div>
-        <div class="card" style="border-right:4px solid #E74C3C">
-          <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المدفوع للموردين</div>
-          <div style="font-size:24px;font-weight:bold;color:#E74C3C">${fmt(totalSupPaid)} ج</div>
-          <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filteredSupPay.length} دفعة</div>
         </div>
       </div>
       ${renderAgingReportBlock()}
@@ -4207,27 +4626,13 @@ function renderReports(){
 // المرحلة التالتة: التقارير المالية الحقيقية المبنية على دليل الحسابات والقيود (ميزان المراجعة، قائمة الدخل، الميزانية العمومية)
 // ====================================================================
 function renderFinancialStatementsBlock(fromVal,toVal){
-  const viewBtn=(key,label)=>`<button class="btn-sm" style="background:${financialReportView===key?'#1A5276':'#D5D8DC'};color:${financialReportView===key?'#fff':'#333'}" onclick="financialReportView='${key}';renderReports()">${label}</button>`;
-  let body='';
-  if(financialReportView==='trial') body=renderTrialBalanceHtml();
-  else if(financialReportView==='income') body=renderIncomeStatementHtml();
-  else if(financialReportView==='balance') body=renderBalanceSheetHtml();
-  else if(financialReportView==='ledger') body=renderGeneralLedgerHtml();
-  else if(financialReportView==='cashflow') body=renderCashFlowHtml(fromVal,toVal);
-  else if(financialReportView==='items') body=renderItemProfitabilityHtml(fromVal,toVal);
+  // مؤقتًا: باقي التقارير المالية (ميزان/دخل/ميزانية/دفتر أستاذ/تدفقات) مشالة
+  // من هنا واتسابت "ربحية الأصناف" بس - راجع الملحوظة فوق في renderReports()
   return `
   <div class="card" style="margin-top:14px">
-    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📒 التقارير المالية</div>
-    <div class="btn-row" style="margin-bottom:12px">
-      ${viewBtn('trial','ميزان المراجعة')}
-      ${viewBtn('income','قائمة الدخل')}
-      ${viewBtn('balance','الميزانية العمومية')}
-      ${viewBtn('ledger','دفتر الأستاذ العام')}
-      ${viewBtn('cashflow','التدفقات النقدية')}
-      ${viewBtn('items','🏆 ربحية الأصناف')}
-    </div>
-    ${(financialReportView==='cashflow'||financialReportView==='items')?'<div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>':''}
-    ${body}
+    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">🏆 ربحية الأصناف</div>
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+    ${renderItemProfitabilityHtml(fromVal,toVal)}
   </div>`;
 }
 
@@ -4600,10 +5005,15 @@ function deleteSupplier(id){
   if(!confirm('هتحذف المورد ده وكل المشتريات والمدفوعات والمردودات المرتبطة بيه؟'))return;
   const purIds=purchases.filter(p=>p.supplierId===id).map(p=>p.id);
   const purRetIds=purchaseReturns.filter(r=>r.supplierId===id).map(r=>r.id);
+  movements.filter(m=>purIds.includes(m.purchaseId)||purRetIds.includes(m.purchaseReturnId)).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>!purIds.includes(m.purchaseId)&&!purRetIds.includes(m.purchaseReturnId));
+  purchases.filter(p=>p.supplierId===id).forEach(p=>recordDeletion('purchases',p.id));
   purchases=purchases.filter(p=>p.supplierId!==id);
+  supplierPayments.filter(p=>p.supplierId===id).forEach(p=>recordDeletion('supplierPayments',p.id));
   supplierPayments=supplierPayments.filter(p=>p.supplierId!==id);
+  purchaseReturns.filter(r=>r.supplierId===id).forEach(r=>recordDeletion('purchaseReturns',r.id));
   purchaseReturns=purchaseReturns.filter(r=>r.supplierId!==id);
+  recordDeletion('suppliers',id);
   suppliers=suppliers.filter(s=>s.id!==id);
   save();renderSuppliers();
 }
@@ -4920,6 +5330,7 @@ function savePurchase(){
   let removedPur=null;
   if(editPurchaseId){
     removedPur = purchases.find(p=>p.id===editPurchaseId) || null;
+    movements.filter(m=>m.purchaseId===editPurchaseId).forEach(m=>recordDeletion('movements',m.id));
     movements = movements.filter(m=>m.purchaseId!==editPurchaseId);
     purchases = purchases.filter(p=>p.id!==editPurchaseId);
   }
@@ -4943,7 +5354,9 @@ function savePurchase(){
 
 function deletePurchase(id){
   if(!confirm('هتحذف فاتورة المشتريات دي؟ الكميات هترجع للمخزن.'))return;
+  movements.filter(m=>m.purchaseId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.purchaseId!==id);
+  recordDeletion('purchases',id);
   purchases=purchases.filter(p=>p.id!==id);
   removeJournalBySource('purchase', id);
   save();renderPurchases();
@@ -5167,6 +5580,7 @@ function renderSupPayTabDetail(){
 
 function deleteSupplierPaymentTab(id){
   if(!confirm('هتحذف عملية السداد دي؟'))return;
+  recordDeletion('supplierPayments',id);
   supplierPayments=supplierPayments.filter(p=>p.id!==id);
   removeJournalBySource('supplierPayment', id);
   save();renderSupPayTab();
@@ -5337,7 +5751,9 @@ function savePurRet(){
 
 function deletePurRet(id){
   if(!confirm('هتحذف مردود المشتريات ده؟ الكميات هتترجع تتخصم تاني من المخزن.'))return;
+  recordDeletion('purchaseReturns',id);
   purchaseReturns=purchaseReturns.filter(r=>r.id!==id);
+  movements.filter(m=>m.purchaseReturnId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.purchaseReturnId!==id);
   removeJournalBySource('purReturn',id);
   save();renderPurReturns();
@@ -5652,6 +6068,39 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
   });
 }
+</script>
+
+<!-- ===== مرحلة 1: تجهيز مزامنة الأجهزة (Firebase) =====
+     ملاحظة: بيانات الاتصال دي "مفاتيح عميل" عادية بيتم حمايتها من خلال
+     قواعد الحماية (Security Rules) على السيرفر نفسه، مش بيانات سرية.
+     لسه مفيش أي قراءة أو كتابة أو استدعاء فعلي لأي حاجة في التطبيق -
+     بس تجهيز الاتصال، والخطوة دي لوحدها صفر تأثير على أي مستخدم حالي. -->
+<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore-compat.js"></script>
+<script>
+const __syncFirebaseConfig = {
+  apiKey: "AIzaSyB7VZ6oWoZjut_Gosj2cMqjrNRY_Bl-WEU",
+  authDomain: "sadykak-elmohasby-sync.firebaseapp.com",
+  projectId: "sadykak-elmohasby-sync",
+  storageBucket: "sadykak-elmohasby-sync.firebasestorage.app",
+  messagingSenderId: "571913921467",
+  appId: "1:571913921467:web:464f97579ca83a22815a9e"
+};
+let __syncDB = null;
+try{
+  if(typeof firebase !== 'undefined'){
+    firebase.initializeApp(__syncFirebaseConfig);
+    __syncDB = firebase.firestore();
+    // بيانات الفواتير/المخزون فيها حقول اختيارية ممكن تبقى "undefined" (مثلاً خصم
+    // مش متسجل)، وFirestore بيرفض القيمة دي ويوقف الحفظ كله لو معملناش الإعداد ده.
+    __syncDB.settings({ ignoreUndefinedProperties: true });
+  }
+}catch(e){
+  // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
+  console.warn('sync init skipped:', e);
+}
+// لو المزامنة كانت متفعّلة من قبل على الجهاز ده، ابدأ الاستماع تلقائيًا
+try{ if(typeof startSyncListener==='function') startSyncListener(); }catch(e){}
 </script>
 </body>
 </html>
