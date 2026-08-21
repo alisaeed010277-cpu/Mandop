@@ -701,7 +701,9 @@ const clientBalance=(cid)=>{
   const total=invoices.filter(i=>i.clientId===cid).reduce((s,i)=>s+i.total,0);
   const paid=payments.filter(p=>p.clientId===cid).reduce((s,p)=>s+p.amount,0);
   const ret=returns.filter(r=>r.clientId===cid).reduce((s,r)=>s+r.total,0);
-  return opening+total-paid-ret;
+  // مردود نقدي بيترد كاش فورًا، يعني اترد فعلًا ومش المفروض يفضل باين كأنه رصيد له عندنا (زي فاتورة الكاش اللي بتتقفل فورًا)
+  const retRefunded=returns.filter(r=>r.clientId===cid&&r.cashRefund).reduce((s,r)=>s+r.total,0);
+  return opening+total-paid-ret+retRefunded;
 };
 // أعمار الديون: يوزّع أرصدة العميل (الرصيد الافتتاحي + الفواتير) على أعمارها بالأيام
 // بطريقة FIFO (المدفوعات والمرتجعات بتقفل أقدم المستحقات الأول)
@@ -1456,11 +1458,13 @@ function clientSummaryData(from,to){
       opening+=invoices.filter(i=>i.clientId===c.id&&i.date<from).reduce((s,i)=>s+i.total,0);
       opening-=payments.filter(p=>p.clientId===c.id&&p.date<from).reduce((s,p)=>s+p.amount,0);
       opening-=returns.filter(r=>r.clientId===c.id&&r.date<from).reduce((s,r)=>s+r.total,0);
+      opening+=returns.filter(r=>r.clientId===c.id&&r.cashRefund&&r.date<from).reduce((s,r)=>s+r.total,0);
     }
     const sales=invoices.filter(i=>i.clientId===c.id&&(!from||i.date>=from)&&(!to||i.date<=to)).reduce((s,i)=>s+i.total,0);
     const paid=payments.filter(p=>p.clientId===c.id&&(!from||p.date>=from)&&(!to||p.date<=to)).reduce((s,p)=>s+p.amount,0);
     const ret=returns.filter(r=>r.clientId===c.id&&(!from||r.date>=from)&&(!to||r.date<=to)).reduce((s,r)=>s+r.total,0);
-    const bal=opening+sales-ret-paid;
+    const retRefunded=returns.filter(r=>r.clientId===c.id&&r.cashRefund&&(!from||r.date>=from)&&(!to||r.date<=to)).reduce((s,r)=>s+r.total,0);
+    const bal=opening+sales-ret-paid+retRefunded;
     return {client:c,opening,sales,ret,paid,bal};
   });
   const totals=rows.reduce((t,r)=>({opening:t.opening+r.opening,sales:t.sales+r.sales,ret:t.ret+r.ret,paid:t.paid+r.paid,bal:t.bal+r.bal}),{opening:0,sales:0,ret:0,paid:0,bal:0});
@@ -2020,11 +2024,12 @@ async function printClientStatement(cid){
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,createdAt:''}]:[]),
     ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,lines:r.lines,createdAt:r.createdAt})),
+    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   let running=0;
   const rows=events.map(ev=>{
-    const debit=(ev.type==='invoice'||ev.type==='opening')?ev.amount:0;
+    const debit=(ev.type==='invoice'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
     const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
     running += debit - credit;
     const detail=(ev.type==='invoice'||ev.type==='return')?linesDetailHtml(ev.lines):'';
@@ -2067,12 +2072,13 @@ function renderClientDetail(){
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
     ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,createdAt:i.createdAt})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:r.id,createdAt:r.createdAt}))
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,createdAt:r.createdAt})),
+    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=events.map(ev=>`<tr ${ev.type==='invoice'?`onclick="openInvoiceFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:ev.type==='return'?`onclick="openReturnFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:''}>
     <td>${ev.date}${ev.type==='invoice'||ev.type==='return'?' 👁':''}</td>
     <td>${ev.type==='opening'?`<span class="badge orange">${ev.label}</span>`:ev.label}</td>
-    <td style="color:#C0392B;font-weight:bold">${ev.type==='invoice'||ev.type==='opening'?fmt(ev.amount):'—'}</td>
+    <td style="color:#C0392B;font-weight:bold">${ev.type==='invoice'||ev.type==='opening'||ev.type==='refund'?fmt(ev.amount):'—'}</td>
     <td style="color:#1E8449;font-weight:bold">${ev.type==='payment'||ev.type==='return'?fmt(ev.amount):'—'}</td>
   </tr>`).join('');
   const balColor=bal>0?'#C0392B':'#1E8449';
@@ -2201,7 +2207,7 @@ function renderReturnDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
@@ -2225,6 +2231,7 @@ async function printReturn(retId){
       <div><strong>العميل:</strong> ${c?.name||'—'}</div>
       <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
       <div><strong>التاريخ:</strong> ${ret.date}</div>
+      ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>`;
@@ -2857,6 +2864,7 @@ function savePayment(){
 let showRetForm=false;
 let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];
 let retFromDate='',retToDate='';
+let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل كاش فورًا من الخزنة عند الحفظ
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
@@ -2866,7 +2874,7 @@ function renderReturns(){
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
-      <td>${r.number}</td><td style="white-space:nowrap">${c?.name||'—'}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
+      <td>${r.number}</td><td style="white-space:nowrap">${c?.name||'—'}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
       <td style="font-weight:bold;color:#1E8449;white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
@@ -2946,6 +2954,16 @@ function renderReturns(){
         ${linesHtml}
         <button class="btn-outline" style="margin-bottom:10px" onclick="addRetLine()">+ إضافة صنف</button>
         <div class="divider"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:bold;color:#C0392B">
+              <input type="checkbox" id="ret_is_cash" ${retIsCashRefund?'checked':''} onchange="retIsCashRefund=this.checked;rerenderReturnFormKeepFields()" style="width:auto">
+              💵 مردود نقدي — يترد للعميل كاش فورًا من الخزنة
+            </label>
+          </div>
+        </div>
+        ${retIsCashRefund?`<div class="bonus-box" style="background:#FDEDEC;color:#C0392B">✅ هيتسجل صرف فوري بمبلغ ${fmt(total)} ج من الخزنة فور حفظ المرتجع (هيظهر "صادر" في الخزنة)، وهيترحّل في كشف الحساب كمردود متسدد كاش.</div>`:''}
+        <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(total)} جنيه</div>
           <div class="btn-row">
@@ -2956,7 +2974,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];renderReturns()">+ مردود مبيعات جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;renderReturns()">+ مردود مبيعات جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -2977,6 +2995,15 @@ function renderReturns(){
   `;
 }
 
+// بيحافظ على العميل/التاريخ المكتوبين في الفورم بعد إعادة رسمه (زي checkbox المردود النقدي) — نفس أسلوب الحفظ المستخدم أصلاً في باقي دوال تعديل سطر المرتجع
+function rerenderReturnFormKeepFields(){
+  const savedClient=document.getElementById('ret_client')?.value;
+  const savedClientText=document.getElementById('ret_client_search')?.value;
+  const savedDate=document.getElementById('ret_date')?.value;
+  renderReturns();
+  if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
+  if(savedDate) document.getElementById('ret_date').value=savedDate;
+}
 function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''});renderReturns();}
 function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns();}
 function updateRetLine(id,field,value){
@@ -3045,14 +3072,20 @@ function saveReturn(){
   if(retLines.some(l=>l.productId&&l.saleUnit)){
     if(!confirm('في السطور دي مرتجع بالتجزئة (سنتي/حبة/جزء من عبوة). ده استثنائي جدًا وبيرجع الكمية للمخزون كأنها صالحة للبيع تاني. متأكد إنك عايز تكمل؟'))return;
   }
+  const cashRefund=document.getElementById('ret_is_cash')?.checked||false;
   const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
-  const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
+  const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
   returns.push(ret);
   postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
     [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
   const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(lineMainQty(l)*productAvgCost(l.productId)):s,0);
   if(cogsTotal>0) postJournal('returnCogs',ret.id,date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
     [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
+  // مردود نقدي: بيترد للعميل كاش فورًا من الخزنة — قيد عكسي لتحصيل نقدي (Dr العملاء / Cr الخزنة)، بنفس منطق فاتورة الكاش بالظبط بس معكوس
+  if(cashRefund && total>0){
+    postJournal('returnRefund',ret.id,date,'استرداد نقدي - مردود مبيعات #'+ret.number,
+      [{accountId:'ar',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
+  }
   // المرتجع بيرجع للمخزن (وارد) — دايمًا بالوحدة الأساسية للصنف حتى لو الإرجاع كان بوحدة تجزئة
   retLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:lineMainQty(l),date,note:'مردود مبيعات #'+ret.number+(l.saleUnit?` (${l.qty} ${lineUnitLabel(l)})`:''),returnId:ret.id,expiry:l.expiry||''});
@@ -3060,6 +3093,7 @@ function saveReturn(){
   save();
   showRetForm=false;
   retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
+  retIsCashRefund=false;
   renderReturns();
 }
 
@@ -3071,6 +3105,7 @@ function deleteReturn(id){
   movements=movements.filter(m=>m.returnId!==id);
   removeJournalBySource('return',id);
   removeJournalBySource('returnCogs',id);
+  removeJournalBySource('returnRefund',id);
   save();renderReturns();
 }
 
@@ -3981,15 +4016,20 @@ function treasuryData(day){
   });
   const outExp=expenses.filter(e=>e.date===day).map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
   const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
-  const outgoing=[...outSup,...outExp,...outChecks].sort((a,b)=>a.date.localeCompare(b.date));
+  const outRetRefunds=returns.filter(r=>r.cashRefund&&r.date===day).map(r=>{
+    const c=clients.find(c=>c.id===r.clientId);
+    return {date:r.date,label:c?.name||'عميل',note:`مردود نقدي #${r.number}`,amount:r.total};
+  });
+  const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds].sort((a,b)=>a.date.localeCompare(b.date));
 
-  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً؛ شيكات البنك ليها حساباتها الخاصة)
+  // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً والمردودات النقدية؛ شيكات البنك ليها حساباتها الخاصة)
   const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
   const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
   const priorOutExp=expenses.filter(e=>e.date<day).reduce((s,e)=>s+e.amount,0);
   const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
-  const dayOpening=treasuryOpening+priorIn+priorInChecks-priorOutSup-priorOutExp-priorOutChecks;
+  const priorOutRetRefunds=returns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
+  const dayOpening=treasuryOpening+priorIn+priorInChecks-priorOutSup-priorOutExp-priorOutChecks-priorOutRetRefunds;
 
   const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
   const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
@@ -4640,7 +4680,7 @@ function renderFinancialStatementsBlock(fromVal,toVal){
 // وبتتأكد إن رصيد أول المدة + صافي التدفق = رصيد آخر المدة (نفس فلسفة التحقق من توازن الميزانية العمومية)
 function renderCashFlowHtml(fromVal,toVal){
   if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
-  let inClients=0, inChecks=0, outSuppliers=0, outChecks=0, outExpenses=0, openingAdjust=0;
+  let inClients=0, inChecks=0, outSuppliers=0, outChecks=0, outExpenses=0, outRetRefunds=0, openingAdjust=0;
   journalEntries.forEach(j=>{
     if(j.date<fromVal||j.date>toVal) return;
     j.lines.forEach(l=>{
@@ -4651,10 +4691,11 @@ function renderCashFlowHtml(fromVal,toVal){
       else if(j.sourceType==='check'){ if(debit>0) inChecks+=debit; else outChecks+=credit; }
       else if(j.sourceType==='supplierPayment') outSuppliers+=credit-debit;
       else if(j.sourceType==='expense') outExpenses+=credit-debit;
+      else if(j.sourceType==='returnRefund') outRetRefunds+=credit-debit;
     });
   });
   const totalIn=inClients+inChecks;
-  const totalOut=outSuppliers+outChecks+outExpenses;
+  const totalOut=outSuppliers+outChecks+outExpenses+outRetRefunds;
   const netOperating=totalIn-totalOut;
   const netFlow=netOperating+openingAdjust;
 
@@ -4682,6 +4723,7 @@ function renderCashFlowHtml(fromVal,toVal){
     ${row('(-) مدفوعات للموردين', outSuppliers)}
     ${outChecks?row('(-) شيكات مصروفة', outChecks):''}
     ${row('(-) مصاريف مدفوعة نقدًا', outExpenses)}
+    ${outRetRefunds?row('(-) مردودات نقدية للعملاء', outRetRefunds):''}
     ${row('= صافي التدفق من الأنشطة التشغيلية', netOperating, {bold:true, color:netOperating>=0?'#1E8449':'#C0392B'})}
     ${openingAdjust?row('أرصدة افتتاحية مسجّلة خلال الفترة', openingAdjust):''}
     ${row('صافي التدفق النقدي للفترة', netFlow, {bold:true, color:netFlow>=0?'#1E8449':'#C0392B'})}
