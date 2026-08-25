@@ -5074,7 +5074,7 @@ function renderSupplierDetail(){
 
   // سجل الحركات مدمج: مشتريات + سداد + مردود مشتريات
   let allMoves=[
-    ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`,amount:p.total,id:p.id,createdAt:p.createdAt})),
+    ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,createdAt:p.createdAt})),
     ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}${p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''}`,amount:p.amount,id:null,createdAt:p.createdAt})),
     ...supPurRet.map(r=>({date:r.date,type:'return',desc:`مردود مشتريات #${r.number}`,amount:r.total,id:r.id,createdAt:r.createdAt})),
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
@@ -5137,7 +5137,7 @@ async function printSupplierStatement(sid){
   const opening=Number(s.opening||0);
   const events=[
     ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening,createdAt:''}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4)),amount:p.total,lines:p.lines,createdAt:p.createdAt})),
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,lines:p.lines,createdAt:p.createdAt})),
     ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
     ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,lines:r.lines,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
@@ -5175,6 +5175,7 @@ async function printSupplierStatement(sid){
 // ===== PURCHASES =====
 let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
 let purOverallDiscount=0;
+let purIsCash=false;
 let showPurForm=false;
 let purDetailId=null;
 let editPurchaseId=null;
@@ -5213,7 +5214,7 @@ function renderPurchases(){
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td>${p.number}</td><td style="white-space:nowrap">${s?.name||'—'}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
+      <td>${p.number}</td><td style="white-space:nowrap">${s?.name||'—'}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
@@ -5286,6 +5287,15 @@ function renderPurchases(){
           <div class="form-group"><div class="lbl">خصم % على إجمالي الفاتورة</div><input type="number" min="0" max="100" id="pur_overall_discount" value="${purOverallDiscount||''}" placeholder="0" onchange="updatePurOverallDiscount(this.value)"></div>
         </div>
         ${purDiscPct>0?`<div class="bonus-box">✂️ خصم ${purDiscPct}% على إجمالي الفاتورة (- ${fmt(purDiscAmount)} ج) — الإجمالي قبل الخصم: ${fmt(purSubtotal)} ج</div>`:''}
+        <div class="form-row">
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:bold;color:#1E8449">
+              <input type="checkbox" id="pur_is_cash" ${purIsCash?'checked':''} onchange="purIsCash=this.checked;rerenderPurchaseFormKeepFields()" style="width:auto">
+              💵 فاتورة مشتريات كاش — تتسدد بالكامل فورًا عند الحفظ
+            </label>
+          </div>
+        </div>
+        ${purIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(purTotal)} ج للمورد فور حفظ الفاتورة، وهتظهر في كشف حساب المورد كفاتورة كاش متسددة في نفس اللحظة.</div>`:''}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
@@ -5302,7 +5312,7 @@ function renderPurchases(){
     ${formHtml}
     <div class="search-row">
       <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${purSearch}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
-      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -5328,6 +5338,7 @@ function editPurchase(id){
   editPurchaseId=id;
   purchaseLines=(pur.lines||[]).map(l=>({...l}));
   purOverallDiscount=Number(pur.overallDiscount)||0;
+  purIsCash=!!pur.isCash;
   showPurForm=true;
   purDetailId=null;
   renderPurchases();
@@ -5360,6 +5371,7 @@ function updatePurLine(id,field,value){
 function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
   const date=document.getElementById('pur_date')?.value||today();
+  const isCash=document.getElementById('pur_is_cash')?.checked||false;
   if(!supplierId){alert('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){alert('أدخل اسم المنتج لكل سطر');return;}
   const subtotal=purchaseLines.reduce((s,l)=>{
@@ -5380,7 +5392,10 @@ function savePurchase(){
   const purId = editPurchaseId || uid();
   const purNum = removedPur ? removedPur.number : (purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
   const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
-  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,createdAt};
+  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
+  const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && p.isCashAuto);
+  if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
+  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
   purchases.push(pur);
   removeJournalBySource('purchase', pur.id);
   postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+pur.number, [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
@@ -5391,11 +5406,20 @@ function savePurchase(){
       movements.push({id:uid(),productId:l.productId,type:'in',qty:totalQty,date,note:'ف.مشتريات #'+purNum+(l.bonus>0?` (${l.qty} شراء + ${l.bonus} بونص)`:``),purchaseId:pur.id,expiry:l.expiry||''});
     }
   });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;renderPurchases();
+  // فاتورة مشتريات كاش: بتسجل سداد فوري تلقائي للمورد بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (خزنة/موردون)
+  if(isCash && total>0){
+    const cashPay={id:uid(),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+pur.number,isCashAuto:true,createdAt:new Date().toISOString()};
+    supplierPayments.push(cashPay);
+    postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+pur.number, [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
+  }
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases();
 }
 
 function deletePurchase(id){
   if(!confirm('هتحذف فاتورة المشتريات دي؟ الكميات هترجع للمخزن.'))return;
+  // لو كانت فاتورة مشتريات كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
+  const autoPay=supplierPayments.find(p=>p.purchaseId===id&&p.isCashAuto);
+  if(autoPay){ recordDeletion('supplierPayments',autoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==autoPay.id); removeJournalBySource('supplierPayment', autoPay.id); }
   movements.filter(m=>m.purchaseId===id).forEach(m=>recordDeletion('movements',m.id));
   movements=movements.filter(m=>m.purchaseId!==id);
   recordDeletion('purchases',id);
@@ -5424,7 +5448,7 @@ function renderPurDetail(){
     </div>
     <div class="card">
       <div style="margin-bottom:8px"><strong>المورد:</strong> ${s?.name||'—'}</div>
-      <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date}</div>
+      <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
       <div style="margin-bottom:10px"><strong>الإجمالي:</strong> <span style="color:#1A5276;font-weight:bold">${fmt(pur.total)} ج</span></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>المنتج</th><th>الصلاحية</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
@@ -5457,6 +5481,7 @@ async function printPurchase(purId){
       <div><strong>المورد:</strong> ${s?.name||'—'}</div>
       <div><strong>رقم الفاتورة:</strong> #${pur.number}</div>
       <div><strong>التاريخ:</strong> ${pur.date}</div>
+      ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${pur.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(pur.subtotal)} جنيه</div><div>خصم ${pur.overallDiscount}% على الفاتورة: -${fmt(pur.subtotal-pur.total)} جنيه</div></div>`:''}
