@@ -1,5 +1,5 @@
 // اسم الكاش - غيّرته لنسخة جديدة عشان يجبر تنضيف أي نسخة قديمة متخزنة
-const CACHE_NAME = 'elnokhba-cache-v2';
+const CACHE_NAME = 'elnokhba-cache-v3';
 
 // أول ما نسخة جديدة من الملف ده تتحمل، تتفعل على طول من غير ما تستنى
 // المستخدم يقفل كل التابات المفتوحة
@@ -28,7 +28,7 @@ self.addEventListener('fetch', (event) => {
   // لو مفيش نت، يرجع للنسخة المحفوظة عشان التطبيق يفضل شغال أوفلاين.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
+      fetch(req, {cache: 'no-store'})
         .then(res => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
