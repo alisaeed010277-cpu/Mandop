@@ -3713,22 +3713,29 @@ async function doExportShare(){
   document.getElementById('exportModal').style.display='none';
   // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
   // من قائمة المشاركة ويوصل مباشرة لجوجل درايف بتاعه هو، من غير ما ينزلله ملف في مجلد التنزيلات كمان
-  if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+  const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({files:[file]}));
+  if(canShareFiles){
     try{
       await navigator.share({files:[file],title:'نسخة احتياطية',text:'اختار "حفظ في Drive" عشان تتحفظ في جوجل درايف بتاعك انت'});
       markExported();
+      return;
     }catch(e){
-      // المستخدم قفل قائمة المشاركة من غير ما يختار حاجة — مفيش داعي لأي رسالة إزعاج
+      if(e && e.name==='AbortError'){
+        // المستخدم قفل قائمة المشاركة بنفسه من غير ما يختار حاجة — ده اختياره، مفيش داعي لأي رسالة
+        return;
+      }
+      // أي خطأ تاني غير الإلغاء (مشكلة في المتصفح، صلاحيات، إلخ) — منسيبهوش من غير أي رد فعل،
+      // كمّل على البديل الاحتياطي تحت عشان العميل يطلع بنسخة من بياناته على أي حال
+      console.warn('فشلت المشاركة المباشرة، هنستخدم التحميل كبديل:', e);
     }
-  }else{
-    // بديل احتياطي بس لو المتصفح مش بيدعم مشاركة الملفات مباشرة (زي كروم على الكمبيوتر مثلاً)
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download=fileName;a.click();
-    URL.revokeObjectURL(url);
-    markExported();
-    setTimeout(()=>alert('✅ تم حفظ الملف على جهازك (متصفحك مش بيدعم المشاركة المباشرة).\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
   }
+  // بديل احتياطي: لو المتصفح مش بيدعم مشاركة الملفات، أو المشاركة فشلت لأي سبب تاني
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=fileName;a.click();
+  URL.revokeObjectURL(url);
+  markExported();
+  setTimeout(()=>alert('✅ تم حفظ الملف على جهازك (المشاركة المباشرة معرفتش تشتغل على المتصفح ده دلوقتي).\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
 }
 function hideExportReminder(){
   const el=document.getElementById('exportReminder');
