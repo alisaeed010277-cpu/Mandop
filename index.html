@@ -3709,7 +3709,11 @@ function doExportDevice(){
 async function doExportShare(){
   const blob=buildExportBlob();
   const fileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';
-  const file=new File([blob],fileName,{type:'application/json'});
+  // متصفحات أندرويد (كروم) بترفض مشاركة ملفات JSON تحديدًا (قيد أمان معروف في المتصفح نفسه —
+  // بيسمح بمشاركة نصوص/صور/صوت بس)، فبنجهز نسخة بنفس المحتوى بالظبط بامتداد .txt عشان المشاركة
+  // تعدي، من غير ما يأثر على البيانات جوه الملف ولا على استيرادها لاحقًا
+  const shareFileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.txt';
+  const file=new File([blob],shareFileName,{type:'text/plain'});
   document.getElementById('exportModal').style.display='none';
   // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
   // من قائمة المشاركة ويوصل مباشرة لجوجل درايف بتاعه هو، من غير ما ينزلله ملف في مجلد التنزيلات كمان
@@ -3729,7 +3733,7 @@ async function doExportShare(){
       console.warn('فشلت المشاركة المباشرة، هنستخدم التحميل كبديل:', e);
     }
   }
-  // بديل احتياطي: لو المتصفح مش بيدعم مشاركة الملفات، أو المشاركة فشلت لأي سبب تاني
+  // بديل احتياطي: لو المتصفح مش بيدعم مشاركة الملفات، أو المشاركة فشلت لأي سبب تاني — الملف المحلي فاضل .json زي العادة
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;a.download=fileName;a.click();
@@ -3787,7 +3791,7 @@ function checkExportReminder(){
 }
 function importData(){
   const input=document.createElement('input');
-  input.type='file';input.accept='.json';
+  input.type='file';input.accept='.json,.txt';
   input.onchange=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
