@@ -922,33 +922,48 @@ if(!__deviceId){
   __deviceId = 'dev_' + Math.random().toString(36).slice(2,10);
   DB.set('_deviceId', __deviceId);
 }
+// حالة تسجيل الدخول بجوجل — خط دفاع إضافي واختياري تمامًا، مش شرط لاستخدام البرنامج
+let __googleUser = null;
 
 // نسخة احتياطية صامتة تلقائية — منفصلة تمامًا عن خاصية "ربط الأجهزة" الاختيارية.
 // دي شغالة لكل عميل تلقائيًا من غير ما يعمل أي حاجة أو يعرف إنها موجودة أصلاً — الهدف
 // الوحيد بتاعها إنه لو حصل مسح مفاجئ لتخزين المتصفح، البرنامج يقدر يسترجع بياناته
 // لوحده. بتحفظ تحت معرّف الجهاز نفسه (__deviceId) اللي موجود أصلاً في localStorage —
-// ده بيفضل موجود حتى لو IndexedDB (مكان البيانات الأساسي) اتمسح لوحده.
+// ده بيفضل موجود حتى لو IndexedDB (مكان البيانات الأساسي) اتمسح لوحده. لو العميل رابط
+// حسابه بجوجل، بترفع نفس النسخة كمان تحت حساب الجوجل — ده بيفضل موجود حتى لو localStorage
+// نفسه (وبالتالي معرّف الجهاز) اتمسح، وهو الحالة النادرة اللي معرّف الجهاز مبيقدرش يغطيها.
 function pushSilentBackup(){
-  if(!__syncDB || !__deviceId) return;
+  if(!__syncDB) return;
+  const payload = {
+    clients, invoices, payments, stock, movements, returns,
+    suppliers, purchases, supplierPayments, purchaseReturns,
+    expenses, treasuryOpening, repNotes, clientNotes,
+    checksPayable, checksReceivable, bankAccounts,
+    chartOfAccounts, journalEntries, productions,
+    companyProfile, lowStockDefault, deletedIds,
+    _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+      ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
+  };
   try{
-    __syncDB.collection('deviceBackups').doc(__deviceId).set({
-      clients, invoices, payments, stock, movements, returns,
-      suppliers, purchases, supplierPayments, purchaseReturns,
-      expenses, treasuryOpening, repNotes, clientNotes,
-      checksPayable, checksReceivable, bankAccounts,
-      chartOfAccounts, journalEntries, productions,
-      companyProfile, lowStockDefault, deletedIds,
-      _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
-        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
-    }).catch(e=>{ console.warn('silent backup push failed (ignored):', e); });
+    if(__deviceId){
+      __syncDB.collection('deviceBackups').doc(__deviceId).set(payload)
+        .catch(e=>{ console.warn('silent backup push failed (ignored):', e); });
+    }
+    if(__googleUser){
+      __syncDB.collection('deviceBackups').doc('g_'+__googleUser.uid).set(payload)
+        .catch(e=>{ console.warn('silent backup (google) push failed (ignored):', e); });
+    }
   }catch(e){ console.warn('silent backup push error (ignored):', e); }
 }
 
-// بيرجع true لو نجح يسترجع نسخة من النسخة الاحتياطية الصامتة ويطبقها محليًا
-async function _tryAutoRecover(){
-  if(!__syncDB || !__deviceId) return false;
+// بيرجع true لو نجح يسترجع نسخة من النسخة الاحتياطية الصامتة ويطبقها محليًا.
+// key اختياري: افتراضيًا بيدوّر بمعرّف الجهاز، ويقدر يدوّر بحساب الجوجل بدل منه
+// (ده اللي بيحصل لو المستخدم سجّل دخول بجوجل من شاشة القفل بعد ما الجهاز نسي كل حاجة)
+async function _tryAutoRecover(key){
+  const docKey = key || __deviceId;
+  if(!__syncDB || !docKey) return false;
   try{
-    const doc = await __syncDB.collection('deviceBackups').doc(__deviceId).get();
+    const doc = await __syncDB.collection('deviceBackups').doc(docKey).get();
     if(!doc.exists) return false;
     const data = doc.data();
     if(!data || !Array.isArray(data.clients)) return false;
@@ -5967,6 +5982,67 @@ async function _handlePossibleWipe(){
     _showWipeWarning();
   }
 }
+
+// دعوة لمرة واحدة بس (اختيارية تمامًا، غير إجبارية) لربط الحساب بجوجل — خط دفاع
+// أخير للحالة النادرة جدًا اللي الجهاز بينسى فيها كل حاجة بما فيها معرّف الجهاز
+// نفسه. بتختفي للأبد أول ما العميل يتفاعل معاها (يربط أو يرفض)، ومفيش أي تكرار
+function _maybeOfferGoogleLink(){
+  if(DB.get('_googleLinkPrompted')) return;
+  if(__googleUser) return;
+  if(!__syncDB || typeof firebase==='undefined' || !firebase.auth) return;
+  if(document.getElementById('googleLinkBanner')) return;
+  const el=document.createElement('div');
+  el.id='googleLinkBanner';
+  el.style.cssText='position:fixed;bottom:16px;left:16px;right:16px;background:#fff;border:1px solid #E5E7E9;border-radius:12px;padding:14px 16px;z-index:9998;box-shadow:0 6px 24px rgba(0,0,0,.15);display:flex;align-items:center;gap:10px;max-width:400px;margin:0 auto';
+  el.innerHTML=`
+    <div style="flex:1;font-size:12px;color:#444;line-height:1.6">🔒 <strong>حماية إضافية اختيارية:</strong> اربط حسابك بجوجل عشان بياناتك تكون مؤمّنة حتى لو الجهاز اتغير بالكامل</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <button onclick="_linkGoogleAccount()" style="background:#2E86C1;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap">اربط دلوقتي</button>
+      <button onclick="document.getElementById('googleLinkBanner').remove();DB.set('_googleLinkPrompted',1)" style="background:none;border:none;color:#95A5A6;font-size:10px;cursor:pointer">لأ شكرًا</button>
+    </div>`;
+  document.body.appendChild(el);
+}
+function _linkGoogleAccount(){
+  const banner=document.getElementById('googleLinkBanner');
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).then(()=>{
+    DB.set('_googleLinkPrompted',1);
+    if(banner) banner.remove();
+    pushSilentBackup(); // نرفع نسخة تحت الحساب فورًا لحظة الربط
+  }).catch(err=>{
+    if(err && (err.code==='auth/popup-blocked' || err.code==='auth/operation-not-supported-in-this-environment')){
+      firebase.auth().signInWithRedirect(provider);
+    }
+    // لو المستخدم قفل نافذة تسجيل الدخول بنفسه، منعتبروش رفض دائم — البانر هيفضل ظاهر يجرب تاني لو حب
+  });
+}
+// أول ما نعرف حالة تسجيل الدخول بجوجل، لو مسجل بالفعل نرفعله نسخة على طول (مرة واحدة)
+function _onGoogleAuthReady(){
+  if(__googleUser){ try{ pushSilentBackup(); }catch(e){} }
+}
+// خيار على شاشة القفل نفسها — للحالة النادرة اللي الجهاز نسي فيها التفعيل والبيانات مع
+// بعض. بيسمح للعميل يسترجع بياناته القديمة عن طريق تسجيل الدخول بجوجل، بغض النظر عن
+// حالة التفعيل (اللي محتاج كود جديد من المبرمج بشكل منفصل زي أي جهاز جديد عادي)
+function _recoverViaGoogleFromLockScreen(){
+  if(typeof firebase==='undefined' || !firebase.auth){
+    alert('محتاج اتصال بالنت عشان الخطوة دي تشتغل');
+    return;
+  }
+  const provider=new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithPopup(provider).then(async (result)=>{
+    const uid=result.user.uid;
+    const recovered = await _tryAutoRecover('g_'+uid);
+    const msgEl=document.getElementById('activationMsg');
+    if(msgEl){
+      msgEl.innerHTML = recovered
+        ? '<span style="color:#7DCE82">✅ لقينا بياناتك القديمة واسترجعناها! أكمل التفعيل فوق عشان تقدر تستخدم البرنامج.</span>'
+        : '<span style="color:#F1948A">معرفناش نلاقي نسخة قديمة مرتبطة بالحساب ده.</span>';
+    }
+  }).catch(err=>{
+    if(err && err.code==='auth/popup-closed-by-user') return;
+    alert('حصل خطأ:\n'+(err&&err.message?err.message:err));
+  });
+}
 // شاشة مختلفة: مش إن البيانات طلعت فاضية، لكن إن قراءة التخزين نفسها فشلت (خطأ فعلي) —
 // بنوقف هنا ومنكملش، عشان منديش انطباع كاذب إن البرنامج شغال عادي وهو أصلاً معرفش يقرا حاجة
 function _showLoadErrorScreen(){
@@ -6006,6 +6082,7 @@ function initActivation(){
       // أول حفظة جديدة. ده بالذات اللي بيحمي بيانات العملاء الحاليين اللي عندهم
       // بيانات قديمة قبل التحديث ده، حتى لو فتحوا يتفرجوا بس من غير أي حفظ جديد
       try{ pushSilentBackup(); }catch(e){}
+      setTimeout(()=>{ try{ _maybeOfferGoogleLink(); }catch(e){} }, 6000);
     }
     return;
   }
@@ -6128,7 +6205,8 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
       width:100%;max-width:320px;-webkit-appearance:none;
     ">✓ تفعيل النسخة الدائمة</button>
     <div id="activationMsg" style="margin-top:14px;font-size:13px;min-height:20px;"></div>
-    <div style="margin-top:30px;font-size:12px;opacity:.7;">
+    <button onclick="_recoverViaGoogleFromLockScreen()" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:11px;text-decoration:underline;cursor:pointer;margin-top:18px;padding:4px">عندك بيانات قديمة اتسجلت على الجهاز ده قبل كده؟ اضغط هنا</button>
+    <div style="margin-top:16px;font-size:12px;opacity:.7;">
       للتفعيل تواصل مع المبرمج على واتساب<br>
       <strong>01552623744</strong>
     </div>
@@ -6286,6 +6364,7 @@ if('serviceWorker' in navigator){
      بس تجهيز الاتصال، والخطوة دي لوحدها صفر تأثير على أي مستخدم حالي. -->
 <script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-auth-compat.js"></script>
 <script>
 const __syncFirebaseConfig = {
   apiKey: "AIzaSyB7VZ6oWoZjut_Gosj2cMqjrNRY_Bl-WEU",
@@ -6303,6 +6382,14 @@ try{
     // بيانات الفواتير/المخزون فيها حقول اختيارية ممكن تبقى "undefined" (مثلاً خصم
     // مش متسجل)، وFirestore بيرفض القيمة دي ويوقف الحفظ كله لو معملناش الإعداد ده.
     __syncDB.settings({ ignoreUndefinedProperties: true });
+    // تسجيل الدخول بجوجل هنا للتوثيق الإضافي بس (خط دفاع أخير لو الجهاز نسي كل حاجة
+    // بما فيها التفعيل) — مش شرط لاستخدام البرنامج، ومفيش أي واجهة إجبارية بتاعته.
+    firebase.auth().onAuthStateChanged(function(user){
+      __googleUser = user;
+      if(user){ DB.set('_googleLinked', user.uid); }
+      try{ if(typeof _onGoogleAuthReady==='function') _onGoogleAuthReady(); }catch(e){}
+    });
+    firebase.auth().getRedirectResult().catch(function(e){ console.warn('redirect sign-in check:', e); });
   }
 }catch(e){
   // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
