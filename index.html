@@ -199,7 +199,8 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">💾 تصدير النسخة الاحتياطية</div>
     <div style="font-size:12px;color:#717D7E;margin-bottom:16px">اختار طريقة الحفظ</div>
     <button onclick="doExportDevice()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:8px">📱 حفظ على الجهاز</button>
-    <button onclick="doExportShare()" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:8px">📤 مشاركة (جوجل درايف / جيميل / واتساب...)</button>
+    <button onclick="doExportShare()" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
+    <div style="font-size:11px;color:#B2BABB;margin-bottom:10px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" style="width:100%;background:#ECF0F1;color:#717D7E;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer">إلغاء</button>
   </div>
 </div>
@@ -3708,27 +3709,25 @@ function doExportDevice(){
 async function doExportShare(){
   const blob=buildExportBlob();
   const fileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';
-  // أول حاجة: حفظ الملف على الجهاز
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;a.download=fileName;a.click();
-  URL.revokeObjectURL(url);
-  markExported();
-  document.getElementById('exportModal').style.display='none';
-  // تاني حاجة: لو المتصفح يدعم Web Share API نجرب نشاركه
-  await new Promise(r=>setTimeout(r,800));
   const file=new File([blob],fileName,{type:'application/json'});
-  if(navigator.share){
+  document.getElementById('exportModal').style.display='none';
+  // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
+  // من قائمة المشاركة ويوصل مباشرة لجوجل درايف بتاعه هو، من غير ما ينزلله ملف في مجلد التنزيلات كمان
+  if(navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
     try{
-      if(navigator.canShare && navigator.canShare({files:[file]})){
-        await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من صديقك المحاسبي'});
-      }else{
-        await navigator.share({title:'نسخة احتياطية - '+fileName,text:'تم حفظ الملف على جهازك، ارفعه على جوجل درايف أو جيميل من مدير الملفات.'});
-      }
-    }catch(e){}
+      await navigator.share({files:[file],title:'نسخة احتياطية',text:'اختار "حفظ في Drive" عشان تتحفظ في جوجل درايف بتاعك انت'});
+      markExported();
+    }catch(e){
+      // المستخدم قفل قائمة المشاركة من غير ما يختار حاجة — مفيش داعي لأي رسالة إزعاج
+    }
   }else{
-    // للمتصفحات اللي مش بتدعم Share API
-    setTimeout(()=>alert('✅ تم حفظ الملف على جهازك.\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
+    // بديل احتياطي بس لو المتصفح مش بيدعم مشاركة الملفات مباشرة (زي كروم على الكمبيوتر مثلاً)
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=fileName;a.click();
+    URL.revokeObjectURL(url);
+    markExported();
+    setTimeout(()=>alert('✅ تم حفظ الملف على جهازك (متصفحك مش بيدعم المشاركة المباشرة).\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
   }
 }
 function hideExportReminder(){
