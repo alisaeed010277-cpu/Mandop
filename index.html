@@ -200,7 +200,8 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div style="font-size:12px;color:#717D7E;margin-bottom:16px">اختار طريقة الحفظ</div>
     <button onclick="doExportDevice()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:8px">📱 حفظ على الجهاز</button>
     <button onclick="doExportShare()" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
-    <div style="font-size:11px;color:#B2BABB;margin-bottom:10px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
+    <div style="font-size:11px;color:#B2BABB;margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
+    <div id="exportModalGoogleLinkRow" style="border-top:1px solid #ECF0F1;padding-top:12px;margin-bottom:8px"></div>
     <button onclick="document.getElementById('exportModal').style.display='none'" style="width:100%;background:#ECF0F1;color:#717D7E;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer">إلغاء</button>
   </div>
 </div>
@@ -3745,7 +3746,19 @@ function renderStockDetail(){
 
 // ===== BACKUP =====
 function exportData(){
+  _renderExportModalGoogleLink();
   document.getElementById('exportModal').style.display='flex';
+}
+// بيوري في شاشة النسخة الاحتياطية حالة ربط حساب جوجل، وبيديه مكان دائم يقدر يرجعله
+// في أي وقت — سواء كان تجاهل البانر اللي بيظهر مرة واحدة، أو عايز يربط لأول مرة دلوقتي
+function _renderExportModalGoogleLink(){
+  const row=document.getElementById('exportModalGoogleLinkRow');
+  if(!row)return;
+  if(__googleUser){
+    row.innerHTML = `<div style="font-size:11px;color:#27AE60">✅ حسابك مربوط بجوجل (${__googleUser.email||''}) — حماية إضافية شغالة</div>`;
+  }else{
+    row.innerHTML = `<button onclick="_linkGoogleAccount()" style="width:100%;background:none;border:1px solid #2E86C1;color:#2E86C1;border-radius:8px;padding:9px;font-size:12px;cursor:pointer">🔒 ربط حساب جوجل (حماية إضافية)</button>`;
+  }
 }
 function buildExportBlob(){
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
@@ -6009,6 +6022,7 @@ function _linkGoogleAccount(){
     DB.set('_googleLinkPrompted',1);
     if(banner) banner.remove();
     pushSilentBackup(); // نرفع نسخة تحت الحساب فورًا لحظة الربط
+    if(typeof _renderExportModalGoogleLink==='function') _renderExportModalGoogleLink();
   }).catch(err=>{
     if(err && (err.code==='auth/popup-blocked' || err.code==='auth/operation-not-supported-in-this-environment')){
       firebase.auth().signInWithRedirect(provider);
