@@ -400,6 +400,7 @@ const save=()=>{
   idbSet(KEYS.productions,productions);
   idbSet(KEYS.deletedIds,deletedIds);
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
+  try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
 };
 
 async function loadAllData(){
@@ -920,6 +921,50 @@ let __deviceId = DB.get('_deviceId');
 if(!__deviceId){
   __deviceId = 'dev_' + Math.random().toString(36).slice(2,10);
   DB.set('_deviceId', __deviceId);
+}
+
+// نسخة احتياطية صامتة تلقائية — منفصلة تمامًا عن خاصية "ربط الأجهزة" الاختيارية.
+// دي شغالة لكل عميل تلقائيًا من غير ما يعمل أي حاجة أو يعرف إنها موجودة أصلاً — الهدف
+// الوحيد بتاعها إنه لو حصل مسح مفاجئ لتخزين المتصفح، البرنامج يقدر يسترجع بياناته
+// لوحده. بتحفظ تحت معرّف الجهاز نفسه (__deviceId) اللي موجود أصلاً في localStorage —
+// ده بيفضل موجود حتى لو IndexedDB (مكان البيانات الأساسي) اتمسح لوحده.
+function pushSilentBackup(){
+  if(!__syncDB || !__deviceId) return;
+  try{
+    __syncDB.collection('deviceBackups').doc(__deviceId).set({
+      clients, invoices, payments, stock, movements, returns,
+      suppliers, purchases, supplierPayments, purchaseReturns,
+      expenses, treasuryOpening, repNotes, clientNotes,
+      checksPayable, checksReceivable, bankAccounts,
+      chartOfAccounts, journalEntries, productions,
+      companyProfile, lowStockDefault, deletedIds,
+      _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
+    }).catch(e=>{ console.warn('silent backup push failed (ignored):', e); });
+  }catch(e){ console.warn('silent backup push error (ignored):', e); }
+}
+
+// بيرجع true لو نجح يسترجع نسخة من النسخة الاحتياطية الصامتة ويطبقها محليًا
+async function _tryAutoRecover(){
+  if(!__syncDB || !__deviceId) return false;
+  try{
+    const doc = await __syncDB.collection('deviceBackups').doc(__deviceId).get();
+    if(!doc.exists) return false;
+    const data = doc.data();
+    if(!data || !Array.isArray(data.clients)) return false;
+    clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
+    returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
+    purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];treasuryOpening=Number(data.treasuryOpening)||0;
+    repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
+    bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
+    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:''};lowStockDefault=Number(data.lowStockDefault)||10;
+    deletedIds=data.deletedIds||{};
+    save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
+    return true;
+  }catch(e){
+    console.warn('auto recover failed:', e);
+    return false;
+  }
 }
 
 // بيبعت "صورة" كاملة من البيانات الحالية للسيرفر في الخلفية، من غير ما ينتظر
@@ -5881,6 +5926,67 @@ async function printPurchaseReturn(retId){
   await sendDocument(`مردود مشتريات #${ret.number}`, body, `مردود-مشتريات-${ret.number}.pdf`);
 }
 
+// كشف "المسح المفاجئ": لو الجهاز ده عليه علامة إنه اشتغل بداتا حقيقية قبل كده (عمل نسخة
+// احتياطية تلقائية أو يدوية قبل كده)، لكن دلوقتي كل البيانات الأساسية طالعة فاضية بالكامل،
+// ده مؤشر قوي إن حصل مسح غير طبيعي للتخزين (مش إن العميل جديد لسه ملوش بيانات).
+// العلامة دي (_lastExport/_lastAutoExport) مستحيل تتسجل غير بعد ما يكون فيه بيانات حقيقية فعلاً.
+function _looksWiped(){
+  const hasHistorySignal = !!(DB.get('_lastExport') || DB.get('_lastAutoExport'));
+  const dataIsEmpty = clients.length===0 && invoices.length===0 && stock.length===0 &&
+                       movements.length===0 && suppliers.length===0 && purchases.length===0;
+  return hasHistorySignal && dataIsEmpty;
+}
+function _showWipeWarning(){
+  if(document.getElementById('wipeWarningScreen')) return;
+  const el=document.createElement('div');
+  el.id='wipeWarningScreen';
+  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
+  el.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:26px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="font-size:40px;margin-bottom:10px">🔄</div>
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:10px">بنجهزلك بياناتك</div>
+      <div style="font-size:13px;color:#555;line-height:1.8;margin-bottom:18px">
+        محتاجين شوية وقت أو نت أحسن. جرّب تاني بعد شوية، ولو استمرت لفترة كلّمنا وهنظبطهالك على طول.
+      </div>
+      <button onclick="_handlePossibleWipe()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
+      <a href="https://wa.me/201552623744" target="_blank" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;margin-bottom:10px">📞 كلّمنا على واتساب</a>
+      <button onclick="document.getElementById('wipeWarningScreen').remove()" style="background:none;border:none;color:#95A5A6;font-size:11px;cursor:pointer;text-decoration:underline">تجاهل والمتابعة</button>
+    </div>`;
+  document.body.appendChild(el);
+}
+// نقطة القرار الأساسية: لو الشك في مسح مفاجئ اتأكد، أول حاجة نجربها هي الاسترجاع
+// التلقائي الصامت (من غير ما العميل ياخد باله أصلاً) — بالكامل بصمت تام، من غير أي
+// رسالة أو تنبيه، حتى لو نجح. بيانات العميل بترجع وخلاص، وكأن حاجة معملتش أصلاً
+async function _handlePossibleWipe(){
+  const recovered = await _tryAutoRecover();
+  if(recovered){
+    const w=document.getElementById('wipeWarningScreen');
+    if(w) w.remove();
+    render();
+  }else{
+    _showWipeWarning();
+  }
+}
+// شاشة مختلفة: مش إن البيانات طلعت فاضية، لكن إن قراءة التخزين نفسها فشلت (خطأ فعلي) —
+// بنوقف هنا ومنكملش، عشان منديش انطباع كاذب إن البرنامج شغال عادي وهو أصلاً معرفش يقرا حاجة
+function _showLoadErrorScreen(){
+  if(document.getElementById('loadErrorScreen')) return;
+  const el=document.createElement('div');
+  el.id='loadErrorScreen';
+  el.style.cssText='position:fixed;inset:0;background:#1A1A2E;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
+  el.innerHTML=`
+    <div style="background:#fff;border-radius:14px;padding:26px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)">
+      <div style="font-size:44px;margin-bottom:10px">⚠️</div>
+      <div style="font-size:17px;font-weight:bold;color:#C0392B;margin-bottom:10px">حصلت مشكلة في تحميل بياناتك</div>
+      <div style="font-size:13px;color:#444;line-height:1.8;margin-bottom:18px">
+        البرنامج معرفش يقرا التخزين على الجهاز ده دلوقتي. <strong>بياناتك غالبًا لسه موجودة وسليمة</strong> — ده على الأغلب خلل مؤقت. من فضلك جرّب تقفل البرنامج وتفتحه تاني، ولو المشكلة استمرت كلّم المبرمج.
+      </div>
+      <button onclick="location.reload()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
+      <a href="https://wa.me/201552623744" target="_blank" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold">📞 كلّم المبرمج على واتساب</a>
+    </div>`;
+  document.body.appendChild(el);
+}
+
 function initActivation(){
   // توليد كود الجهاز — بيتخزن مرة واحدة في الجهاز ده بس
   let dCode = DB.get('_dc');
@@ -5893,6 +5999,14 @@ function initActivation(){
   const activated = DB.get('_ak');
   if(activated && _vk(dCode, activated)){
     render();
+    if(_looksWiped()){
+      _handlePossibleWipe();
+    }else{
+      // مفيش شك في مسح — نرفع نسخة احتياطية صامتة فورًا من هنا، من غير ما ننتظر
+      // أول حفظة جديدة. ده بالذات اللي بيحمي بيانات العملاء الحاليين اللي عندهم
+      // بيانات قديمة قبل التحديث ده، حتى لو فتحوا يتفرجوا بس من غير أي حفظ جديد
+      try{ pushSilentBackup(); }catch(e){}
+    }
     return;
   }
 
@@ -5905,6 +6019,11 @@ function initActivation(){
       // التجربة لسه شغالة
       render();
       _showTrialBanner(7 - Math.floor(daysPassed));
+      if(_looksWiped()){
+        _handlePossibleWipe();
+      }else{
+        try{ pushSilentBackup(); }catch(e){}
+      }
       return;
     }
     // التجربة خلصت
@@ -6019,7 +6138,15 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
 
 document.addEventListener('DOMContentLoaded', async function(){
   renderTabsBar();
-  await loadAllData();
+  try{
+    await loadAllData();
+  }catch(e){
+    // فشل التحميل نفسه (مش إنه رجع فاضي، لكن حصل خطأ فعلي وهو بيقرا التخزين) —
+    // منكملش تهيئة البرنامج عادي عشان منوريش شاشة فاضية وكأن مفيش بيانات أصلاً
+    console.error('فشل تحميل البيانات من التخزين', e);
+    _showLoadErrorScreen();
+    return;
+  }
   initActivation();
   renderCompanyBar();
   checkExportReminder();
