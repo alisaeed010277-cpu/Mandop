@@ -388,6 +388,7 @@ const save=()=>{
   idbSet(KEYS.purchases,purchases);
   idbSet(KEYS.supplierPayments,supplierPayments);
   idbSet(KEYS.purchaseReturns,purchaseReturns);
+  idbSet(KEYS.companyProfile,companyProfile);
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.lowStockDefault,lowStockDefault);
@@ -5058,24 +5059,6 @@ async function printAgingReportPdf(){
   await sendDocument('تقرير أعمار الديون', body, `تقرير-أعمار-الديون-${today()}.pdf`);
 }
 
-function checkNewFeatureNotif(){
-  if(DB.get('_notif_supplier_purchase_added')) return;
-  const notif=document.createElement('div');
-  notif.id='featureNotif';
-  notif.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
-  notif.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="font-size:40px;margin-bottom:10px">📦</div>
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:8px">إضافة جديدة!</div>
-      <div style="font-size:13px;color:#444;line-height:1.7;margin-bottom:20px">
-        تم إضافة تبويب <strong>الموردين</strong> وتبويب <strong>المشتريات</strong>، وربطهم بالمخزن — تقدر دلوقتي تسجّل مشترياتك من الموردين وتتابع حساباتهم معاهم، وكل ده بيتحدّث في مخزنك أوتوماتيك، لتوسيع نشاطك 🎉
-      </div>
-      <button onclick="document.getElementById('featureNotif').remove();DB.set('_notif_supplier_purchase_added',1)" style="background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px 30px;font-size:14px;font-weight:bold;cursor:pointer;width:100%">تمام، فهمت 👍</button>
-    </div>`;
-  document.body.appendChild(notif);
-}
-
-
 // ===== SUPPLIERS =====
 let supplierSearch='';
 let supplierDetailId=null;
@@ -6249,7 +6232,6 @@ document.addEventListener('DOMContentLoaded', async function(){
   initActivation();
   renderCompanyBar();
   checkExportReminder();
-  checkNewFeatureNotif();
   setTimeout(()=>{ checkAutoBackup(); }, 4000);
   setTimeout(()=>{
     const splash=document.getElementById('splashScreen');
