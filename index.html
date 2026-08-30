@@ -943,6 +943,7 @@ function pushSilentBackup(){
     checksPayable, checksReceivable, bankAccounts,
     chartOfAccounts, journalEntries, productions,
     companyProfile, lowStockDefault, deletedIds,
+    _deviceId: __deviceId,
     _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
       ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
   };
@@ -3756,10 +3757,38 @@ function _renderExportModalGoogleLink(){
   const row=document.getElementById('exportModalGoogleLinkRow');
   if(!row)return;
   if(__googleUser){
-    row.innerHTML = `<div style="font-size:11px;color:#27AE60">✅ حسابك مربوط بجوجل (${__googleUser.email||''}) — حماية إضافية شغالة</div>`;
+    row.innerHTML = `<div style="font-size:11px;color:#27AE60;margin-bottom:6px">✅ حسابك مربوط بجوجل (${__googleUser.email||''}) — حماية إضافية شغالة</div>
+      <button onclick="_signOutGoogleAccount()" style="width:100%;background:none;border:1px solid #C0392B;color:#C0392B;border-radius:8px;padding:8px;font-size:11px;cursor:pointer">تسجيل الخروج من الحساب على الجهاز ده</button>`;
   }else{
     row.innerHTML = `<button onclick="_linkGoogleAccount()" style="width:100%;background:none;border:1px solid #2E86C1;color:#2E86C1;border-radius:8px;padding:9px;font-size:12px;cursor:pointer">🔒 ربط حساب جوجل (حماية إضافية)</button>`;
   }
+}
+// تسجيل الخروج من الجهاز ده بس — وبيسيب علامة على النسخة السحابية إنها "متسابة"،
+// عشان لو نفس الإيميل اتربط بجهاز تاني بعد كده، منمنعوش بحجة "متربط بجهاز تاني"
+async function _signOutGoogleAccount(){
+  if(!confirm('هيقفل تسجيل الدخول بجوجل على الجهاز ده بس (بياناتك المحلية مش هتتأثر خالص). تقدر تربط نفس الإيميل بجهاز تاني بعد كده وهتلاقي آخر نسخة من بياناتك جاهزة هناك. متأكد؟'))return;
+  const uid = __googleUser ? __googleUser.uid : null;
+  // نتأكد إن آخر نسخة اترفعت فعلاً وخلصت قبل ما نسجّل خروج — عشان الجهاز التاني ياخد
+  // أحدث بيانات ممكنة، مش نسخة قديمة شوية لو كانت آخر عملية رفع لسه مخلصتش
+  if(uid && __syncDB){
+    try{
+      await __syncDB.collection('deviceBackups').doc('g_'+uid).set({
+        clients, invoices, payments, stock, movements, returns,
+        suppliers, purchases, supplierPayments, purchaseReturns,
+        expenses, treasuryOpening, repNotes, clientNotes,
+        checksPayable, checksReceivable, bankAccounts,
+        chartOfAccounts, journalEntries, productions,
+        companyProfile, lowStockDefault, deletedIds,
+        _deviceId: __deviceId,
+        _savedAt: Date.now()
+      });
+    }catch(e){ console.warn('final push before sign-out failed (continuing):', e); }
+  }
+  await firebase.auth().signOut();
+  if(uid && __syncDB){
+    __syncDB.collection('deviceBackups').doc('g_'+uid).set({_released:true},{merge:true}).catch(()=>{});
+  }
+  if(typeof _renderExportModalGoogleLink==='function') _renderExportModalGoogleLink();
 }
 function buildExportBlob(){
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
@@ -6001,7 +6030,25 @@ function _maybeOfferGoogleLink(){
 function _linkGoogleAccount(){
   const banner=document.getElementById('googleLinkBanner');
   const provider=new firebase.auth.GoogleAuthProvider();
-  firebase.auth().signInWithPopup(provider).then(()=>{
+  firebase.auth().signInWithPopup(provider).then(async (result)=>{
+    // رفض تام: لو الإيميل ده متربط بالفعل بجهاز تاني عليه بيانات مختلفة، منسمحش بالربط
+    // خالص — عشان الميزة دي شبكة أمان لجهاز واحد بس، مش أداة مزامنة بين أجهزة (ده دور
+    // "ربط الأجهزة" الموجود أصلاً، وهو المكان الصح لمزامنة بيانات جهازين مع بعض)
+    try{
+      const existing = await __syncDB.collection('deviceBackups').doc('g_'+result.user.uid).get();
+      if(existing.exists){
+        const d = existing.data();
+        const belongsToOtherDevice = d && d._deviceId && d._deviceId!==__deviceId && !d._released &&
+          ((d.clients&&d.clients.length) || (d.invoices&&d.invoices.length));
+        if(belongsToOtherDevice){
+          try{ await firebase.auth().signOut(); }catch(e){}
+          alert('⚠️ الإيميل ده مربوط بالفعل بنسخة تانية من البرنامج عليها بيانات مختلفة.\n\nمينفعش يتربط بجهازين مختلفين في نفس الوقت.\n\nلو عايز تزامن بيانات الجهازين مع بعض، استخدم "🔗 ربط الأجهزة" بدل كده.');
+          if(banner) banner.remove();
+          DB.set('_googleLinkPrompted',1);
+          return;
+        }
+      }
+    }catch(e){ console.warn('conflict check failed (continuing):', e); }
     DB.set('_googleLinkPrompted',1);
     if(banner) banner.remove();
     pushSilentBackup(); // نرفع نسخة تحت الحساب فورًا لحظة الربط
