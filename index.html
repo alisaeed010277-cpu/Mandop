@@ -2410,6 +2410,11 @@ async function renderDocToJpeg(title, bodyHtml){
   const rootEl=holder.querySelector('#_pdfDocRoot');
   const w=rootEl.offsetWidth||A4_WIDTH_PX;
   const contentH=rootEl.offsetHeight||400;
+  // نقط القطع "الآمنة" بين الصفحات لو المستند طلع أطول من صفحة A4 واحدة — بنجمعها من نهاية كل صف جدول
+  // أو صندوق ملخص، عشان لو احتجنا نقسّم المستند لصفحات متعددة نقطع بين الصفوف مش في نصها. لازم تتحسب
+  // دلوقتي والعنصر لسه متصل بالصفحة (getBoundingClientRect محتاج كده)
+  const _rootTop=rootEl.getBoundingClientRect().top;
+  const breakOffsets=Array.from(rootEl.querySelectorAll('tr, .doc-sum-box')).map(el=>el.getBoundingClientRect().bottom-_rootTop);
   // ارتفاع الصفحة النهائي: بنثبته على ارتفاع A4 كحد أدنى (فراغ فاضي لو المحتوى قليل)، ولو المحتوى أطول من صفحة A4 واحدة نسيبه يكمل زي ما هو من غير ما نقصّ منه حاجة
   const h=Math.max(contentH, A4_HEIGHT_PX);
   const serializer=new XMLSerializer();
@@ -2433,41 +2438,94 @@ async function renderDocToJpeg(title, bodyHtml){
   ctx.drawImage(img,0,0,w*scale,contentH*scale);
 
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.92));
-  return {blob, cssWidth:w, cssHeight:h, pxWidth:canvas.width, pxHeight:canvas.height};
+  return {blob, canvas, scale, breakOffsets, cssWidth:w, cssHeight:h, pxWidth:canvas.width, pxHeight:canvas.height};
 }
 
-// بناء ملف PDF يدويًا (بدون أي مكتبة) بتضمين صورة المستند كصفحة واحدة
-function buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight){
+// بناء ملف PDF يدويًا (بدون أي مكتبة) بتضمين صورة كل صفحة على حدة — يقبل عدد أي من الصفحات.
+// لما تكون صفحة واحدة بس، ترقيم الكائنات (3=Page,4=Image,5=Content) بيطلع مطابق تمامًا للنسخة
+// القديمة (اللي كانت بتبني صفحة واحدة ثابتة) عشان نضمن نفس السلوك المُختبر للمستندات القصيرة.
+function buildPdfFromJpegPages(pages){
   const encoder=new TextEncoder();
-  const parts=[]; let offset=0; const offsets=[];
+  const parts=[]; let offset=0; const offsets={};
   function push(chunk){
     const bytes=(typeof chunk==='string')?encoder.encode(chunk):chunk;
     parts.push(bytes); offset+=bytes.length;
   }
+  const n=pages.length;
   push('%PDF-1.4\n');
   offsets[1]=offset; push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
-  offsets[2]=offset; push(`2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`);
-  offsets[3]=offset; push(`3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 4 0 R >> /ProcSet [/PDF /ImageC] >> /MediaBox [0 0 ${ptWidth.toFixed(2)} ${ptHeight.toFixed(2)}] /Contents 5 0 R >>\nendobj\n`);
-  offsets[4]=offset; push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${pxWidth} /Height ${pxHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>\nstream\n`);
-  push(jpegBytes);
-  push(`\nendstream\nendobj\n`);
-  const contentStr=`q ${ptWidth.toFixed(2)} 0 0 ${ptHeight.toFixed(2)} 0 0 cm /Im0 Do Q`;
-  offsets[5]=offset; push(`5 0 obj\n<< /Length ${contentStr.length} >>\nstream\n${contentStr}\nendstream\nendobj\n`);
+  const kids=[]; for(let i=0;i<n;i++){ kids.push(`${3+i*3} 0 R`); }
+  offsets[2]=offset; push(`2 0 obj\n<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${n} >>\nendobj\n`);
+  pages.forEach((p,i)=>{
+    const pageNum=3+i*3, imgNum=4+i*3, contentNum=5+i*3;
+    offsets[pageNum]=offset;
+    push(`${pageNum} 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 ${imgNum} 0 R >> /ProcSet [/PDF /ImageC] >> /MediaBox [0 0 ${p.ptWidth.toFixed(2)} ${p.ptHeight.toFixed(2)}] /Contents ${contentNum} 0 R >>\nendobj\n`);
+    offsets[imgNum]=offset;
+    push(`${imgNum} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.pxWidth} /Height ${p.pxHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpegBytes.length} >>\nstream\n`);
+    push(p.jpegBytes);
+    push(`\nendstream\nendobj\n`);
+    const contentStr=`q ${p.ptWidth.toFixed(2)} 0 0 ${p.ptHeight.toFixed(2)} 0 0 cm /Im0 Do Q`;
+    offsets[contentNum]=offset;
+    push(`${contentNum} 0 obj\n<< /Length ${contentStr.length} >>\nstream\n${contentStr}\nendstream\nendobj\n`);
+  });
+  const totalObjs=2+3*n;
   const xrefStart=offset;
-  push(`xref\n0 6\n0000000000 65535 f \n`);
-  for(let i=1;i<=5;i++){ push(String(offsets[i]).padStart(10,'0')+' 00000 n \n'); }
-  push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+  push(`xref\n0 ${totalObjs+1}\n0000000000 65535 f \n`);
+  for(let i=1;i<=totalObjs;i++){ push(String(offsets[i]).padStart(10,'0')+' 00000 n \n'); }
+  push(`trailer\n<< /Size ${totalObjs+1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
   const total=parts.reduce((s,p)=>s+p.length,0);
   const out=new Uint8Array(total);
   let pos=0; for(const p of parts){ out.set(p,pos); pos+=p.length; }
   return new Blob([out],{type:'application/pdf'});
 }
 
+// يقسّم صورة المستند الكاملة (لو طولها أكبر من صفحة A4) لصفحات A4 حقيقية منفصلة — بيحاول يقطع
+// بعد نهاية أقرب صف جدول لحد الصفحة (مش في نص الصف) عشان الشكل يطلع مرتب. كل صفحة بتتحول JPEG لوحدها.
+async function sliceIntoA4Pages(canvas, cssWidth, cssHeightTotal, breakOffsets, scale){
+  const usableH=A4_HEIGHT_PX;
+  const numPages=Math.ceil(cssHeightTotal/usableH);
+  const cuts=[0]; let cursor=0;
+  for(let i=1;i<numPages;i++){
+    const ideal=i*usableH;
+    const candidates=breakOffsets.filter(o=>o>cursor+40 && o<=ideal).sort((a,b)=>b-a);
+    const best=candidates.length?candidates[0]:ideal; // لو مفيش نقطة قطع آمنة (صف أطول من صفحة كاملة) بنقطع عادي
+    cuts.push(best); cursor=best;
+  }
+  cuts.push(cssHeightTotal);
+
+  const pages=[];
+  for(let i=0;i<cuts.length-1;i++){
+    const sliceTop=cuts[i], sliceBottom=cuts[i+1];
+    const sliceH=sliceBottom-sliceTop;
+    const topGap=i>0?16:0; // مسافة بسيطة أعلى كل صفحة بعد الأولى عشان المحتوى مايبقاش ملزوق في حرف الورقة
+    const pageCanvas=document.createElement('canvas');
+    pageCanvas.width=canvas.width;
+    pageCanvas.height=Math.round((sliceH+topGap)*scale);
+    const pctx=pageCanvas.getContext('2d');
+    pctx.fillStyle='#ffffff'; pctx.fillRect(0,0,pageCanvas.width,pageCanvas.height);
+    pctx.drawImage(canvas, 0, sliceTop*scale, canvas.width, sliceH*scale, 0, topGap*scale, canvas.width, sliceH*scale);
+    pctx.fillStyle='#9AA5AB';
+    pctx.font=`${13*scale}px "Segoe UI", Tahoma, Arial, sans-serif`;
+    pctx.textAlign='center'; pctx.direction='rtl';
+    pctx.fillText(`صفحة ${i+1} من ${numPages}`, pageCanvas.width/2, pageCanvas.height-10*scale);
+    const pageBlob=await new Promise(resolve=>pageCanvas.toBlob(resolve,'image/jpeg',0.92));
+    const jpegBytes=new Uint8Array(await pageBlob.arrayBuffer());
+    pages.push({jpegBytes, pxWidth:pageCanvas.width, pxHeight:pageCanvas.height, ptWidth:cssWidth*0.75, ptHeight:(sliceH+topGap)*0.75});
+  }
+  return pages;
+}
+
 async function generateDocumentPdfBlob(title, bodyHtml){
-  const {blob, cssWidth, cssHeight, pxWidth, pxHeight}=await renderDocToJpeg(title, bodyHtml);
-  const jpegBytes=new Uint8Array(await blob.arrayBuffer());
-  const ptWidth=cssWidth*0.75, ptHeight=cssHeight*0.75;
-  const pdfBlob=buildPdfFromJpeg(jpegBytes, pxWidth, pxHeight, ptWidth, ptHeight);
+  const {blob, canvas, scale, breakOffsets, cssWidth, cssHeight, pxWidth, pxHeight}=await renderDocToJpeg(title, bodyHtml);
+  let pages;
+  if(cssHeight<=A4_HEIGHT_PX){
+    // مستند صفحة واحدة (الحالة الأشهر) — نفس الحساب القديم بالظبط، من غير أي تغيير في الشكل
+    const jpegBytes=new Uint8Array(await blob.arrayBuffer());
+    pages=[{jpegBytes, pxWidth, pxHeight, ptWidth:cssWidth*0.75, ptHeight:cssHeight*0.75}];
+  } else {
+    pages=await sliceIntoA4Pages(canvas, cssWidth, cssHeight, breakOffsets, scale);
+  }
+  const pdfBlob=buildPdfFromJpegPages(pages);
   return {pdfBlob, jpegBlob:blob};
 }
 
@@ -6924,23 +6982,38 @@ document.addEventListener('DOMContentLoaded', async function(){
 });
 
 // معادلة التحقق من كود التفعيل الدائم
+// بتقبل الكود الجديد (المعقّد) أو القديم (البسيط) — القديمة اتسابت زي ما هي بالظبط عشان
+// أي عميل كان مفعّل قبل التحديث ده يفضل شغال بالظبط زي ما هو من غير أي تأثير عليه.
+// أي كود جديد من دلوقتي لازم يتحسب بالمعادلة الجديدة (الحاسبة المرفقة بتحسبها تلقائي).
 function _vk(c,k){
+  const kn=Number(k);
   const _a='\x36\x35',_b='\x31\x33',_c='\x34\x35\x37',_d='\x39\x31';
   const _x=c,_y=Number(_b),_z=Number(_c),_w=Number(_d);
-  const _p=(_x*_y+_z)*3-_w;
-  return Number(k)===_p;
+  if(kn===(_x*_y+_z)*3-_w) return true; // القديمة (للعملاء اللي اتفعّلوا قبل كده)
+  return kn===_permNew(c); // الجديدة
+}
+function _permNew(c){
+  return ((c*c)%8191)*13 + (c*47) + 9173;
 }
 
-// معادلة التحقق من كود التجربة (مختلفة عن الدائم)
+// معادلة التحقق من كود التجربة (مختلفة عن الدائم) — نفس مبدأ القديمة+الجديدة فوق
 function _vt(c,k){
-  const _p=(c*7+199)*2-83;
-  return Number(k)===_p;
+  const kn=Number(k);
+  if(kn===(c*7+199)*2-83) return true; // القديمة
+  return kn===_trialNew(c); // الجديدة
+}
+function _trialNew(c){
+  return ((c*c)%6151)*7 + (c*31) + 4021;
 }
 
-// معادلة التحقق من كود الأسبوع الإضافي (منفصلة تمامًا عن الدائم والتجربة)
+// معادلة التحقق من كود الأسبوع الإضافي (منفصلة تمامًا عن الدائم والتجربة) — نفس المبدأ
 function _ve(c,k){
-  const _p=(c*11+331)*2-67;
-  return Number(k)===_p;
+  const kn=Number(k);
+  if(kn===(c*11+331)*2-67) return true; // القديمة
+  return kn===_extNew(c); // الجديدة
+}
+function _extNew(c){
+  return ((c*c)%4093)*11 + (c*23) + 6547;
 }
 
 // تفعيل أسبوع إضافي بعد انتهاء التجربة — مرة واحدة فقط لكل جهاز
