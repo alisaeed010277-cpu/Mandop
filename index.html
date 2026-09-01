@@ -202,6 +202,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
       <button onclick="importData()" style="background:#D68910;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">📂 استيراد</button>
       <button onclick="openTabOrderModal()" style="background:#7D3C98;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">⚙️ ترتيب</button>
       <button onclick="openSyncModal()" style="background:#2E86C1;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔗 ربط الأجهزة</button>
+      <button onclick="openPinModal()" style="background:#C0392B;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔒 قفل PIN</button>
     </div>
   </div>
 </div>
@@ -256,6 +257,15 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div id="syncModalContent"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn blue" style="width:100%" onclick="document.getElementById('syncModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
+<div id="pinModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+    <div id="pinModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('pinModal').style.display='none'">تم</button>
     </div>
   </div>
 </div>
@@ -353,6 +363,278 @@ const DB={
 };
 
 const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids'};
+
+// ============================================================
+// قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
+// الهدف هنا حماية من أي حد ماسك الجهاز فعليًا (موظف، حد في المحل...) مش
+// حماية من هجوم تقني متقدم — أي حد يفتح أدوات المطوّر في المتصفح
+// ويعدّل الكود نفسه يقدر يتخطاها، بالظبط زي أي حماية تانية شغالة بالكامل
+// من غير سيرفر. الهاش هنا يمنع إن أي حد يفتح localStorage بالصدفة ويشوف
+// الـ PIN نص صريح، مش أكتر من كده.
+// ============================================================
+async function _sha256Hex(str){
+  try{
+    if(window.crypto && crypto.subtle && crypto.subtle.digest){
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+  }catch(e){}
+  // فallback بسيط جدًا لو المتصفح مش داعم SubtleCrypto (حالة نادرة جدًا)
+  let h=0; for(let i=0;i<str.length;i++){ h=(h*31 + str.charCodeAt(i))>>>0; }
+  return 'f'+h.toString(16);
+}
+function hasPinSet(){ return !!DB.get('_pinHash'); }
+async function _setPinHash(pin){ DB.set('_pinHash', await _sha256Hex('pin::'+pin)); }
+async function verifyPin(pin){ const stored=DB.get('_pinHash'); if(!stored) return false; return (await _sha256Hex('pin::'+pin))===stored; }
+async function _setSecurityAnswerHash(ans){ DB.set('_pinA', await _sha256Hex('ans::'+ans.trim().toLowerCase())); }
+async function verifySecurityAnswer(ans){ const stored=DB.get('_pinA'); if(!stored) return false; return (await _sha256Hex('ans::'+ans.trim().toLowerCase()))===stored; }
+
+// مدة عدم الاستخدام قبل ما البرنامج يتقفل تلقائيًا لوحده
+const PIN_INACTIVITY_MS = 6*60*60*1000; // 6 ساعات
+// بيرجع مدة القفل بصيغة مقروءة (ساعات لو المدة ساعة كاملة أو أكتر، وإلا دقايق)
+function _formatPinTimeout(){
+  const totalMinutes = PIN_INACTIVITY_MS/60000;
+  if(totalMinutes>=60 && totalMinutes%60===0){
+    const h = totalMinutes/60;
+    return h + (h===1?' ساعة':(h===2?' ساعتين':' ساعات'));
+  }
+  return totalMinutes + (totalMinutes===1?' دقيقة':' دقايق');
+}
+let __pinLastActivity = Date.now();
+let __pinHiddenAt = null;
+let __pinWatchStarted = false;
+let __pinUnlockCallback = null;
+
+function _resetPinInactivity(){ __pinLastActivity = Date.now(); __pinHiddenAt = null; }
+
+function _startPinInactivityWatch(){
+  if(!hasPinSet()) return;
+  if(__pinWatchStarted) return;
+  __pinWatchStarted = true;
+  ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
+    document.addEventListener(evt, ()=>{
+      if(!document.getElementById('pinLockScreen') && !document.getElementById('lockScreen')) _resetPinInactivity();
+    }, {passive:true});
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible'){ _checkPinInactivity(); }
+    else if(!document.getElementById('pinLockScreen') && !document.getElementById('lockScreen')){ __pinHiddenAt = Date.now(); }
+  });
+  setInterval(_checkPinInactivity, 20000);
+}
+
+function _checkPinInactivity(){
+  if(!hasPinSet()) return;
+  if(document.getElementById('pinLockScreen') || document.getElementById('lockScreen')) return;
+  const now = Date.now();
+  const idleElapsed = now - __pinLastActivity;
+  const hiddenElapsed = __pinHiddenAt ? (now - __pinHiddenAt) : 0;
+  if(idleElapsed >= PIN_INACTIVITY_MS || hiddenElapsed >= PIN_INACTIVITY_MS){
+    __pinHiddenAt = null;
+    showPinLockScreen(()=>{});
+  }
+}
+
+// شاشة إدخال الـ PIN — بتتنادى (أ) بعد التفعيل مباشرة لو القفل مفعّل، و(ب) لما
+// يعدّي وقت عدم الاستخدام. onUnlock بتتنفذ بعد نجاح الفتح بس (مش لو المستخدم قفل التاب بس)
+function showPinLockScreen(onUnlock){
+  if(document.getElementById('pinLockScreen')) return;
+  const header=document.querySelector('.header');
+  const tabs=document.querySelector('.tabs');
+  const body=document.querySelector('.body');
+  const wm=document.querySelector('.watermark');
+  if(header) header.style.display='none';
+  if(tabs) tabs.style.display='none';
+  if(body) body.style.display='none';
+  if(wm) wm.style.display='none';
+
+  const el=document.createElement('div');
+  el.id='pinLockScreen';
+  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;-webkit-overflow-scrolling:touch;overflow-y:auto;`;
+  el.innerHTML=`
+    <div style="font-size:50px;margin-bottom:16px;">🔒</div>
+    <div style="font-size:18px;font-weight:bold;margin-bottom:18px;">من فضلك أدخل الـ PIN</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinLockInput" maxlength="8" style="width:180px;text-align:center;font-size:22px;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
+    <button onclick="_submitPinUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
+    <div id="pinLockMsg" style="font-size:13px;min-height:18px;margin-bottom:10px"></div>
+    <button onclick="_openForgotPin()" style="background:none;border:none;color:rgba(255,255,255,.75);font-size:12px;text-decoration:underline;cursor:pointer">نسيت الـ PIN؟</button>
+    <div id="forgotPinBox" style="display:none;margin-top:16px;max-width:280px;width:100%"></div>
+  `;
+  document.body.appendChild(el);
+  __pinUnlockCallback = onUnlock || null;
+  setTimeout(()=>{
+    const inp=document.getElementById('pinLockInput');
+    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitPinUnlock(); }); }
+  },50);
+}
+
+function _restorePinScreenChrome(){
+  const header=document.querySelector('.header');
+  const tabs=document.querySelector('.tabs');
+  const body=document.querySelector('.body');
+  const wm=document.querySelector('.watermark');
+  if(header) header.style.display='';
+  if(tabs) tabs.style.display='';
+  if(body) body.style.display='';
+  if(wm) wm.style.display='';
+}
+
+async function _submitPinUnlock(){
+  const inp=document.getElementById('pinLockInput');
+  const val=(inp&&inp.value||'').trim();
+  const msg=document.getElementById('pinLockMsg');
+  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
+  const ok = await verifyPin(val);
+  if(ok){
+    const el=document.getElementById('pinLockScreen'); if(el) el.remove();
+    _restorePinScreenChrome();
+    _resetPinInactivity();
+    const cb=__pinUnlockCallback; __pinUnlockCallback=null;
+    if(cb) cb();
+  } else {
+    msg.style.color='#FF6B6B'; msg.textContent='❌ الـ PIN غلط';
+    if(inp){ inp.value=''; inp.focus(); }
+  }
+}
+
+function _openForgotPin(){
+  const box=document.getElementById('forgotPinBox');
+  const q = DB.get('_pinQ') || 'سؤال الأمان';
+  box.style.display='block';
+  box.innerHTML=`
+    <div style="font-size:12px;color:rgba(255,255,255,.9);margin-bottom:8px">${q}</div>
+    <input type="text" id="pinRecoveryAnswer" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;box-sizing:border-box" placeholder="إجابتك">
+    <button onclick="_verifyPinRecovery()" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-size:13px;font-weight:bold;cursor:pointer">تأكيد الإجابة</button>
+    <div id="pinRecoveryMsg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+  `;
+}
+
+async function _verifyPinRecovery(){
+  const ans=document.getElementById('pinRecoveryAnswer').value.trim();
+  const msg=document.getElementById('pinRecoveryMsg');
+  if(!ans){ msg.style.color='#FFD700'; msg.textContent='من فضلك اكتب إجابتك'; return; }
+  const ok = await verifySecurityAnswer(ans);
+  if(!ok){ msg.style.color='#FF6B6B'; msg.textContent='❌ الإجابة مش صح'; return; }
+  const box=document.getElementById('forgotPinBox');
+  box.innerHTML=`
+    <div style="font-size:12px;color:rgba(255,255,255,.9);margin-bottom:8px">اكتب PIN جديد (٤ أرقام على الأقل)</div>
+    <input type="password" inputmode="numeric" id="newPinAfterRecovery" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="PIN جديد">
+    <input type="password" inputmode="numeric" id="newPinAfterRecoveryConfirm" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="تأكيد PIN">
+    <button onclick="_resetPinAfterRecovery()" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-size:13px;font-weight:bold;cursor:pointer">حفظ الـ PIN الجديد</button>
+    <div id="pinResetMsg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+  `;
+}
+
+async function _resetPinAfterRecovery(){
+  const p1=document.getElementById('newPinAfterRecovery').value.trim();
+  const p2=document.getElementById('newPinAfterRecoveryConfirm').value.trim();
+  const msg=document.getElementById('pinResetMsg');
+  if(!p1 || p1.length<4){ msg.style.color='#FFD700'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
+  if(p1!==p2){ msg.style.color='#FF6B6B'; msg.textContent='الـ PIN مش متطابق'; return; }
+  await _setPinHash(p1);
+  const el=document.getElementById('pinLockScreen'); if(el) el.remove();
+  _restorePinScreenChrome();
+  showToast('✅ تم تغيير الـ PIN بنجاح');
+  _resetPinInactivity();
+  const cb=__pinUnlockCallback; __pinUnlockCallback=null;
+  if(cb) cb();
+}
+
+// ==== إعدادات القفل (من قايمة الإعدادات في الهيدر) ====
+function openPinModal(){
+  renderPinModalContent();
+  document.getElementById('pinModal').style.display='flex';
+}
+
+function renderPinModalContent(){
+  const has = hasPinSet();
+  const el=document.getElementById('pinModalContent');
+  const durLabel = _formatPinTimeout();
+  if(!has){
+    el.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 تفعيل قفل PIN</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">القفل ده اختياري بالكامل - البرنامج شغال عادي زي ما هو من غيره، وأي حد مش عايز يستخدمه ملوش أي تأثير عليه. لو فعّلته، هيتقفل البرنامج تلقائيًا بعد ${durLabel} من عدم الاستخدام، ولازم تدخل PIN عشان تفتحه تاني. ده بيحمي من أي حد ماسك الجهاز، مش بديل عن كود التفعيل.</div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">سؤال أمان (لو نسيت الـ PIN بعدين)</div><input type="text" id="setupPinQ" placeholder="مثلاً: اسم أول عميل سجلته في البرنامج؟"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">إجابة السؤال</div><input type="text" id="setupPinA"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitSetupPin()">تفعيل القفل</button>
+      <div id="pinSetupMsg" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+    `;
+  } else {
+    el.innerHTML=`
+      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 قفل PIN مفعّل</div>
+      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">البرنامج بيتقفل تلقائيًا بعد ${durLabel} من عدم الاستخدام. القفل ده اختياري - تقدر تلغيه في أي وقت من تحت لو مش محتاجه.</div>
+      <div style="font-size:13px;font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير الـ PIN</div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN جديد</div><input type="password" inputmode="numeric" id="newPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" id="newPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitChangePin()">حفظ الـ PIN الجديد</button>
+      <div id="pinChangeMsg" style="font-size:12px;min-height:16px;margin:8px 0 14px"></div>
+      <div style="border-top:1px solid #ECF0F1;padding-top:12px">
+        <div style="font-size:13px;font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء قفل الـ PIN</div>
+        <div class="form-row">
+          <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="removePinCur" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+        </div>
+        <button class="btn red" style="width:100%" onclick="_submitRemovePin()">إلغاء القفل نهائيًا</button>
+        <div id="pinRemoveMsg" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+      </div>
+    `;
+  }
+}
+
+async function _submitSetupPin(){
+  const p1=document.getElementById('setupPin1').value.trim();
+  const p2=document.getElementById('setupPin2').value.trim();
+  const q=document.getElementById('setupPinQ').value.trim();
+  const a=document.getElementById('setupPinA').value.trim();
+  const msg=document.getElementById('pinSetupMsg');
+  if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN مش متطابق'; return; }
+  if(!q || !a){ msg.style.color='#E74C3C'; msg.textContent='لازم تكتب سؤال الأمان وإجابته'; return; }
+  await _setPinHash(p1);
+  DB.set('_pinQ', q);
+  await _setSecurityAnswerHash(a);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل القفل بنجاح';
+  _resetPinInactivity();
+  _startPinInactivityWatch();
+  setTimeout(()=>renderPinModalContent(), 900);
+}
+
+async function _submitChangePin(){
+  const cur=document.getElementById('curPin').value.trim();
+  const p1=document.getElementById('newPin1').value.trim();
+  const p2=document.getElementById('newPin2').value.trim();
+  const msg=document.getElementById('pinChangeMsg');
+  const ok = await verifyPin(cur);
+  if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN الحالي غلط'; return; }
+  if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد لازم ٤ أرقام على الأقل'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد مش متطابق'; return; }
+  await _setPinHash(p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر الـ PIN بنجاح';
+}
+
+async function _submitRemovePin(){
+  const cur=document.getElementById('removePinCur').value.trim();
+  const msg=document.getElementById('pinRemoveMsg');
+  const ok = await verifyPin(cur);
+  if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
+  DB.set('_pinHash', null);
+  DB.set('_pinQ', null);
+  DB.set('_pinA', null);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى القفل';
+  setTimeout(()=>renderPinModalContent(), 900);
+}
 
 // البيانات الرئيسية
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[],productions=[];
@@ -751,6 +1033,63 @@ function backfillCheckJournals(){
   return changed;
 }
 // بيشتغل مرة واحدة بس (أول ما التحديث ده يوصل لأي جهاز فيه بيانات قديمة): بيجهز دليل الحسابات، وبيرحّل كل الأرصدة الافتتاحية وكل الفواتير/المشتريات/التحصيلات/السدادات/المصاريف الموجودة أصلاً لقيود يومية، عشان ميزان المراجعة يبقى صحيح من أول لحظة
+// ============================================================
+// تنظيف القيود اليومية "اليتيمة" القديمة — إصلاح رجعي (retroactive)
+// لعملاء شغالين بالبرنامج بالفعل من قبل ما تصليح حذف العميل/المورد يتعمل.
+// الفكرة: أي قيد يومية سببه (sourceType+sourceId) بيشاور على عنصر (فاتورة/
+// مرتجع/دفعة/مورد/رصيد افتتاحي...) اتمسح فعليًا من مصفوفته ومعادش موجود،
+// يبقى القيد ده "يتيم" ولازم يتشال — لأنه بيفضل يأثر على ميزان المراجعة
+// وقائمة الدخل للأبد من غير أي داعي.
+//
+// أمان مقصود ومهم جدًا: بنتأكد من كل نوع قيد معروف لينا بالظبط قبل ما نحكم
+// عليه إنه يتيم. أي نوع قيد مش متعرف عليه هنا (قديم نسيناه، أو جديد هيتضاف
+// بعدين) بيتسيب زي ما هو تمامًا من غير ما نلمسه — الأفضلية دايمًا لعدم
+// المساس بأي حاجة على إننا "نتأكد" من تنظيف كل حاجة. الدالة دي مبتلمسش أي
+// بيانات تانية غير journalEntries نفسها (مبتمسحش عميل ولا فاتورة ولا حاجة).
+function cleanupOrphanJournals(){
+  const invoiceIds=new Set(invoices.map(i=>i.id));
+  const paymentIds=new Set(payments.map(p=>p.id));
+  const returnIds=new Set(returns.map(r=>r.id));
+  const purchaseIds=new Set(purchases.map(p=>p.id));
+  const purReturnIds=new Set(purchaseReturns.map(r=>r.id));
+  const supplierPaymentIds=new Set(supplierPayments.map(p=>p.id));
+  const checkIds=new Set([...checksPayable,...checksReceivable].map(c=>c.id));
+  const stockIds=new Set(stock.map(p=>p.id));
+  const productionIds=new Set(productions.map(op=>op.id));
+  const expenseIds=new Set(expenses.map(e=>e.id));
+  const clientOpeningIds=new Set(clients.map(c=>'client-opening-'+c.id));
+  const supplierOpeningIds=new Set(suppliers.map(s=>'supplier-opening-'+s.id));
+
+  const sourceStillExists=(j)=>{
+    switch(j.sourceType){
+      case 'invoice': case 'invoiceCogs': return invoiceIds.has(j.sourceId);
+      case 'payment': return paymentIds.has(j.sourceId);
+      case 'return': case 'returnCogs': case 'returnRefund': return returnIds.has(j.sourceId);
+      case 'purchase': return purchaseIds.has(j.sourceId);
+      case 'purReturn': return purReturnIds.has(j.sourceId);
+      case 'supplierPayment': return supplierPaymentIds.has(j.sourceId);
+      case 'check': return checkIds.has(j.sourceId);
+      case 'stockOpening': return stockIds.has(j.sourceId);
+      case 'production': return productionIds.has(j.sourceId);
+      case 'expense': return expenseIds.has(j.sourceId);
+      case 'opening':
+        if(j.sourceId==='treasury-opening') return true; // ده مالوش عنصر مصدر منفصل، دايمًا صالح
+        if(clientOpeningIds.has(j.sourceId)) return true;
+        if(supplierOpeningIds.has(j.sourceId)) return true;
+        if(typeof j.sourceId==='string' && (j.sourceId.indexOf('client-opening-')===0 || j.sourceId.indexOf('supplier-opening-')===0)) return false; // كان بيشاور على عميل/مورد اتمسح
+        return true; // شكل غير متوقع تحت "opening" — أمان أولاً، منلمسهوش
+      default: return true; // نوع قيد مش متعرف عليه — أمان أولاً، منلمسهوش خالص
+    }
+  };
+
+  const orphans=journalEntries.filter(j=>!sourceStillExists(j));
+  if(orphans.length===0) return 0;
+  orphans.forEach(j=>recordDeletion('journalEntries',j.id));
+  const orphanIdSet=new Set(orphans.map(j=>j.id));
+  journalEntries=journalEntries.filter(j=>!orphanIdSet.has(j.id));
+  return orphans.length;
+}
+
 function seedAccountingIfNeeded(){
   const isFirstRun=chartOfAccounts.length===0;
   // نضيف أي حساب جديد اتضاف لدليل الحسابات الافتراضي (في مراحل لاحقة) من غير ما نلمس الموجود أو نكرر الترحيل التاريخي
@@ -762,6 +1101,7 @@ function seedAccountingIfNeeded(){
     backfillReturnJournals();
     reconcileCogsJournals();
     backfillCheckJournals();
+    cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
     save();
     return;
   }
@@ -1974,8 +2314,16 @@ function deleteClient(id){
   showDangerConfirm('هتحذف العميل "'+cName+'" وكل الفواتير والسداد والمرتجعات الخاصة بيه؟ الإجراء ده مينفعش يترجع.', cName, function(){
     const clientInvoiceIds=invoices.filter(i=>i.clientId===id).map(i=>i.id);
     const clientReturnIds=returns.filter(r=>r.clientId===id).map(r=>r.id);
+    const clientPaymentIds=payments.filter(p=>p.clientId===id).map(p=>p.id);
     movements.filter(m=>clientInvoiceIds.includes(m.invoiceId)||clientReturnIds.includes(m.returnId)).forEach(m=>recordDeletion('movements',m.id));
     movements=movements.filter(m=>!clientInvoiceIds.includes(m.invoiceId)&&!clientReturnIds.includes(m.returnId));
+    // إصلاح: كان القيد اليومي المرتبط بفاتورة/مرتجع/سداد العميل بيفضل موجود في journalEntries
+    // بعد حذف العميل (قيد "يتيم")، فيبوّظ ميزان المراجعة وقائمة الدخل للأبد. لازم نمسح
+    // كل القيود المرتبطة قبل ما نمسح العناصر نفسها من مصفوفاتها
+    clientInvoiceIds.forEach(invId=>{ removeJournalBySource('invoice', invId); removeJournalBySource('invoiceCogs', invId); });
+    clientReturnIds.forEach(retId=>{ removeJournalBySource('return', retId); removeJournalBySource('returnCogs', retId); removeJournalBySource('returnRefund', retId); });
+    clientPaymentIds.forEach(payId=>{ removeJournalBySource('payment', payId); });
+    removeJournalBySource('opening', 'client-opening-'+id); // قيد الرصيد الافتتاحي بتاع العميل نفسه (لو كان له رصيد افتتاحي)
     invoices.filter(i=>i.clientId===id).forEach(i=>recordDeletion('invoices',i.id));
     invoices=invoices.filter(i=>i.clientId!==id);
     payments.filter(p=>p.clientId===id).forEach(p=>recordDeletion('payments',p.id));
@@ -4020,8 +4368,11 @@ function _signOutGoogleAccount(){
   });
 }
 function buildExportBlob(){
+  // إصلاح: كان الملف ده ناقص repNotes/clientNotes/deletedIds مقارنة بنسخة المزامنة
+  // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
+  // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
-    treasuryOpening,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,
+    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,deletedIds,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -4141,6 +4492,11 @@ function importData(){
           if(Array.isArray(data.purchaseReturns)){purchaseReturns=data.purchaseReturns;}else{oldFileWarning=true;}
           if(Array.isArray(data.expenses)){expenses=data.expenses;}
           if(Array.isArray(data.productions)){productions=data.productions;}
+          // إصلاح: استيراد ملاحظات المندوب/العملاء وسجل الحذف لو موجودين في الملف (نسخة بعد الإصلاح) —
+          // ملفات قديمة اتصدّرت قبل الإصلاح ده مش هيبقى فيها الحقول دي، فبنسيب البيانات المحلية زي ما هي بدل ما نمسحها بالغلط
+          if(Array.isArray(data.repNotes)){repNotes=data.repNotes;}
+          if(Array.isArray(data.clientNotes)){clientNotes=data.clientNotes;}
+          if(data.deletedIds&&typeof data.deletedIds==='object'){deletedIds=data.deletedIds;}
           if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
           if(typeof data.lowStockDefault!=='undefined'){lowStockDefault=Number(data.lowStockDefault)||10;}
           if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
@@ -5400,8 +5756,15 @@ function deleteSupplier(id){
   showDangerConfirm('هتحذف المورد "'+spName+'" وكل المشتريات والمدفوعات والمردودات المرتبطة بيه؟', spName, function(){
     const purIds=purchases.filter(p=>p.supplierId===id).map(p=>p.id);
     const purRetIds=purchaseReturns.filter(r=>r.supplierId===id).map(r=>r.id);
+    const supPaymentIds=supplierPayments.filter(p=>p.supplierId===id).map(p=>p.id);
     movements.filter(m=>purIds.includes(m.purchaseId)||purRetIds.includes(m.purchaseReturnId)).forEach(m=>recordDeletion('movements',m.id));
     movements=movements.filter(m=>!purIds.includes(m.purchaseId)&&!purRetIds.includes(m.purchaseReturnId));
+    // نفس إصلاح حذف العميل: نمسح القيود اليومية المرتبطة بمشتريات/مردودات/مدفوعات المورد ده
+    // قبل ما نمسح العناصر نفسها، عشان ميفضلش قيد يتيم يبوّظ ميزان المراجعة
+    purIds.forEach(purId=>{ removeJournalBySource('purchase', purId); });
+    purRetIds.forEach(retId=>{ removeJournalBySource('purReturn', retId); });
+    supPaymentIds.forEach(payId=>{ removeJournalBySource('supplierPayment', payId); });
+    removeJournalBySource('opening', 'supplier-opening-'+id); // قيد الرصيد الافتتاحي بتاع المورد نفسه (لو كان له رصيد افتتاحي)
     purchases.filter(p=>p.supplierId===id).forEach(p=>recordDeletion('purchases',p.id));
     purchases=purchases.filter(p=>p.supplierId!==id);
     supplierPayments.filter(p=>p.supplierId===id).forEach(p=>recordDeletion('supplierPayments',p.id));
@@ -6387,6 +6750,7 @@ function initActivation(){
   // فحص لو مفعّل تفعيل دائم
   const activated = DB.get('_ak');
   if(activated && _vk(dCode, activated)){
+    const _afterPinOk = () => {
     render();
     if(_looksWiped()){
       _handlePossibleWipe();
@@ -6396,6 +6760,10 @@ function initActivation(){
       // بيانات قديمة قبل التحديث ده، حتى لو فتحوا يتفرجوا بس من غير أي حفظ جديد
       try{ pushSilentBackup(); }catch(e){}
       setTimeout(()=>{ try{ _maybeOfferGoogleLink(); }catch(e){} }, 6000);
+    }
+    _startPinInactivityWatch();
+    };
+    if(hasPinSet()){ showPinLockScreen(_afterPinOk); } else { _afterPinOk();
     }
     return;
   }
@@ -6407,13 +6775,17 @@ function initActivation(){
     const daysPassed = (Date.now() - trialStart) / (1000*60*60*24);
     if(daysPassed < 7){
       // التجربة لسه شغالة
-      render();
-      _showTrialBanner(7 - Math.floor(daysPassed));
-      if(_looksWiped()){
-        _handlePossibleWipe();
-      }else{
-        try{ pushSilentBackup(); }catch(e){}
-      }
+      const _afterPinOkTrial = () => {
+        render();
+        _showTrialBanner(7 - Math.floor(daysPassed));
+        if(_looksWiped()){
+          _handlePossibleWipe();
+        }else{
+          try{ pushSilentBackup(); }catch(e){}
+        }
+        _startPinInactivityWatch();
+      };
+      if(hasPinSet()){ showPinLockScreen(_afterPinOkTrial); } else { _afterPinOkTrial(); }
       return;
     }
     // التجربة خلصت
