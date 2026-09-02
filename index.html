@@ -20,19 +20,26 @@ input,select,td,th,.sum-num,.list-item-bal-num{font-feature-settings:"lnum";}
 input[type=date],input[type=number]{direction:ltr;text-align:right;}
 input,select,button{font-family:inherit;font-size:14px;}
 input:focus,select:focus{outline:2px solid #2E86C1;}
-.header{background:#1A5276;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,.2);position:sticky;top:0;z-index:100;}
-.header-title{font-size:17px;font-weight:bold;}
-.header-sub{font-size:11px;opacity:.75;margin-top:2px;}
-.header-date{font-size:11px;opacity:.7;}
+.header{background:linear-gradient(135deg,#1B5A82,#154360);color:#fff;padding:12px 14px 10px;box-shadow:0 2px 10px rgba(0,0,0,.18);position:sticky;top:0;z-index:100;}
+.header-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.header-title{font-size:16px;font-weight:bold;display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.header-sub{font-size:10.5px;opacity:.72;margin-top:3px;}
+.header-date{font-size:10.5px;opacity:.65;white-space:nowrap;flex-shrink:0;}
+.company-bar{margin-top:8px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);border-radius:8px;padding:6px 10px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+.header-actions{display:flex;gap:5px;margin-top:8px;}
+.hdr-btn{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.20);color:#fff;border-radius:7px;padding:6px 8px;font-size:10.5px;font-weight:bold;cursor:pointer;white-space:nowrap;min-width:0;flex:1;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:inline-flex;align-items:center;justify-content:center;gap:3px;}
+.hdr-btn:active{background:rgba(255,255,255,.24);}
 .watermark{text-align:center;padding:3px;font-size:10px;color:#aaa;background:#fff;border-top:1px solid #eee;position:fixed;bottom:0;left:0;right:0;z-index:200;pointer-events:none;user-select:none;}
 .whatsapp-float{position:fixed;bottom:34px;left:16px;height:48px;background:#25D366;border-radius:30px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px 0 12px;box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:300;cursor:pointer;border:none;}
 .whatsapp-float:active{transform:scale(.95);}
 .whatsapp-float svg{width:26px;height:26px;flex-shrink:0;}
 .whatsapp-float span{color:#fff;font-size:13px;font-weight:bold;white-space:nowrap;}
-.tabs{display:flex;background:#fff;border-bottom:2px solid #D5D8DC;overflow-x:auto;-webkit-overflow-scrolling:touch;position:sticky;top:56px;z-index:99;}
+.tabs{display:flex;background:#fff;border-bottom:2px solid #D5D8DC;overflow-x:auto;-webkit-overflow-scrolling:touch;position:sticky;top:130px;z-index:99;}
 .tabs::-webkit-scrollbar{display:none;}
-.tab{padding:10px 13px;cursor:pointer;font-size:12px;font-weight:normal;color:#717D7E;border:none;border-bottom:3px solid transparent;white-space:nowrap;background:none;flex-shrink:0;}
+.tab{flex:1;min-width:0;padding:9px 3px;cursor:pointer;font-size:10.5px;font-weight:normal;color:#717D7E;border:none;border-bottom:3px solid transparent;white-space:normal;background:none;line-height:1.25;text-align:center;}
 .tab.active{color:#2E86C1;font-weight:bold;border-bottom-color:#2E86C1;}
+.more-tab-item{display:flex;align-items:center;gap:8px;width:100%;text-align:right;background:#F8F9F9;border:1px solid #E5E7E9;border-radius:8px;padding:12px 14px;margin-bottom:8px;font-size:13px;font-weight:bold;color:#1C2833;cursor:pointer;}
+.more-tab-item.active{background:#1A5276;color:#fff;border-color:#1A5276;}
 .tabsFadeHint{position:fixed;pointer-events:none;z-index:100;display:flex;align-items:center;justify-content:center;width:28px;opacity:0;transition:opacity .25s;}
 .tabsFadeHint span{font-size:12px;color:#2E86C1;}
 @keyframes tabsFadeBounceR{0%,100%{transform:translateX(0);}50%{transform:translateX(4px);}}
@@ -44,6 +51,9 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .card-head.orange{background:#D68910;}
 .card-body{padding:14px;}
 .summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.home-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+.home-shortcut-btn{background:#1A5276;border:none;border-radius:12px;padding:12px 4px;color:#fff;font-size:10.5px;font-weight:bold;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 6px rgba(0,0,0,.12);text-align:center;line-height:1.25;}
+.home-shortcut-btn:active{transform:scale(.96);}
 .sum-card{flex:1;min-width:130px;border-radius:10px;padding:12px 14px;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12);}
 .sum-card.blue{background:#1A5276;}
 .sum-card.red{background:#C0392B;}
@@ -189,21 +199,18 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 
 
 <div class="header">
-  <div>
-    <div class="header-title"><svg width="26" height="26" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-left:6px"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg> صديقك المحاسبي</div>
-    <div class="header-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
-    <div id="companyBar" style="margin-top:3px"></div>
-  </div>
-  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+  <div class="header-top">
+    <div class="header-title"><svg width="24" height="24" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;flex-shrink:0"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg><span>صديقك المحاسبي</span></div>
     <div class="header-date" id="todayDate"></div>
-    <div style="display:flex;gap:6px">
-      <button onclick="openGlobalSearch()" style="background:#1A5276;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔍 بحث</button>
-      <button onclick="exportData()" style="background:#27AE60;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">💾 تصدير</button>
-      <button onclick="importData()" style="background:#D68910;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">📂 استيراد</button>
-      <button onclick="openTabOrderModal()" style="background:#7D3C98;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">⚙️ ترتيب</button>
-      <button onclick="openSyncModal()" style="background:#2E86C1;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔗 ربط الأجهزة</button>
-      <button onclick="openPinModal()" style="background:#C0392B;color:#fff;border:none;border-radius:5px;padding:4px 8px;font-size:11px;cursor:pointer">🔒 قفل PIN</button>
-    </div>
+  </div>
+  <div class="header-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
+  <div id="companyBar" class="company-bar"></div>
+  <div class="header-actions">
+    <button class="hdr-btn" onclick="openGlobalSearch()">🔍 بحث</button>
+    <button class="hdr-btn" onclick="exportData()">💾 تصدير</button>
+    <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
+    <button class="hdr-btn" onclick="openSyncModal()">🔗 ربط الأجهزة</button>
+    <button class="hdr-btn" onclick="openPinModal()">🔒 قفل PIN</button>
   </div>
 </div>
 
@@ -249,6 +256,14 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
       <button class="btn-outline" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
       <button class="btn blue" onclick="document.getElementById('tabOrderModal').style.display='none'">تم</button>
     </div>
+  </div>
+</div>
+
+<div id="moreTabsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;padding:16px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+    <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:12px">☰ باقي التبويبات</div>
+    <div id="moreTabsList"></div>
+    <button class="btn-outline" style="width:100%;margin-top:6px" onclick="document.getElementById('moreTabsModal').style.display='none'">إغلاق</button>
   </div>
 </div>
 
@@ -1271,6 +1286,15 @@ function updateHeaderDate(){
 updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 
+// بيضبط مكان شريط التبويبات (اللي بيفضل ثابت فوق أثناء السكرول) عشان يبقى بالظبط
+// تحت الهيدر مهما كان ارتفاع الهيدر (بيتغيّر لو بيانات الشركة اتضافت/اتعدّلت مثلاً)
+function syncTabsBarStickyTop(){
+  const h=document.querySelector('.header');
+  const bar=document.getElementById('tabsBar');
+  if(h && bar) bar.style.top=h.offsetHeight+'px';
+}
+window.addEventListener('resize', syncTabsBarStickyTop);
+
 let currentTab='home';
 // تعريف كل التبويبات المتاحة (المعرف، الأيقونة، الاسم) — المصدر الوحيد للحقيقة بخصوص التبويبات الموجودة
 const TAB_DEFS=[
@@ -1290,6 +1314,10 @@ const TAB_DEFS=[
   {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
   {id:'banks',icon:'🏛️',label:'البنوك'}
 ];
+// أول 5 تابات ثابتة تظهر في الشريط لكل المستخدمين (مش قابلة للتخصيص) — الباقي يظهر في "المزيد"
+const MAIN_TAB_IDS=['home','stock','clients','suppliers','payments'];
+const MORE_TAB_IDS=TAB_DEFS.map(t=>t.id).filter(id=>!MAIN_TAB_IDS.includes(id));
+
 // بيتأكد إن الترتيب المحفوظ لسه متطابق مع التبويبات الموجودة فعلاً (لو تبويب اتضاف أو اتشال بعدين)
 function sanitizeTabOrder(saved){
   const ids=TAB_DEFS.map(t=>t.id);
@@ -1302,12 +1330,29 @@ let tabOrder=sanitizeTabOrder(DB.get('_tabOrder'));
 function renderTabsBar(){
   const bar=document.getElementById('tabsBar');
   if(!bar)return;
-  bar.innerHTML=tabOrder.map(id=>{
+  const mainBtns=MAIN_TAB_IDS.map(id=>{
     const t=TAB_DEFS.find(d=>d.id===id);
     if(!t)return '';
     return `<button class="tab${id===currentTab?' active':''}" data-tab="${id}" onclick="switchTab('${id}')">${t.icon} ${t.label}</button>`;
   }).join('');
+  const moreActive=!MAIN_TAB_IDS.includes(currentTab);
+  bar.innerHTML=mainBtns+`<button class="tab${moreActive?' active':''}" data-tab="_more" onclick="openMoreTabsModal()">☰ المزيد</button>`;
   updateTabsFadeHint();
+}
+
+// شيت "المزيد" — باقي التبويبات اللي مش في الشريط الرئيسي
+function openMoreTabsModal(){
+  renderMoreTabsList();
+  document.getElementById('moreTabsModal').style.display='flex';
+}
+function renderMoreTabsList(){
+  const wrap=document.getElementById('moreTabsList');
+  if(!wrap)return;
+  wrap.innerHTML=MORE_TAB_IDS.map(id=>{
+    const t=TAB_DEFS.find(d=>d.id===id);
+    if(!t)return '';
+    return `<button class="more-tab-item${id===currentTab?' active':''}" onclick="document.getElementById('moreTabsModal').style.display='none';switchTab('${id}')">${t.icon} ${t.label}</button>`;
+  }).join('');
 }
 
 // تلميح بصري إن شريط التبويبات بيتسحب يمين وشمال — بيبان تلقائي لو فيه تبويبات مخفية،
@@ -1817,7 +1862,7 @@ function testSyncConnection(){
 function switchTab(name){
   currentTab=name;
   document.querySelectorAll('.tab').forEach(btn=>{
-    btn.classList.toggle('active',btn.dataset.tab===name);
+    btn.classList.toggle('active',btn.dataset.tab===name||(btn.dataset.tab==='_more'&&!MAIN_TAB_IDS.includes(name)));
   });
   TAB_DEFS.forEach(t=>{
     const el=document.getElementById('tab-'+t.id);
@@ -1990,6 +2035,7 @@ function saveCompanyProfile(){
   idbSet(KEYS.companyProfile, companyProfile);
   document.getElementById('companyModal').remove();
   renderCompanyBar();
+  syncTabsBarStickyTop();
 }
 
 function openOpeningBalanceModal(type, id){
@@ -2059,7 +2105,7 @@ function saveEditedName(type, id){
   if(type==='client') renderClients(); else renderSuppliers();
 }
 
-let homeFromDate='',homeToDate='';
+let repClientsFromDate='',repClientsToDate='';
 function clientSummaryData(from,to){
   const rows=clients.map(c=>{
     let opening=Number(c.opening||0);
@@ -2080,7 +2126,7 @@ function clientSummaryData(from,to){
   return {rows,totals};
 }
 
-let homeSupFromDate='',homeSupToDate='';
+let repSuppliersFromDate='',repSuppliersToDate='';
 function supplierSummaryData(from,to){
   const rows=suppliers.map(sup=>{
     let opening=Number(sup.opening||0);
@@ -2100,18 +2146,29 @@ function supplierSummaryData(from,to){
 }
 
 function renderHome(){
-  const totalSales=invoices.reduce((s,i)=>s+i.total,0);
-  const totalPaid=payments.reduce((s,p)=>s+p.amount,0);
-  const totalReturns=returns.reduce((s,r)=>s+r.total,0);
-  const totalDebt=clients.reduce((s,c)=>s+Math.max(0,clientBalance(c.id)),0);
-  const debtorCount=clients.filter(c=>clientBalance(c.id)>0).length;
-  const totalPurchases=purchases.reduce((s,p)=>s+p.total,0);
-  const totalSupplierDebt=suppliers.reduce((s,sup)=>s+Math.max(0,supplierBalance(sup.id)),0);
   const lowStock=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p));
   let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${p.name}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
 
-  // جدول العملاء (حسب فلتر المدة إن وُجد)
-  const {rows:summaryRows,totals}=clientSummaryData(homeFromDate,homeToDate);
+  const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
+
+  document.getElementById('tab-home').innerHTML=`
+    <div class="home-shortcuts">
+      ${shortcut('🧾','فاتورة مبيعات',"showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
+      ${shortcut('📈','المبيعات',"showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
+      ${shortcut('📥','فاتورة مشتريات',"showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;switchTab('purchases')")}
+      ${shortcut('🛒','المشتريات',"showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
+      ${shortcut('📦','منتج جديد',"stockSubTab='overview';editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;switchTab('stock')")}
+      ${shortcut('💸','مصروف جديد',"showExpenseForm=true;switchTab('expenses')")}
+      ${shortcut('📋','قائمة الأسعار',"switchTab('pricelist')")}
+      ${shortcut('📊','تقارير',"switchTab('reports')")}
+    </div>
+    ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}`;
+}
+
+// ملخص العملاء بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
+function renderClientSummaryReportBlock(){
+  if(!clients.length) return '';
+  const {rows:summaryRows,totals}=clientSummaryData(repClientsFromDate,repClientsToDate);
   const clientRows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
     return `<tr onclick="clientDetailId='${c.id}';switchTab('clients')" style="cursor:pointer">
@@ -2123,55 +2180,25 @@ function renderHome(){
       <td style="text-align:center;font-weight:bold;color:${balColor}">${fmt(Math.abs(bal))}${bal>0?' 🔴':bal<0?' 🟢':''}</td>
     </tr>`;
   }).join('');
-  const totalsRow=clients.length>0?`<tr>
+  const totalsRow=`<tr>
       <td style="background:#D6EAF8;font-weight:bold;color:#1A5276">الإجمالي</td>
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${totals.opening!==0?fmt(totals.opening):'—'}</td>
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.sales)}</td>
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.ret)}</td>
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.paid)}</td>
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.bal)}</td>
-    </tr>`:'';
-
-  // جدول الموردين (حسب فلتر المدة إن وُجد)
-  const {rows:supSummaryRows,totals:supTotals}=supplierSummaryData(homeSupFromDate,homeSupToDate);
-  const supplierRows=supSummaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
-    const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
-    return `<tr onclick="supplierDetailId='${sup.id}';switchTab('suppliers')" style="cursor:pointer">
-      <td style="font-weight:bold">${sup.name}</td>
-      <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
-      <td style="text-align:center;color:#1A5276">${purch>0?fmt(purch):'—'}</td>
-      <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
-      <td style="text-align:center;color:#1E8449">${paid>0?fmt(paid):'—'}</td>
-      <td style="text-align:center;font-weight:bold;color:${balColor}">${fmt(Math.abs(bal))}${bal>0?' 🔴':bal<0?' 🟢':''}</td>
     </tr>`;
-  }).join('');
-  const supTotalsRow=suppliers.length>0?`<tr>
-      <td style="background:#D6EAF8;font-weight:bold;color:#1A5276">الإجمالي</td>
-      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${supTotals.opening!==0?fmt(supTotals.opening):'—'}</td>
-      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.purch)}</td>
-      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.ret)}</td>
-      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.paid)}</td>
-      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.bal)}</td>
-    </tr>`:'';
-
-  document.getElementById('tab-home').innerHTML=`
-    <div class="summary">
-      <div class="sum-card blue"><div class="sum-num">${fmt(totalSales)}</div><div class="sum-lbl">إجمالي البيع</div></div>
-      <div class="sum-card green"><div class="sum-num">${fmt(totalPaid)}</div><div class="sum-lbl">إجمالي السداد</div></div>
-      <div class="sum-card orange"><div class="sum-num">${fmt(totalReturns)}</div><div class="sum-lbl">إجمالي المردودات</div></div>
-      <div class="sum-card red"><div class="sum-num">${fmt(totalDebt)}</div><div class="sum-lbl">إجمالي المديونية</div></div>
-    </div>
-    ${clients.length>0?`
-    <div class="card">
+  return `
+    <div class="card" style="margin-top:14px">
       <div class="card-head">👥 ملخص العملاء</div>
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="home_from" value="${homeFromDate}" onchange="homeFromDate=this.value;renderHome()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="home_to" value="${homeToDate}" onchange="homeToDate=this.value;renderHome()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repcl_from" value="${repClientsFromDate}" onchange="repClientsFromDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repcl_to" value="${repClientsToDate}" onchange="repClientsToDate=this.value;renderReports()"></div>
         </div>
         <div class="btn-row">
-          ${(homeFromDate||homeToDate)?`<button class="btn-outline" onclick="homeFromDate='';homeToDate='';renderHome()">✖ إلغاء الفلتر</button>`:''}
-          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf(homeFromDate,homeToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص العملاء</button>
+          ${(repClientsFromDate||repClientsToDate)?`<button class="btn-outline" onclick="repClientsFromDate='';repClientsToDate='';renderReports()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf(repClientsFromDate,repClientsToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص العملاء</button>
         </div>
       </div>
       <div class="tbl-wrap">
@@ -2187,18 +2214,43 @@ function renderHome(){
           <tbody>${clientRows}${totalsRow}</tbody>
         </table>
       </div>
-    </div>`:''}
-    ${suppliers.length>0?`
-    <div class="card">
+    </div>`;
+}
+
+// ملخص الموردين بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
+function renderSupplierSummaryReportBlock(){
+  if(!suppliers.length) return '';
+  const {rows:supSummaryRows,totals:supTotals}=supplierSummaryData(repSuppliersFromDate,repSuppliersToDate);
+  const supplierRows=supSummaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
+    const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
+    return `<tr onclick="supplierDetailId='${sup.id}';switchTab('suppliers')" style="cursor:pointer">
+      <td style="font-weight:bold">${sup.name}</td>
+      <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
+      <td style="text-align:center;color:#1A5276">${purch>0?fmt(purch):'—'}</td>
+      <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
+      <td style="text-align:center;color:#1E8449">${paid>0?fmt(paid):'—'}</td>
+      <td style="text-align:center;font-weight:bold;color:${balColor}">${fmt(Math.abs(bal))}${bal>0?' 🔴':bal<0?' 🟢':''}</td>
+    </tr>`;
+  }).join('');
+  const supTotalsRow=`<tr>
+      <td style="background:#D6EAF8;font-weight:bold;color:#1A5276">الإجمالي</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${supTotals.opening!==0?fmt(supTotals.opening):'—'}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.purch)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.ret)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.paid)}</td>
+      <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.bal)}</td>
+    </tr>`;
+  return `
+    <div class="card" style="margin-top:14px">
       <div class="card-head">🏭 ملخص الموردين</div>
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="home_sup_from" value="${homeSupFromDate}" onchange="homeSupFromDate=this.value;renderHome()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="home_sup_to" value="${homeSupToDate}" onchange="homeSupToDate=this.value;renderHome()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repsup_from" value="${repSuppliersFromDate}" onchange="repSuppliersFromDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repsup_to" value="${repSuppliersToDate}" onchange="repSuppliersToDate=this.value;renderReports()"></div>
         </div>
         <div class="btn-row">
-          ${(homeSupFromDate||homeSupToDate)?`<button class="btn-outline" onclick="homeSupFromDate='';homeSupToDate='';renderHome()">✖ إلغاء الفلتر</button>`:''}
-          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf(homeSupFromDate,homeSupToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص الموردين</button>
+          ${(repSuppliersFromDate||repSuppliersToDate)?`<button class="btn-outline" onclick="repSuppliersFromDate='';repSuppliersToDate='';renderReports()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf(repSuppliersFromDate,repSuppliersToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص الموردين</button>
         </div>
       </div>
       <div class="tbl-wrap">
@@ -2214,25 +2266,26 @@ function renderHome(){
           <tbody>${supplierRows}${supTotalsRow}</tbody>
         </table>
       </div>
-    </div>`:''}
-    ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}
-    ${(()=>{
-      const soon=new Date(); soon.setDate(soon.getDate()+7);
-      const soonStr=soon.toISOString().slice(0,10);
-      const dueSoon=[
-        ...checksPayable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'دفع'})),
-        ...checksReceivable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'قبض'}))
-      ].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-      if(!dueSoon.length) return '';
-      const dueRows=dueSoon.map(c=>{
-        const overdue=c.dueDate<today();
-        return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;cursor:pointer" onclick="banksSubView='${c.kind==='دفع'?'payable':'receivable'}';switchTab('banks')">
-          <span>${checkHolderDisplay(c)} — شيك ${c.kind} #${c.number}</span>
-          <span style="color:${overdue?'#C0392B':'#D68910'};font-weight:bold">${fmt(c.amount)} ج (${c.dueDate}${overdue?' متأخر':''})</span>
-        </div>`;
-      }).join('');
-      return `<div class="card warn-box"><div class="card-head orange">🏛️ شيكات مستحقة خلال 7 أيام</div><div class="card-body">${dueRows}</div></div>`;
-    })()}`;
+    </div>`;
+}
+
+// تنبيه الشيكات المستحقة خلال 7 أيام (كان في الرئيسية، دلوقتي فوق تبويب البنوك)
+function renderDueSoonChecksBlock(){
+  const soon=new Date(); soon.setDate(soon.getDate()+7);
+  const soonStr=soon.toISOString().slice(0,10);
+  const dueSoon=[
+    ...checksPayable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'دفع'})),
+    ...checksReceivable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'قبض'}))
+  ].sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  if(!dueSoon.length) return '';
+  const dueRows=dueSoon.map(c=>{
+    const overdue=c.dueDate<today();
+    return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;cursor:pointer" onclick="banksSubView='${c.kind==='دفع'?'payable':'receivable'}';renderBanks()">
+      <span>${checkHolderDisplay(c)} — شيك ${c.kind} #${c.number}</span>
+      <span style="color:${overdue?'#C0392B':'#D68910'};font-weight:bold">${fmt(c.amount)} ج (${c.dueDate}${overdue?' متأخر':''})</span>
+    </div>`;
+  }).join('');
+  return `<div class="card warn-box" style="margin-bottom:14px"><div class="card-head orange">🏛️ شيكات مستحقة خلال 7 أيام</div><div class="card-body">${dueRows}</div></div>`;
 }
 
 // ===== CLIENTS =====
@@ -3823,12 +3876,10 @@ function renderStock(){
       <button class="btn ${stockSubTab==='overview'?'blue':'btn-outline'}" onclick="stockSubTab='overview';renderStock()">📦 المنتجات</button>
       <button class="${stockSubTab==='movements'?'btn blue':'btn-outline'}" onclick="stockSubTab='movements';renderStock()">🔄 الحركات</button>
       <button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>
-      <button class="${stockSubTab==='value'?'btn blue':'btn-outline'}" onclick="stockSubTab='value';renderStock()">💰 قيمة المخزون</button>
     </div>
     <div id="stock-content"></div>`;
   if(stockSubTab==='overview')renderStockOverview();
   else if(stockSubTab==='movements')renderStockMovements();
-  else if(stockSubTab==='value')renderStockValueReport();
   else renderProduction();
 }
 
@@ -3853,7 +3904,7 @@ function renderStockValueReport(){
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1A5276;font-size:18px">${fmt(r.value)}</div><div class="list-item-bal-lbl">قيمة</div></div>
       </div>
     </div>`).join('');
-  document.getElementById('stock-content').innerHTML=`
+  document.getElementById('reportsStockValueBox').innerHTML=`
     <div style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:10px;padding:14px;text-align:center;margin-bottom:12px">
       <div style="font-size:12px;color:#1A5276;margin-bottom:2px">إجمالي قيمة المخزون (بسعر التكلفة)</div>
       <div style="font-size:26px;font-weight:bold;color:#1A5276">${fmt(grandTotal)} ج.م</div>
@@ -5234,6 +5285,7 @@ function renderBanks(){
   if(banksSubView==='accounts'){
     document.getElementById('tab-banks').innerHTML=`
       <div class="page-title" style="margin-bottom:14px">🏛️ البنوك</div>
+      ${renderDueSoonChecksBlock()}
       ${banksSegmentedControlHtml()}
       ${renderBankAccounts()}`;
     return;
@@ -5317,6 +5369,7 @@ function renderBanks(){
 
   document.getElementById('tab-banks').innerHTML=`
     <div class="page-title" style="margin-bottom:14px">🏛️ البنوك</div>
+    ${renderDueSoonChecksBlock()}
     ${banksSegmentedControlHtml()}
 
     ${(!showCheckForm&&!editingChk)?`<div style="margin-bottom:14px"><button class="btn green" onclick="showCheckForm=true;renderBanks()">+ ${isPayable?'شيك دفع':'شيك قبض'} جديد</button></div>`:''}
@@ -5433,7 +5486,14 @@ function renderReports(){
       </div>
       ${renderAgingReportBlock()}
       ${renderFinancialStatementsBlock(fromVal,toVal)}
+      ${renderClientSummaryReportBlock()}
+      ${renderSupplierSummaryReportBlock()}
+      <div class="card" style="margin-top:14px">
+        <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📦 قيمة المخزون</div>
+        <div id="reportsStockValueBox"></div>
+      </div>
     </div>`;
+  renderStockValueReport();
 }
 
 // ====================================================================
@@ -6970,6 +7030,7 @@ document.addEventListener('DOMContentLoaded', async function(){
   }
   initActivation();
   renderCompanyBar();
+  syncTabsBarStickyTop();
   checkExportReminder();
   setTimeout(()=>{ checkAutoBackup(); }, 4000);
   setTimeout(()=>{
