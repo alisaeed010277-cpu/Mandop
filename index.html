@@ -183,6 +183,142 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 @keyframes popIn{from{transform:scale(.5);opacity:0;}to{transform:scale(1);opacity:1;}}
 @keyframes slideUp{from{transform:translateY(15px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 @keyframes fadeOut{to{opacity:0;visibility:hidden;}}
+
+/* =====================================================================
+   وضع الشاشة الكبيرة (لابتوب/كمبيوتر) — إضافة بحتة، مفيش أي قاعدة فوق
+   اتلمست أو اتغيرت. كل القواعد دي بتشتغل بس لما عرض الشاشة يبقى
+   1024px أو أكتر، فالموبايل يفضل بالظبط زي ما هو من غير أي تغيير.
+   ===================================================================== */
+@media (min-width:1024px){
+  body{font-size:16px;}
+  input,select,button{font-size:16px;}
+
+  /* ===== الهيدر ===== */
+  .header{padding:18px 26px 16px;}
+  .header-title{font-size:21px;gap:8px;}
+  .header-title svg{width:30px;height:30px;}
+  .header-sub{font-size:13px;margin-top:4px;}
+  .header-date{font-size:13px;}
+  .company-bar{margin-top:10px;padding:9px 16px;border-radius:10px;}
+  .header-actions{gap:10px;margin-top:12px;}
+  .hdr-btn{padding:11px 16px;font-size:14px;border-radius:9px;gap:6px;}
+  .whatsapp-float{bottom:40px;height:58px;padding:0 22px 0 18px;}
+  .whatsapp-float svg{width:32px;height:32px;}
+  .whatsapp-float span{font-size:16px;}
+  .watermark{font-size:12px;padding:6px;}
+
+  /* ===== التابات ===== */
+  .tabs{top:182px;}
+  .tab{font-size:13px;padding:13px 6px;}
+  .more-tab-item{padding:15px 18px;font-size:15px;}
+
+  /* ===== الحاوية الرئيسية ===== */
+  .body{max-width:1200px;padding:24px;padding-bottom:60px;}
+
+  /* ===== الكروت ===== */
+  .card{border-radius:12px;margin-bottom:16px;}
+  .card-head{padding:14px 20px;font-size:16px;}
+  .card-body{padding:20px;}
+
+  /* ===== كروت الملخص ===== */
+  .summary{gap:14px;margin-bottom:16px;}
+  .sum-card{flex:0 1 240px;min-width:200px;padding:16px 20px;border-radius:12px;}
+  .sum-num{font-size:26px;}
+  .sum-lbl{font-size:13px;}
+
+  /* ===== شورتكتس الرئيسية ===== */
+  .home-shortcuts{grid-template-columns:repeat(8,1fr);gap:14px;margin-bottom:20px;}
+  .home-shortcut-btn{padding:18px 6px;font-size:13px;border-radius:14px;gap:8px;}
+
+  /* ===== الفورمات ===== */
+  .form-row{gap:12px;margin-bottom:12px;}
+  .form-group{min-width:160px;}
+  .lbl{font-size:14px;margin-bottom:5px;}
+  input[type=text],input[type=number],input[type=date],select,input[type=tel]{padding:11px 14px;border-radius:8px;}
+
+  /* ===== الأزرار ===== */
+  .btn{padding:13px 20px;font-size:15px;border-radius:8px;}
+  .btn-outline{padding:12px 20px;font-size:15px;border-radius:8px;}
+  .btn-sm{padding:8px 14px;font-size:14px;border-radius:6px;}
+  .btn-row{gap:12px;margin-top:10px;}
+
+  /* ===== الجداول ===== */
+  table{font-size:15px;}
+  th{padding:12px 16px;font-size:14px;}
+  td{padding:11px 16px;}
+
+  /* ===== البادجات ===== */
+  .badge{padding:4px 12px;font-size:13px;border-radius:14px;}
+
+  /* ===== كروت القوائم (عملاء/موردين/مخزن...) ===== */
+  .list-item{border-radius:12px;margin-bottom:12px;}
+  .list-item-head{padding:14px 20px;}
+  .list-item-name{font-size:17px;}
+  .list-item-sub{font-size:14px;}
+  .list-item-actions{padding:6px 20px 14px;gap:10px;}
+  .list-item-bal-num{font-size:18px;}
+  .list-item-bal-lbl{font-size:13px;}
+
+  .divider{margin:14px 0;}
+  .empty{font-size:15px;padding:40px 0;}
+  .back-row{gap:14px;margin-bottom:16px;}
+  .page-title{font-size:20px;}
+  .section-title{font-size:15px;margin-bottom:10px;}
+  .line-box{padding:14px;margin-bottom:12px;border-radius:10px;}
+  .search-row{gap:12px;margin-bottom:14px;}
+
+  /* ===== البحث الذكي (ssel) ===== */
+  .ssel-input{padding:11px 14px;font-size:16px;border-radius:8px;}
+  .ssel-list{max-height:300px;border-radius:10px;}
+  .ssel-item{padding:13px 16px;font-size:16px;}
+  .ssel-item .sub{font-size:13px;}
+  .ssel-empty{padding:16px;font-size:15px;}
+
+  /* ===== الخزنة ===== */
+  .treasury-cols{gap:16px;}
+  .treasury-col-head{padding:16px;font-size:16px;}
+  .treasury-list{max-height:520px;}
+  .tr-item{padding:13px 16px;}
+  .tr-date{font-size:12px;}
+  .tr-label{font-size:15px;}
+  .tr-note{font-size:13px;}
+  .tr-amount{font-size:16px;}
+  .tr-empty{font-size:14px;}
+  .treasury-closing{padding:16px 26px;min-width:240px;border-radius:12px;}
+  .treasury-closing .l{font-size:14px;}
+  .treasury-closing .n{font-size:28px;}
+  .treasury-day-label{padding:11px 18px;font-size:15px;border-radius:10px;}
+  .badge-today{font-size:13px;padding:4px 10px;}
+
+  /* ===== قائمة الأسعار ===== */
+  .pl-head,.pl-row{padding:13px 18px;gap:12px;}
+  .pl-head{font-size:15px;}
+  .pl-name{font-size:15px;}
+  .pl-manu,.pl-active{font-size:13px;}
+  .pl-unit{font-size:14px;}
+  input.pl-price{padding:9px 12px;max-width:130px;}
+  input.pl-manu,input.pl-active{padding:7px 10px;font-size:13px;}
+  .bonus-box{padding:9px 14px;font-size:14px;border-radius:8px;}
+
+  /* ===== Toast ===== */
+  #toastContainer{bottom:82px;}
+  .toast{padding:14px 24px;font-size:15px;max-width:480px;border-radius:12px;}
+
+  /* ===== مودال التأكيد/التنبيه ===== */
+  .confirm-box{padding:26px;max-width:420px;border-radius:14px;}
+  .confirm-box .cbx-msg{font-size:16px;}
+  .confirm-box .cbx-name-hint{font-size:14px;}
+  .confirm-box .cbx-name-err{font-size:13px;}
+
+  /* ===== سبلاش سكرين ===== */
+  #splashScreen .splash-icon{font-size:72px;}
+  #splashScreen .splash-icon svg{width:84px;height:84px;}
+  #splashScreen .splash-title{font-size:26px;}
+  #splashScreen .splash-sub{font-size:15px;}
+  #splashScreen .splash-dev{font-size:16px;}
+  #splashScreen .splash-phone{font-size:15px;}
+  #splashScreen .splash-line{width:60px;}
+}
 </style>
 </head>
 <body>
