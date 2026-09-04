@@ -185,6 +185,78 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 @keyframes fadeOut{to{opacity:0;visibility:hidden;}}
 
 /* =====================================================================
+   المرحلة الثانية — نوافذ وشاشات كانت مقاساتها مكتوبة مباشرة (inline) جوه
+   الـ JS نفسه، بعيدة تمامًا عن أي كلاس. القيم هنا هي بالظبط نفس القيم اللي
+   كانت مكتوبة inline قبل كده (زيرو تغيير في شكل الموبايل)، وبتتكبر بس
+   جوه الميديا كويري الموجودة تحت لما الشاشة تبقى كمبيوتر/لابتوب.
+   ===================================================================== */
+.modal-card{padding:20px;max-width:380px;max-height:80vh;overflow-y:auto;}
+.modal-card.mc-compact{padding:16px;}
+.modal-card.mc-narrow{padding:20px;max-width:340px;text-align:center;max-height:none;overflow:visible;}
+.modal-card.mc-search{padding:14px;max-width:420px;max-height:82vh;display:flex;flex-direction:column;margin-top:36px;}
+.modal-title{font-size:16px;font-weight:bold;color:#1A5276;}
+.modal-hint{font-size:12px;color:#717D7E;}
+.modal-tiny{font-size:11px;}
+.modal-btn{font-size:13px;}
+.modal-close-x{font-size:20px;}
+.modal-search-input{font-size:14px;}
+.gs-empty{font-size:13px;}
+.gs-sec-title{font-size:11px;}
+.gs-icon{font-size:18px;}
+.gs-row-title{font-size:13px;}
+.gs-row-sub{font-size:11px;}
+.to-row-label{font-size:13px;}
+.sm-input{font-size:13px;}
+.sm-code{font-size:24px;}
+.pm-title{font-size:16px;}
+.pm-desc{font-size:12px;}
+.pm-sub{font-size:13px;}
+.pm-msg{font-size:12px;}
+.cm-card{max-width:320px;}
+.cm-title{font-size:16px;}
+.cm-logo{width:60px;height:60px;}
+.cm-label{font-size:13px;}
+.cm-small{font-size:11px;}
+.cm-input{font-size:14px;}
+.cm-btn{font-size:14px;}
+.mini-card{max-width:300px;}
+.mini-title{font-size:15px;}
+.mini-sub{font-size:13px;}
+.mini-input{font-size:14px;}
+.mini-btn{font-size:14px;}
+.warn-body{font-size:13px;}
+.warn-btn{font-size:14px;}
+#pinLockScreen .pls-icon{font-size:50px;}
+#pinLockScreen .pls-title{font-size:18px;}
+#pinLockScreen .pls-input{width:180px;font-size:22px;}
+#pinLockScreen .pls-btn{font-size:14px;}
+#pinLockScreen .pls-btn-sm{font-size:13px;}
+#pinLockScreen .pls-link{font-size:12px;}
+#pinLockScreen .pls-hint{font-size:12px;}
+#pinLockScreen .pls-msg{font-size:13px;}
+#wipeWarningScreen .ww-card{padding:26px;max-width:340px;}
+#wipeWarningScreen .ww-icon{font-size:40px;}
+#loadErrorScreen .le-card{padding:26px;max-width:340px;}
+#loadErrorScreen .le-icon{font-size:44px;}
+#loadErrorScreen .le-title{font-size:17px;}
+#googleLinkBanner .txt{font-size:12px;}
+#googleLinkBanner .btn-main{font-size:11px;}
+#googleLinkBanner .btn-sm2{font-size:10px;}
+#trialBanner{font-size:12px;}
+#trialBanner .act-btn{font-size:11px;}
+#lockScreen .ls-back{font-size:12px;}
+#lockScreen .ls-icon{font-size:50px;}
+#lockScreen .ls-title{font-size:20px;}
+#lockScreen .ls-msg{font-size:13px;}
+#lockScreen .ls-code-label{font-size:13px;}
+#lockScreen .ls-code{font-size:36px;}
+#lockScreen .ls-code-caption{font-size:11px;}
+#lockScreen .ls-btn{font-size:14px;}
+#lockScreen .ls-btn-lg{font-size:16px;}
+#lockScreen .ls-link{font-size:11px;}
+#lockScreen .ls-footer{font-size:12px;}
+
+/* =====================================================================
    وضع الشاشة الكبيرة (لابتوب/كمبيوتر) — إضافة بحتة، مفيش أي قاعدة فوق
    اتلمست أو اتغيرت. كل القواعد دي بتشتغل بس لما عرض الشاشة يبقى
    1024px أو أكتر، فالموبايل يفضل بالظبط زي ما هو من غير أي تغيير.
@@ -318,6 +390,73 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   #splashScreen .splash-dev{font-size:16px;}
   #splashScreen .splash-phone{font-size:15px;}
   #splashScreen .splash-line{width:60px;}
+
+  /* ===== المرحلة الثانية: النوافذ والشاشات المنفصلة ===== */
+  .modal-card{padding:26px;max-width:460px;}
+  .modal-card.mc-compact{padding:20px;}
+  .modal-card.mc-narrow{padding:26px;max-width:400px;}
+  .modal-card.mc-search{padding:18px;max-width:520px;}
+  .modal-title{font-size:18px;}
+  .modal-hint{font-size:13px;}
+  .modal-tiny{font-size:12px;}
+  .modal-btn{font-size:14px;}
+  .modal-close-x{font-size:22px;}
+  .modal-search-input{font-size:16px;}
+  .gs-empty{font-size:14px;}
+  .gs-sec-title{font-size:12px;}
+  .gs-icon{font-size:20px;}
+  .gs-row-title{font-size:14px;}
+  .gs-row-sub{font-size:12px;}
+  .to-row-label{font-size:14px;}
+  .sm-input{font-size:14px;}
+  .sm-code{font-size:28px;}
+  .pm-title{font-size:18px;}
+  .pm-desc{font-size:13px;}
+  .pm-sub{font-size:14px;}
+  .pm-msg{font-size:13px;}
+  .cm-card{max-width:400px;}
+  .cm-title{font-size:18px;}
+  .cm-logo{width:76px;height:76px;}
+  .cm-label{font-size:14px;}
+  .cm-small{font-size:12px;}
+  .cm-input{font-size:16px;}
+  .cm-btn{font-size:16px;}
+  .mini-card{max-width:380px;}
+  .mini-title{font-size:17px;}
+  .mini-sub{font-size:14px;}
+  .mini-input{font-size:16px;}
+  .mini-btn{font-size:16px;}
+  .warn-body{font-size:14px;}
+  .warn-btn{font-size:16px;}
+  #pinLockScreen .pls-icon{font-size:60px;}
+  #pinLockScreen .pls-title{font-size:20px;}
+  #pinLockScreen .pls-input{width:210px;font-size:25px;}
+  #pinLockScreen .pls-btn{font-size:16px;}
+  #pinLockScreen .pls-btn-sm{font-size:15px;}
+  #pinLockScreen .pls-link{font-size:13px;}
+  #pinLockScreen .pls-hint{font-size:13px;}
+  #pinLockScreen .pls-msg{font-size:14px;}
+  #wipeWarningScreen .ww-card{padding:32px;max-width:420px;}
+  #wipeWarningScreen .ww-icon{font-size:46px;}
+  #loadErrorScreen .le-card{padding:32px;max-width:420px;}
+  #loadErrorScreen .le-icon{font-size:50px;}
+  #loadErrorScreen .le-title{font-size:19px;}
+  #googleLinkBanner .txt{font-size:13px;}
+  #googleLinkBanner .btn-main{font-size:12px;}
+  #googleLinkBanner .btn-sm2{font-size:11px;}
+  #trialBanner{font-size:13px;}
+  #trialBanner .act-btn{font-size:12px;}
+  #lockScreen .ls-back{font-size:13px;}
+  #lockScreen .ls-icon{font-size:60px;}
+  #lockScreen .ls-title{font-size:23px;}
+  #lockScreen .ls-msg{font-size:14px;}
+  #lockScreen .ls-code-label{font-size:14px;}
+  #lockScreen .ls-code{font-size:42px;}
+  #lockScreen .ls-code-caption{font-size:12px;}
+  #lockScreen .ls-btn{font-size:16px;}
+  #lockScreen .ls-btn-lg{font-size:18px;}
+  #lockScreen .ls-link{font-size:12px;}
+  #lockScreen .ls-footer{font-size:13px;}
 }
 </style>
 </head>
@@ -359,34 +498,34 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 </div>
 
 <div id="exportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:12px;padding:20px;max-width:340px;width:100%;text-align:center">
-    <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">💾 تصدير النسخة الاحتياطية</div>
-    <div style="font-size:12px;color:#717D7E;margin-bottom:16px">اختار طريقة الحفظ</div>
-    <button onclick="doExportDevice()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:8px">📱 حفظ على الجهاز</button>
-    <button onclick="doExportShare()" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
-    <div style="font-size:11px;color:#B2BABB;margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
+  <div class="modal-card mc-narrow" style="background:#fff;border-radius:12px;width:100%">
+    <div class="modal-title" style="margin-bottom:4px">💾 تصدير النسخة الاحتياطية</div>
+    <div class="modal-hint" style="margin-bottom:16px">اختار طريقة الحفظ</div>
+    <button onclick="doExportDevice()" class="modal-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:8px">📱 حفظ على الجهاز</button>
+    <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
+    <div class="modal-tiny" style="color:#B2BABB;margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <div id="exportModalGoogleLinkRow" style="border-top:1px solid #ECF0F1;padding-top:12px;margin-bottom:8px"></div>
-    <button onclick="document.getElementById('exportModal').style.display='none'" style="width:100%;background:#ECF0F1;color:#717D7E;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer">إلغاء</button>
+    <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:#ECF0F1;color:#717D7E;border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
   </div>
 </div>
 
 <div class="tabs" id="tabsBar"></div>
 
 <div id="globalSearchModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;align-items:flex-start;justify-content:center;padding:16px;">
-  <div style="background:#fff;border-radius:12px;padding:14px;max-width:420px;width:100%;max-height:82vh;display:flex;flex-direction:column;margin-top:36px">
+  <div class="modal-card mc-search" style="background:#fff;border-radius:12px;width:100%">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:16px;font-weight:bold;color:#1A5276">🔍 بحث شامل</div>
-      <button onclick="closeGlobalSearch()" style="background:none;border:none;font-size:20px;color:#717D7E;cursor:pointer;line-height:1">✕</button>
+      <div class="modal-title">🔍 بحث شامل</div>
+      <button onclick="closeGlobalSearch()" class="modal-close-x" style="background:none;border:none;color:#717D7E;cursor:pointer;line-height:1">✕</button>
     </div>
-    <input type="text" id="globalSearchInput" placeholder="دور على عميل، مورد، صنف، فاتورة..." style="border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:10px" oninput="renderGlobalSearchResults(this.value)">
+    <input type="text" id="globalSearchInput" placeholder="دور على عميل، مورد، صنف، فاتورة..." class="modal-search-input" style="border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin-bottom:10px" oninput="renderGlobalSearchResults(this.value)">
     <div id="globalSearchResults" style="overflow-y:auto;flex:1"></div>
   </div>
 </div>
 
 <div id="tabOrderModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
-    <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">⚙️ ترتيب التبويبات</div>
-    <div style="font-size:12px;color:#717D7E;margin-bottom:14px">رتّب التبويبات زي ما يريحك بالأسهم — الترتيب بيتحفظ على الجهاز ده وبيبان فورًا فوق</div>
+  <div class="modal-card" style="background:#fff;border-radius:12px;width:100%">
+    <div class="modal-title" style="margin-bottom:4px">⚙️ ترتيب التبويبات</div>
+    <div class="modal-hint" style="margin-bottom:14px">رتّب التبويبات زي ما يريحك بالأسهم — الترتيب بيتحفظ على الجهاز ده وبيبان فورًا فوق</div>
     <div id="tabOrderList"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn-outline" onclick="resetTabOrder()">↺ الترتيب الافتراضي</button>
@@ -396,15 +535,15 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 </div>
 
 <div id="moreTabsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:12px;padding:16px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
-    <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:12px">☰ باقي التبويبات</div>
+  <div class="modal-card mc-compact" style="background:#fff;border-radius:12px;width:100%">
+    <div class="modal-title" style="margin-bottom:12px">☰ باقي التبويبات</div>
     <div id="moreTabsList"></div>
     <button class="btn-outline" style="width:100%;margin-top:6px" onclick="document.getElementById('moreTabsModal').style.display='none'">إغلاق</button>
   </div>
 </div>
 
 <div id="syncModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+  <div class="modal-card" style="background:#fff;border-radius:12px;width:100%">
     <div id="syncModalContent"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn blue" style="width:100%" onclick="document.getElementById('syncModal').style.display='none'">تم</button>
@@ -413,7 +552,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 </div>
 
 <div id="pinModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
-  <div style="background:#fff;border-radius:12px;padding:20px;max-width:380px;width:100%;max-height:80vh;overflow-y:auto">
+  <div class="modal-card" style="background:#fff;border-radius:12px;width:100%">
     <div id="pinModalContent"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn blue" style="width:100%" onclick="document.getElementById('pinModal').style.display='none'">تم</button>
@@ -603,12 +742,12 @@ function showPinLockScreen(onUnlock){
   el.id='pinLockScreen';
   el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;-webkit-overflow-scrolling:touch;overflow-y:auto;`;
   el.innerHTML=`
-    <div style="font-size:50px;margin-bottom:16px;">🔒</div>
-    <div style="font-size:18px;font-weight:bold;margin-bottom:18px;">من فضلك أدخل الـ PIN</div>
-    <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinLockInput" maxlength="8" style="width:180px;text-align:center;font-size:22px;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
-    <button onclick="_submitPinUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
-    <div id="pinLockMsg" style="font-size:13px;min-height:18px;margin-bottom:10px"></div>
-    <button onclick="_openForgotPin()" style="background:none;border:none;color:rgba(255,255,255,.75);font-size:12px;text-decoration:underline;cursor:pointer">نسيت الـ PIN؟</button>
+    <div class="pls-icon" style="margin-bottom:16px;">🔒</div>
+    <div class="pls-title" style="font-weight:bold;margin-bottom:18px;">من فضلك أدخل الـ PIN</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="pinLockInput" maxlength="8" class="pls-input" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
+    <button onclick="_submitPinUnlock()" class="pls-btn" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
+    <div id="pinLockMsg" class="pls-msg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="_openForgotPin()" class="pls-link" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">نسيت الـ PIN؟</button>
     <div id="forgotPinBox" style="display:none;margin-top:16px;max-width:280px;width:100%"></div>
   `;
   document.body.appendChild(el);
@@ -653,10 +792,10 @@ function _openForgotPin(){
   const q = DB.get('_pinQ') || 'سؤال الأمان';
   box.style.display='block';
   box.innerHTML=`
-    <div style="font-size:12px;color:rgba(255,255,255,.9);margin-bottom:8px">${q}</div>
+    <div class="pls-hint" style="color:rgba(255,255,255,.9);margin-bottom:8px">${q}</div>
     <input type="text" id="pinRecoveryAnswer" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;box-sizing:border-box" placeholder="إجابتك">
-    <button onclick="_verifyPinRecovery()" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-size:13px;font-weight:bold;cursor:pointer">تأكيد الإجابة</button>
-    <div id="pinRecoveryMsg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+    <button onclick="_verifyPinRecovery()" class="pls-btn-sm" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-weight:bold;cursor:pointer">تأكيد الإجابة</button>
+    <div id="pinRecoveryMsg" class="pls-hint" style="min-height:16px;margin-top:6px"></div>
   `;
 }
 
@@ -668,11 +807,11 @@ async function _verifyPinRecovery(){
   if(!ok){ msg.style.color='#FF6B6B'; msg.textContent='❌ الإجابة مش صح'; return; }
   const box=document.getElementById('forgotPinBox');
   box.innerHTML=`
-    <div style="font-size:12px;color:rgba(255,255,255,.9);margin-bottom:8px">اكتب PIN جديد (٤ أرقام على الأقل)</div>
+    <div class="pls-hint" style="color:rgba(255,255,255,.9);margin-bottom:8px">اكتب PIN جديد (٤ أرقام على الأقل)</div>
     <input type="password" inputmode="numeric" id="newPinAfterRecovery" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="PIN جديد">
     <input type="password" inputmode="numeric" id="newPinAfterRecoveryConfirm" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="تأكيد PIN">
-    <button onclick="_resetPinAfterRecovery()" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-size:13px;font-weight:bold;cursor:pointer">حفظ الـ PIN الجديد</button>
-    <div id="pinResetMsg" style="font-size:12px;min-height:16px;margin-top:6px"></div>
+    <button onclick="_resetPinAfterRecovery()" class="pls-btn-sm" style="width:100%;background:#fff;color:#1A5276;border:none;border-radius:6px;padding:8px;font-weight:bold;cursor:pointer">حفظ الـ PIN الجديد</button>
+    <div id="pinResetMsg" class="pls-hint" style="min-height:16px;margin-top:6px"></div>
   `;
 }
 
@@ -703,8 +842,8 @@ function renderPinModalContent(){
   const durLabel = _formatPinTimeout();
   if(!has){
     el.innerHTML=`
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 تفعيل قفل PIN</div>
-      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">القفل ده اختياري بالكامل - البرنامج شغال عادي زي ما هو من غيره، وأي حد مش عايز يستخدمه ملوش أي تأثير عليه. لو فعّلته، هيتقفل البرنامج تلقائيًا بعد ${durLabel} من عدم الاستخدام، ولازم تدخل PIN عشان تفتحه تاني. ده بيحمي من أي حد ماسك الجهاز، مش بديل عن كود التفعيل.</div>
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 تفعيل قفل PIN</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">القفل ده اختياري بالكامل - البرنامج شغال عادي زي ما هو من غيره، وأي حد مش عايز يستخدمه ملوش أي تأثير عليه. لو فعّلته، هيتقفل البرنامج تلقائيًا بعد ${durLabel} من عدم الاستخدام، ولازم تدخل PIN عشان تفتحه تاني. ده بيحمي من أي حد ماسك الجهاز، مش بديل عن كود التفعيل.</div>
       <div class="form-row">
         <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -716,13 +855,13 @@ function renderPinModalContent(){
         <div class="form-group" style="min-width:100%"><div class="lbl">إجابة السؤال</div><input type="text" id="setupPinA"></div>
       </div>
       <button class="btn blue" style="width:100%" onclick="_submitSetupPin()">تفعيل القفل</button>
-      <div id="pinSetupMsg" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+      <div id="pinSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
     `;
   } else {
     el.innerHTML=`
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 قفل PIN مفعّل</div>
-      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">البرنامج بيتقفل تلقائيًا بعد ${durLabel} من عدم الاستخدام. القفل ده اختياري - تقدر تلغيه في أي وقت من تحت لو مش محتاجه.</div>
-      <div style="font-size:13px;font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير الـ PIN</div>
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 قفل PIN مفعّل</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">البرنامج بيتقفل تلقائيًا بعد ${durLabel} من عدم الاستخدام. القفل ده اختياري - تقدر تلغيه في أي وقت من تحت لو مش محتاجه.</div>
+      <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير الـ PIN</div>
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
       </div>
@@ -731,14 +870,14 @@ function renderPinModalContent(){
         <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" id="newPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
       </div>
       <button class="btn blue" style="width:100%" onclick="_submitChangePin()">حفظ الـ PIN الجديد</button>
-      <div id="pinChangeMsg" style="font-size:12px;min-height:16px;margin:8px 0 14px"></div>
+      <div id="pinChangeMsg" class="pm-msg" style="min-height:16px;margin:8px 0 14px"></div>
       <div style="border-top:1px solid #ECF0F1;padding-top:12px">
-        <div style="font-size:13px;font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء قفل الـ PIN</div>
+        <div class="pm-sub" style="font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء قفل الـ PIN</div>
         <div class="form-row">
           <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="removePinCur" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         </div>
         <button class="btn red" style="width:100%" onclick="_submitRemovePin()">إلغاء القفل نهائيًا</button>
-        <div id="pinRemoveMsg" style="font-size:12px;min-height:16px;margin-top:8px"></div>
+        <div id="pinRemoveMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
       </div>
     `;
   }
@@ -1553,7 +1692,7 @@ function renderTabOrderList(){
     const t=TAB_DEFS.find(d=>d.id===id);
     if(!t)return '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #F2F3F4">
-      <div style="flex:1;font-size:13px">${t.icon} ${t.label}</div>
+      <div class="to-row-label" style="flex:1">${t.icon} ${t.label}</div>
       <button class="btn-sm blue" ${idx===0?'disabled style="opacity:.3"':''} onclick="moveTab(${idx},-1)">⬆️</button>
       <button class="btn-sm blue" ${idx===tabOrder.length-1?'disabled style="opacity:.3"':''} onclick="moveTab(${idx},1)">⬇️</button>
     </div>`;
@@ -1931,28 +2070,28 @@ function renderSyncModal(){
   if(!wrap)return;
   if(!syncEnabled){
     wrap.innerHTML=`
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
-      <div style="font-size:12px;color:#717D7E;margin-bottom:16px;line-height:1.6">
+      <div class="modal-title" style="margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div class="modal-hint" style="margin-bottom:16px;line-height:1.6">
         ميزة جديدة لسه بتتجرب — بتخليك تربط 2 أو 3 أجهزة ببعض عشان أي عملية تتعمل في جهاز تبان في الباقي أول بأول.
         <br><br>دلوقتي الميزة <b>مقفولة</b>، والتطبيق شغال زي ما هو بالظبط. مفيش أي تأثير على بياناتك لحد ما تفعّلها بنفسك.
       </div>
       <button class="btn blue" style="width:100%" onclick="genSyncCode()">🆕 إنشاء رمز مزامنة جديد</button>
-      <div style="text-align:center;font-size:11px;color:#B2BABB;margin:10px 0">— أو —</div>
-      <input type="text" id="syncJoinInput" placeholder="اكتب رمز جهاز تاني عندك بالفعل" maxlength="8"
-        style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #D5D8DC;border-radius:8px;font-size:13px;text-align:center;margin-bottom:8px;text-transform:uppercase">
+      <div class="modal-tiny" style="text-align:center;color:#B2BABB;margin:10px 0">— أو —</div>
+      <input type="text" id="syncJoinInput" placeholder="اكتب رمز جهاز تاني عندك بالفعل" maxlength="8" class="sm-input"
+        style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #D5D8DC;border-radius:8px;text-align:center;margin-bottom:8px;text-transform:uppercase">
       <button class="btn-outline" style="width:100%" onclick="joinSyncCode()">🔗 الانضمام برمز موجود</button>
     `;
   }else{
     wrap.innerHTML=`
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:4px">🔗 ربط الأجهزة</div>
-      <div style="font-size:12px;color:#717D7E;margin-bottom:14px">شارك الرمز ده مع أي جهاز تاني عايز تربطه بنفس بياناتك</div>
+      <div class="modal-title" style="margin-bottom:4px">🔗 ربط الأجهزة</div>
+      <div class="modal-hint" style="margin-bottom:14px">شارك الرمز ده مع أي جهاز تاني عايز تربطه بنفس بياناتك</div>
       <div style="background:#F4F6F7;border:2px dashed #2E86C1;border-radius:10px;padding:16px;text-align:center;margin-bottom:12px">
-        <div style="font-size:24px;font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
+        <div class="sm-code" style="font-weight:bold;letter-spacing:4px;color:#1A5276">${syncCode}</div>
       </div>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="copySyncCode()">📋 نسخ الرمز</button>
       <button class="btn-outline" style="width:100%;margin-bottom:8px" onclick="testSyncConnection()">🧪 اختبار الاتصال دلوقتي</button>
       <button class="btn blue" style="width:100%;margin-bottom:8px" onclick="receiveSyncUpdates()">📥 مزامنة يدوية دلوقتي</button>
-      <div style="font-size:11px;color:#B2BABB;text-align:center;margin-bottom:10px">بياناتك بتتزامن تلقائيًا مع أي جهاز تاني معاه نفس الرمز، من غير ما تعمل حاجة - هيظهر إشعار بسيط لو وصل تحديث. الزرار فوق ده للطوارئ بس لو حابب تجبر المزامنة تحصل فورًا</div>
+      <div class="modal-tiny" style="color:#B2BABB;text-align:center;margin-bottom:10px">بياناتك بتتزامن تلقائيًا مع أي جهاز تاني معاه نفس الرمز، من غير ما تعمل حاجة - هيظهر إشعار بسيط لو وصل تحديث. الزرار فوق ده للطوارئ بس لو حابب تجبر المزامنة تحصل فورًا</div>
       <button class="btn-outline" style="width:100%;color:#C0392B;border-color:#C0392B" onclick="disableSync()">🔴 إيقاف الربط</button>
     `;
   }
@@ -2049,14 +2188,14 @@ function globalSearchGoTo(type,id){
 function renderGlobalSearchResults(q){
   q=(q||'').trim();
   const box=document.getElementById('globalSearchResults');
-  if(!q){ box.innerHTML='<div style="text-align:center;color:#AAB7B8;padding:20px 0;font-size:13px">اكتب عشان تبدأ البحث...</div>'; return; }
+  if(!q){ box.innerHTML='<div class="gs-empty" style="text-align:center;color:#AAB7B8;padding:20px 0">اكتب عشان تبدأ البحث...</div>'; return; }
   const ql=q.toLowerCase();
-  const secHtml=(title,rowsHtml)=>rowsHtml?`<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:bold;color:#7D8B94;margin-bottom:2px">${title}</div>${rowsHtml}</div>`:'';
+  const secHtml=(title,rowsHtml)=>rowsHtml?`<div style="margin-bottom:10px"><div class="gs-sec-title" style="font-weight:bold;color:#7D8B94;margin-bottom:2px">${title}</div>${rowsHtml}</div>`:'';
   const rowHtml=(icon,title,sub,onclick)=>`<div style="display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #F2F3F4;cursor:pointer" onclick="${onclick}">
-      <div style="font-size:18px">${icon}</div>
+      <div class="gs-icon">${icon}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:bold;color:#1C2833;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-        ${sub?`<div style="font-size:11px;color:#909497">${sub}</div>`:''}
+        <div class="gs-row-title" style="font-weight:bold;color:#1C2833;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
+        ${sub?`<div class="gs-row-sub" style="color:#909497">${sub}</div>`:''}
       </div>
     </div>`;
 
@@ -2079,7 +2218,7 @@ function renderGlobalSearchResults(q){
   html+=secHtml('🧾 فواتير', matchedInvoices.map(inv=>{const c=clients.find(c=>c.id===inv.clientId);return rowHtml('🧾','فاتورة #'+inv.number+' - '+(c?.name||'—'), fmt(inv.total)+' ج • '+inv.date, `globalSearchGoTo('invoice','${inv.id}')`);}).join(''));
   html+=secHtml('📥 فواتير مشتريات', matchedPurchases.map(pu=>{const s=suppliers.find(s=>s.id===pu.supplierId);return rowHtml('📥','مشتريات #'+pu.number+' - '+(s?.name||'—'), fmt(pu.total)+' ج • '+pu.date, `globalSearchGoTo('purchase','${pu.id}')`);}).join(''));
 
-  box.innerHTML = html || '<div style="text-align:center;color:#AAB7B8;padding:20px 0;font-size:13px">مفيش نتايج</div>';
+  box.innerHTML = html || '<div class="gs-empty" style="text-align:center;color:#AAB7B8;padding:20px 0">مفيش نتايج</div>';
 }
 
 // رصيد المورد = رصيد افتتاحي + مشتريات - مدفوع - مردود مشتريات
@@ -2114,21 +2253,21 @@ function openCompanyModal(){
   modal.id='companyModal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:22px;max-width:320px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">🏢 بيانات شركتك</div>
+    <div class="cm-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="cm-title" style="font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">🏢 بيانات شركتك</div>
       <div style="text-align:center;margin-bottom:12px">
-        <img id="logoPreview" src="${companyProfile.logo||''}" style="width:60px;height:60px;border-radius:10px;object-fit:cover;background:#F2F3F4;display:${companyProfile.logo?'inline-block':'none'}">
+        <img id="logoPreview" src="${companyProfile.logo||''}" class="cm-logo" style="border-radius:10px;object-fit:cover;background:#F2F3F4;display:${companyProfile.logo?'inline-block':'none'}">
       </div>
-      <label style="display:block;background:#EBF5FB;color:#1A5276;border:1px dashed #1A5276;border-radius:8px;padding:10px;text-align:center;font-size:13px;cursor:pointer;margin-bottom:10px">
+      <label class="cm-label" style="display:block;background:#EBF5FB;color:#1A5276;border:1px dashed #1A5276;border-radius:8px;padding:10px;text-align:center;cursor:pointer;margin-bottom:10px">
         🖼️ اختيار شعار (اختياري)
         <input type="file" accept="image/*" style="display:none" onchange="_handleLogoUpload(this)">
       </label>
-      ${companyProfile.logo?`<div onclick="_removeLogo()" style="text-align:center;font-size:11px;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
-      <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${companyProfile.name||''}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;font-size:14px;box-sizing:border-box">
-      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box;direction:ltr;text-align:right">
+      ${companyProfile.logo?`<div onclick="_removeLogo()" class="cm-small" style="text-align:center;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
+      <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${companyProfile.name||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
+      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
       <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('companyModal').remove()" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">إلغاء</button>
-        <button onclick="saveCompanyProfile()" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">حفظ</button>
+        <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
+        <button onclick="saveCompanyProfile()" class="cm-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -2182,16 +2321,16 @@ function openOpeningBalanceModal(type, id){
   modal.id='openingModal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:22px;max-width:300px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="font-size:15px;font-weight:bold;color:#1A5276;margin-bottom:4px;text-align:center">✏️ تعديل الرصيد الافتتاحي</div>
-      <div style="font-size:13px;color:#717D7E;margin-bottom:14px;text-align:center">${item.name}</div>
+    <div class="mini-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="mini-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px;text-align:center">✏️ تعديل الرصيد الافتتاحي</div>
+      <div class="mini-sub" style="color:#717D7E;margin-bottom:14px;text-align:center">${item.name}</div>
       <div class="lbl">الرصيد الافتتاحي (ج)</div>
-      <input id="openingAmountInput" type="number" min="0" value="${item.opening||0}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;font-size:14px;box-sizing:border-box">
+      <input id="openingAmountInput" type="number" min="0" value="${item.opening||0}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
       <div class="lbl">تاريخ الرصيد الافتتاحي</div>
-      <input id="openingDateInput" type="date" value="${item.openingDate||today()}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box">
+      <input id="openingDateInput" type="date" value="${item.openingDate||today()}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
       <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('openingModal').remove()" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">إلغاء</button>
-        <button onclick="saveOpeningBalance('${type}','${id}')" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">حفظ</button>
+        <button onclick="document.getElementById('openingModal').remove()" class="mini-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
+        <button onclick="saveOpeningBalance('${type}','${id}')" class="mini-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -2216,13 +2355,13 @@ function openEditNameModal(type, id){
   modal.id='editNameModal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:22px;max-width:300px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="font-size:15px;font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">✏️ تعديل اسم ${type==='client'?'العميل':'المورد'}</div>
+    <div class="mini-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="mini-title" style="font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">✏️ تعديل اسم ${type==='client'?'العميل':'المورد'}</div>
       <div class="lbl">الاسم</div>
-      <input id="editNameInput" type="text" value="${item.name}" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;font-size:14px;box-sizing:border-box">
+      <input id="editNameInput" type="text" value="${item.name}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
       <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('editNameModal').remove()" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">إلغاء</button>
-        <button onclick="saveEditedName('${type}','${id}')" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:bold;cursor:pointer">حفظ</button>
+        <button onclick="document.getElementById('editNameModal').remove()" class="mini-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
+        <button onclick="saveEditedName('${type}','${id}')" class="mini-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
       </div>
     </div>`;
   document.body.appendChild(modal);
@@ -3329,7 +3468,7 @@ function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rer
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',saleUnit:'',price:p?.price?Number(p.price):l.price};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',saleUnit:'',price:p?.lastSalePrice?Number(p.lastSalePrice):(p?.price?Number(p.price):l.price)};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   rerenderInvoiceFormKeepFields();
@@ -3452,6 +3591,8 @@ function saveInvoice(){
     payments.push(cashPay);
     postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+inv.number, [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
   }
+  // ميموري آخر سعر بيع لكل صنف — بتاخد بالتاريخ الفعلي للفاتورة، مش بترتيب الحفظ، عشان تعديل فاتورة قديمة متبوظش سعر أحدث منها
+  invLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSalePriceDate || date>=p.lastSalePriceDate)){ p.lastSalePrice=Number(l.price); p.lastSalePriceDate=date; } } });
   save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices();
 }
 
@@ -3885,7 +4026,7 @@ function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns(
 function updateRetLine(id,field,value){
   retLines=retLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',saleUnit:''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',saleUnit:'',price:p?.lastSaleReturnPrice?Number(p.lastSaleReturnPrice):l.price};}
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
   const savedClient=document.getElementById('ret_client')?.value;
@@ -3964,6 +4105,8 @@ function saveReturn(){
     retLines.forEach(l=>{
       if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:lineMainQty(l),date,note:'مردود مبيعات #'+ret.number+(l.saleUnit?` (${l.qty} ${lineUnitLabel(l)})`:''),returnId:ret.id,expiry:l.expiry||''});
     });
+    // ميموري آخر سعر مردود مبيعات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
+    retLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSaleReturnPriceDate || date>=p.lastSaleReturnPriceDate)){ p.lastSaleReturnPrice=Number(l.price); p.lastSaleReturnPriceDate=date; } } });
     save();
     showRetForm=false;
     retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
@@ -4578,10 +4721,10 @@ function _renderExportModalGoogleLink(){
   const row=document.getElementById('exportModalGoogleLinkRow');
   if(!row)return;
   if(__googleUser){
-    row.innerHTML = `<div style="font-size:11px;color:#27AE60;margin-bottom:6px">✅ حسابك مربوط بجوجل (${__googleUser.email||''}) — حماية إضافية شغالة</div>
-      <button onclick="_signOutGoogleAccount()" style="width:100%;background:none;border:1px solid #C0392B;color:#C0392B;border-radius:8px;padding:8px;font-size:11px;cursor:pointer">تسجيل الخروج من الحساب على الجهاز ده</button>`;
+    row.innerHTML = `<div class="modal-tiny" style="color:#27AE60;margin-bottom:6px">✅ حسابك مربوط بجوجل (${__googleUser.email||''}) — حماية إضافية شغالة</div>
+      <button onclick="_signOutGoogleAccount()" class="modal-tiny" style="width:100%;background:none;border:1px solid #C0392B;color:#C0392B;border-radius:8px;padding:8px;cursor:pointer">تسجيل الخروج من الحساب على الجهاز ده</button>`;
   }else{
-    row.innerHTML = `<button onclick="_linkGoogleAccount()" style="width:100%;background:none;border:1px solid #2E86C1;color:#2E86C1;border-radius:8px;padding:9px;font-size:12px;cursor:pointer">🔒 ربط حساب جوجل (حماية إضافية)</button>`;
+    row.innerHTML = `<button onclick="_linkGoogleAccount()" class="modal-hint" style="width:100%;background:none;border:1px solid #2E86C1;color:#2E86C1;border-radius:8px;padding:9px;cursor:pointer">🔒 ربط حساب جوجل (حماية إضافية)</button>`;
   }
 }
 // تسجيل الخروج من الجهاز ده بس — وبيسيب علامة على النسخة السحابية إنها "متسابة"،
@@ -6333,7 +6476,7 @@ function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rer
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',price:p?.lastPurchasePrice?Number(p.lastPurchasePrice):l.price};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   rerenderPurchaseFormKeepFields();
@@ -6383,6 +6526,8 @@ function savePurchase(){
     supplierPayments.push(cashPay);
     postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+pur.number, [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
   }
+  // ميموري آخر سعر شراء لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
+  purchaseLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchasePriceDate || date>=p.lastPurchasePriceDate)){ p.lastPurchasePrice=Number(l.price); p.lastPurchasePriceDate=date; } } });
   save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases();
 }
 
@@ -6741,7 +6886,7 @@ function removePurRetLine(id){purRetLines=purRetLines.filter(l=>l.id!==id);rende
 function updatePurRetLine(id,field,value){
   purRetLines=purRetLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:''};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',price:p?.lastPurchaseReturnPrice?Number(p.lastPurchaseReturnPrice):l.price};}
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
   const savedSup=document.getElementById('pret_supplier')?.value;
@@ -6783,6 +6928,8 @@ function savePurRet(){
   purRetLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'out',qty:Number(l.qty),date,note:'مردود مشتريات #'+retNum,purchaseReturnId:ret.id,expiry:l.expiry||''});
   });
+  // ميموري آخر سعر مردود مشتريات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
+  purRetLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchaseReturnPriceDate || date>=p.lastPurchaseReturnPriceDate)){ p.lastPurchaseReturnPrice=Number(l.price); p.lastPurchaseReturnPriceDate=date; } } });
   save();
   showPurRetForm=false;
   purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
@@ -6861,15 +7008,15 @@ function _showWipeWarning(){
   el.id='wipeWarningScreen';
   el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
   el.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:26px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="font-size:40px;margin-bottom:10px">🔄</div>
-      <div style="font-size:16px;font-weight:bold;color:#1A5276;margin-bottom:10px">بنجهزلك بياناتك</div>
-      <div style="font-size:13px;color:#555;line-height:1.8;margin-bottom:18px">
+    <div class="ww-card" style="background:#fff;border-radius:14px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="ww-icon" style="margin-bottom:10px">🔄</div>
+      <div class="modal-title" style="margin-bottom:10px">بنجهزلك بياناتك</div>
+      <div class="warn-body" style="color:#555;line-height:1.8;margin-bottom:18px">
         محتاجين شوية وقت أو نت أحسن. جرّب تاني بعد شوية، ولو استمرت لفترة كلّمنا وهنظبطهالك على طول.
       </div>
-      <button onclick="_handlePossibleWipe()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
-      <a href="https://wa.me/201552623744" target="_blank" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;margin-bottom:10px">📞 كلّمنا على واتساب</a>
-      <button onclick="document.getElementById('wipeWarningScreen').remove()" style="background:none;border:none;color:#95A5A6;font-size:11px;cursor:pointer;text-decoration:underline">تجاهل والمتابعة</button>
+      <button onclick="_handlePossibleWipe()" class="warn-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
+      <a href="https://wa.me/201552623744" target="_blank" class="warn-btn" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-weight:bold;margin-bottom:10px">📞 كلّمنا على واتساب</a>
+      <button onclick="document.getElementById('wipeWarningScreen').remove()" class="modal-tiny" style="background:none;border:none;color:#95A5A6;cursor:pointer;text-decoration:underline">تجاهل والمتابعة</button>
     </div>`;
   document.body.appendChild(el);
 }
@@ -6899,10 +7046,10 @@ function _maybeOfferGoogleLink(){
   el.id='googleLinkBanner';
   el.style.cssText='position:fixed;bottom:16px;left:16px;right:16px;background:#fff;border:1px solid #E5E7E9;border-radius:12px;padding:14px 16px;z-index:9998;box-shadow:0 6px 24px rgba(0,0,0,.15);display:flex;align-items:center;gap:10px;max-width:400px;margin:0 auto';
   el.innerHTML=`
-    <div style="flex:1;font-size:12px;color:#444;line-height:1.6">🔒 <strong>حماية إضافية اختيارية:</strong> اربط حسابك بجوجل عشان بياناتك تكون مؤمّنة حتى لو الجهاز اتغير بالكامل</div>
+    <div class="txt" style="flex:1;color:#444;line-height:1.6">🔒 <strong>حماية إضافية اختيارية:</strong> اربط حسابك بجوجل عشان بياناتك تكون مؤمّنة حتى لو الجهاز اتغير بالكامل</div>
     <div style="display:flex;flex-direction:column;gap:6px">
-      <button onclick="_linkGoogleAccount()" style="background:#2E86C1;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap">اربط دلوقتي</button>
-      <button onclick="document.getElementById('googleLinkBanner').remove();DB.set('_googleLinkPrompted',1)" style="background:none;border:none;color:#95A5A6;font-size:10px;cursor:pointer">لأ شكرًا</button>
+      <button onclick="_linkGoogleAccount()" class="btn-main" style="background:#2E86C1;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:bold;cursor:pointer;white-space:nowrap">اربط دلوقتي</button>
+      <button onclick="document.getElementById('googleLinkBanner').remove();DB.set('_googleLinkPrompted',1)" class="btn-sm2" style="background:none;border:none;color:#95A5A6;cursor:pointer">لأ شكرًا</button>
     </div>`;
   document.body.appendChild(el);
 }
@@ -6981,14 +7128,14 @@ function _showLoadErrorScreen(){
   el.id='loadErrorScreen';
   el.style.cssText='position:fixed;inset:0;background:#1A1A2E;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
   el.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:26px;max-width:340px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)">
-      <div style="font-size:44px;margin-bottom:10px">⚠️</div>
-      <div style="font-size:17px;font-weight:bold;color:#C0392B;margin-bottom:10px">حصلت مشكلة في تحميل بياناتك</div>
-      <div style="font-size:13px;color:#444;line-height:1.8;margin-bottom:18px">
+    <div class="le-card" style="background:#fff;border-radius:14px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)">
+      <div class="le-icon" style="margin-bottom:10px">⚠️</div>
+      <div class="le-title" style="font-weight:bold;color:#C0392B;margin-bottom:10px">حصلت مشكلة في تحميل بياناتك</div>
+      <div class="warn-body" style="color:#444;line-height:1.8;margin-bottom:18px">
         البرنامج معرفش يقرا التخزين على الجهاز ده دلوقتي. <strong>بياناتك غالبًا لسه موجودة وسليمة</strong> — ده على الأغلب خلل مؤقت. من فضلك جرّب تقفل البرنامج وتفتحه تاني، ولو المشكلة استمرت كلّم المبرمج.
       </div>
-      <button onclick="location.reload()" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
-      <a href="https://wa.me/201552623744" target="_blank" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-size:14px;font-weight:bold">📞 كلّم المبرمج على واتساب</a>
+      <button onclick="location.reload()" class="warn-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
+      <a href="https://wa.me/201552623744" target="_blank" class="warn-btn" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-weight:bold">📞 كلّم المبرمج على واتساب</a>
     </div>`;
   document.body.appendChild(el);
 }
@@ -7055,9 +7202,9 @@ function _showTrialBanner(daysLeft){
   if(document.getElementById('trialBanner')) return;
   const banner = document.createElement('div');
   banner.id = 'trialBanner';
-  banner.style.cssText = 'background:#F39C12;color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:bold;position:relative;z-index:100;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;';
+  banner.style.cssText = 'background:#F39C12;color:#fff;text-align:center;padding:6px;font-weight:bold;position:relative;z-index:100;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;';
   banner.innerHTML = `<span>⏳ النسخة التجريبية — باقي <strong>${daysLeft}</strong> ${daysLeft===1?'يوم':'أيام'}</span>
-    <button onclick="_openActivationFromTrial()" style="background:#fff;color:#F39C12;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:bold;cursor:pointer">🔓 فعّل دلوقتي</button>`;
+    <button onclick="_openActivationFromTrial()" class="act-btn" style="background:#fff;color:#F39C12;border:none;border-radius:6px;padding:4px 12px;font-weight:bold;cursor:pointer">🔓 فعّل دلوقتي</button>`;
   const header = document.querySelector('.header');
   if(header) header.insertAdjacentElement('afterend', banner);
 }
@@ -7096,8 +7243,8 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
 
   const extensionUsed = !!DB.get('_te');
   const expiredMsg = trialExpired
-    ? `<div style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;font-size:13px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>${extensionUsed?'للاستمرار فعّل النسخة الكاملة':'تقدر تاخد أسبوع إضافي أو تفعّل النسخة الكاملة'}</div>`
-    : `<div style="font-size:13px;opacity:.85;margin-bottom:20px;">للتجربة المجانية 7 أيام أو التفعيل الدائم<br>تواصل مع المبرمج على واتساب</div>`;
+    ? `<div class="ls-msg" style="background:rgba(231,76,60,.3);border-radius:8px;padding:10px;margin-bottom:20px;">⏰ انتهت فترة التجربة المجانية (7 أيام)<br>${extensionUsed?'للاستمرار فعّل النسخة الكاملة':'تقدر تاخد أسبوع إضافي أو تفعّل النسخة الكاملة'}</div>`
+    : `<div class="ls-msg" style="opacity:.85;margin-bottom:20px;">للتجربة المجانية 7 أيام أو التفعيل الدائم<br>تواصل مع المبرمج على واتساب</div>`;
 
   const lockScreen = document.createElement('div');
   lockScreen.id = 'lockScreen';
@@ -7110,14 +7257,14 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
     -webkit-overflow-scrolling:touch;overflow-y:auto;
   `;
   lockScreen.innerHTML = `
-    ${fromTrial?`<button onclick="_closeLockScreenFromTrial()" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer">✕ رجوع</button>`:''}
-    <div style="font-size:50px;margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
-    <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">صديقك المحاسبي</div>
+    ${fromTrial?`<button onclick="_closeLockScreenFromTrial()" class="ls-back" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer">✕ رجوع</button>`:''}
+    <div class="ls-icon" style="margin-bottom:16px;">${trialExpired?'⏰':'🔒'}</div>
+    <div class="ls-title" style="font-weight:bold;margin-bottom:8px;">صديقك المحاسبي</div>
     ${expiredMsg}
     <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:20px 24px;margin-bottom:24px;width:100%;max-width:320px;">
-      <div style="font-size:13px;opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
-      <div style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#FFD700;">${dCode}</div>
-      <div style="font-size:11px;opacity:.7;margin-top:6px;">كود الجهاز</div>
+      <div class="ls-code-label" style="opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
+      <div class="ls-code" style="font-weight:bold;letter-spacing:8px;color:#FFD700;">${dCode}</div>
+      <div class="ls-code-caption" style="opacity:.7;margin-top:6px;">كود الجهاز</div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;width:100%;max-width:320px;">
       <input id="serialInput" type="number" placeholder="أدخل الكود هنا" style="
@@ -7127,25 +7274,25 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
       ">
     </div>
     ${!trialExpired && !fromTrial?`
-    <button onclick="_activateTrial(${dCode})" style="
+    <button onclick="_activateTrial(${dCode})" class="ls-btn" style="
       background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
-      padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
+      padding:12px 40px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;margin-bottom:8px;-webkit-appearance:none;
     ">🎁 تفعيل النسخة التجريبية (7 أيام)</button>`:''}
     ${trialExpired && !extensionUsed?`
-    <button onclick="_activateExtension(${dCode})" style="
+    <button onclick="_activateExtension(${dCode})" class="ls-btn" style="
       background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
-      padding:12px 40px;font-size:14px;font-weight:bold;cursor:pointer;
+      padding:12px 40px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;margin-bottom:8px;-webkit-appearance:none;
     ">📅 تفعيل أسبوع إضافي</button>`:''}
-    <button onclick="_activate(${dCode})" style="
+    <button onclick="_activate(${dCode})" class="ls-btn-lg" style="
       background:#FFD700;color:#1A5276;border:none;border-radius:8px;
-      padding:14px 40px;font-size:16px;font-weight:bold;cursor:pointer;
+      padding:14px 40px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;-webkit-appearance:none;
     ">✓ تفعيل النسخة الدائمة</button>
-    <div id="activationMsg" style="margin-top:14px;font-size:13px;min-height:20px;"></div>
-    <button onclick="_recoverViaGoogleFromLockScreen()" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:11px;text-decoration:underline;cursor:pointer;margin-top:18px;padding:4px">عندك بيانات قديمة اتسجلت على الجهاز ده قبل كده؟ اضغط هنا</button>
-    <div style="margin-top:16px;font-size:12px;opacity:.7;">
+    <div id="activationMsg" class="ls-msg" style="margin-top:14px;min-height:20px;"></div>
+    <button onclick="_recoverViaGoogleFromLockScreen()" class="ls-link" style="background:none;border:none;color:rgba(255,255,255,.7);text-decoration:underline;cursor:pointer;margin-top:18px;padding:4px">عندك بيانات قديمة اتسجلت على الجهاز ده قبل كده؟ اضغط هنا</button>
+    <div class="ls-footer" style="margin-top:16px;opacity:.7;">
       للتفعيل تواصل مع المبرمج على واتساب<br>
       <strong>01552623744</strong>
     </div>
