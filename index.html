@@ -652,7 +652,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -934,6 +934,9 @@ let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأول�
 let journalEntries=[]; // القيود اليومية (دفتر الأستاذ الخفي وراء كل حركة)
 let treasuryOpening=0;
 let lowStockDefault=10; // الحد العام لتنبيه "قارب على النفاذ" — أي صنف مالوش حد خاص بيه بيستخدم الرقم ده
+// آخر رقم اتاستخدم فعليًا لكل نوع مستند (فاتورة مبيعات / فاتورة مشتريات) - بيتحدّث لفوق بس
+// (مبيرجعش لورا أبدًا حتى لو اتمسحت الفاتورة)، عشان رقم فاتورة متتاداش استخدامه تاني بعد الحذف
+let docNumberCounters={invoice:0, purchase:0, return:0, purchaseReturn:0};
 let repNotes=[];
 let clientNotes=[];
 let companyProfile={name:'',phone:''};
@@ -1109,6 +1112,7 @@ const save=()=>{
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.lowStockDefault,lowStockDefault);
+  idbSet(KEYS.docNumberCounters,docNumberCounters);
   idbSet(KEYS.repNotes,repNotes);
   idbSet(KEYS.clientNotes,clientNotes);
   idbSet(KEYS.checksPayable,checksPayable);
@@ -1123,8 +1127,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1148,6 +1152,9 @@ async function loadAllData(){
   productions=prod||[];
   lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
   deletedIds=delIds||{};
+  // أجهزة كانت شغالة قبل الإضافة دي هيبقى عندها القيمة دي فاضية أول مرة - عادي وآمن،
+  // لأن nextDocNumber() تحت بتاخد أعلى رقم موجود فعلاً في الفواتير كحد أدنى أول ما تتنادى
+  docNumberCounters=dnc||{invoice:0, purchase:0, return:0, purchaseReturn:0};
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -1447,6 +1454,17 @@ function seedAccountingIfNeeded(){
 
 let _id=Date.now();
 const uid=()=>(++_id).toString(36);
+
+// بيرجع رقم المستند الجديد (فاتورة مبيعات/مشتريات) بشكل ميتكررش أبدًا حتى لو
+// اتمسحت فواتير قبل كده - بياخد الأكبر بين (أعلى رقم موجود فعليًا في المصفوفة
+// الحالية) و(آخر رقم محفوظ من قبل حتى لو الفاتورة بتاعته اتمسحت) + 1، وبيحدّث
+// الرقم المحفوظ عشان يفضل صحيح للمرة الجاية. counterKey: 'invoice' أو 'purchase'
+function nextDocNumber(existingArr, counterKey){
+  const currentMax = existingArr.length>0 ? Math.max(...existingArr.map(x=>x.number||0)) : 0;
+  const base = Math.max(currentMax, Number(docNumberCounters[counterKey])||0);
+  docNumberCounters[counterKey] = base+1;
+  return base+1;
+}
 const today=()=>new Date().toISOString().slice(0,10);
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 // تنسيق كميات مخزون ممكن تكون كسور (لما نبيع بالتجزئة) من غير ما تظهر أرقام عشرية غريبة بسبب حسابات الفاصلة العائمة
@@ -1747,7 +1765,7 @@ function pushSilentBackup(){
     expenses, treasuryOpening, repNotes, clientNotes,
     checksPayable, checksReceivable, bankAccounts,
     chartOfAccounts, journalEntries, productions,
-    companyProfile, lowStockDefault, deletedIds,
+    companyProfile, lowStockDefault, deletedIds, docNumberCounters,
     _deviceId: __deviceId,
     _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
       ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
@@ -1782,6 +1800,7 @@ async function _tryAutoRecover(key){
     bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
     productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:''};lowStockDefault=Number(data.lowStockDefault)||10;
     deletedIds=data.deletedIds||{};
+    docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
     save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
     return true;
   }catch(e){
@@ -1803,7 +1822,7 @@ function pushSyncSnapshot(){
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
       chartOfAccounts, journalEntries, productions,
-      companyProfile, lowStockDefault, deletedIds,
+      companyProfile, lowStockDefault, deletedIds, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
         ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
@@ -2120,7 +2139,7 @@ function testSyncConnection(){
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
       chartOfAccounts, journalEntries, productions,
-      companyProfile, lowStockDefault,
+      companyProfile, lowStockDefault, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: Date.now()
     }).then(()=>{
@@ -2238,7 +2257,7 @@ function renderCompanyBar(){
     bar.innerHTML=`
       <div onclick="openCompanyModal()" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;opacity:.9">
         ${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:cover">`:''}
-        <span><strong>${companyProfile.name}</strong>${companyProfile.phone?' — '+companyProfile.phone:''} ✏️</span>
+        <span><strong>${companyProfile.name}</strong>${companyProfile.phone?' — '+companyProfile.phone:''}${companyProfile.taxNumber?' — رقم ضريبي: '+companyProfile.taxNumber:''} ✏️</span>
       </div>`;
   }else{
     bar.innerHTML=`<div onclick="openCompanyModal()" style="cursor:pointer;font-size:11px;opacity:.85;text-decoration:underline">+ أضف بيانات شركتك</div>`;
@@ -2264,7 +2283,8 @@ function openCompanyModal(){
       </label>
       ${companyProfile.logo?`<div onclick="_removeLogo()" class="cm-small" style="text-align:center;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
       <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${companyProfile.name||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
-      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
+      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
+      <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${companyProfile.taxNumber||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveCompanyProfile()" class="cm-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -2306,7 +2326,8 @@ function _removeLogo(){
 function saveCompanyProfile(){
   const name=document.getElementById('companyNameInput').value.trim();
   const phone=document.getElementById('companyPhoneInput').value.trim();
-  companyProfile={name, phone, logo:_tempLogoDataUrl||''};
+  const taxNumber=document.getElementById('companyTaxInput').value.trim();
+  companyProfile={name, phone, taxNumber, logo:_tempLogoDataUrl||''};
   idbSet(KEYS.companyProfile, companyProfile);
   document.getElementById('companyModal').remove();
   renderCompanyBar();
@@ -2703,6 +2724,7 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
       <div style="text-align:right">
         <div class="doc-title">${companyProfile.name}</div>
         ${companyProfile.phone?`<div style="font-size:12px;color:#717D7E;margin-top:2px">${companyProfile.phone}</div>`:''}
+        ${companyProfile.taxNumber?`<div style="font-size:12px;color:#717D7E;margin-top:2px">رقم ضريبي: ${companyProfile.taxNumber}</div>`:''}
       </div>` : `<div class="doc-title">صديقك المحاسبي</div>`;
   return `<div class="doc-header">
       <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
@@ -3511,6 +3533,18 @@ function saveInvoice(){
   if(!clientId){showToast('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
+  // التحقق من صحة الكمية/السعر/الخصم لكل سطر قبل أي حفظ أو مساس بالمخزون
+  for(const l of invLines){
+    if(!l.productId && !l.productName.trim()) continue;
+    if(!(Number(l.qty)>0)){showToast('أدخل كمية صحيحة (أكبر من صفر) لكل صنف');return;}
+    if(Number(l.price)<0){showToast('السعر مينفعش يكون بالسالب');return;}
+    const disc=Number(l.discount)||0;
+    if(disc<0||disc>100){showToast('نسبة الخصم لازم تكون بين 0% و100%');return;}
+    if(Number(l.bonus||0)<0){showToast('كمية البونص مينفعش تكون بالسالب');return;}
+  }
+  const invOverallDiscountNum=Number(invOverallDiscount)||0;
+  if(invOverallDiscountNum<0||invOverallDiscountNum>100){showToast('نسبة الخصم الإجمالي لازم تكون بين 0% و100%');return;}
+
   // لو بنعدّل فاتورة موجودة: نرجع تأثيرها القديم على المخزن مؤقتًا قبل الفحص
   let removedInv=null, removedMovements=[];
   if(editInvoiceId){
@@ -3562,7 +3596,7 @@ function saveInvoice(){
   const overallDiscount=Number(invOverallDiscount)||0;
   const total=subtotal-(subtotal*overallDiscount/100);
   const invId = editInvoiceId || uid();
-  const invNumber = removedInv ? removedInv.number : (invoices.length>0?Math.max(...invoices.map(i=>i.number||0)):0)+1;
+  const invNumber = removedInv ? removedInv.number : nextDocNumber(invoices,'invoice');
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
   removedMovements.forEach(m=>recordDeletion('movements',m.id)); // وصلنا هنا يبقى التعديل هيتحفظ فعلاً (بعد كل فحوصات الرصيد) - الحركات القديمة دي هتتشال نهائيًا ومحتاجة تتزامن
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
@@ -4089,7 +4123,7 @@ function saveReturn(){
   function _commitReturnSave(){
     const cashRefund=document.getElementById('ret_is_cash')?.checked||false;
     const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
-    const ret={id:uid(),number:returns.length+1,clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
+    const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
     returns.push(ret);
     postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
       [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
@@ -4742,7 +4776,7 @@ function _signOutGoogleAccount(){
           expenses, treasuryOpening, repNotes, clientNotes,
           checksPayable, checksReceivable, bankAccounts,
           chartOfAccounts, journalEntries, productions,
-          companyProfile, lowStockDefault, deletedIds,
+          companyProfile, lowStockDefault, deletedIds, docNumberCounters,
           _deviceId: __deviceId,
           _savedAt: Date.now()
         });
@@ -4760,7 +4794,7 @@ function buildExportBlob(){
   // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
   // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
-    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,deletedIds,
+    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,deletedIds,docNumberCounters,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -4887,6 +4921,7 @@ function importData(){
           if(data.deletedIds&&typeof data.deletedIds==='object'){deletedIds=data.deletedIds;}
           if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
           if(typeof data.lowStockDefault!=='undefined'){lowStockDefault=Number(data.lowStockDefault)||10;}
+          if(data.docNumberCounters&&typeof data.docNumberCounters==='object'){docNumberCounters=data.docNumberCounters;}
           if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
           if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
           if(Array.isArray(data.bankAccounts)){bankAccounts=data.bankAccounts;}else{oldFileWarning=true;}
@@ -6488,6 +6523,19 @@ function savePurchase(){
   const isCash=document.getElementById('pur_is_cash')?.checked||false;
   if(!supplierId){showToast('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
+
+  // التحقق من صحة الكمية/السعر/الخصم لكل سطر قبل أي حفظ أو مساس بالمخزون
+  for(const l of purchaseLines){
+    if(!l.productId && !l.productName.trim()) continue;
+    if(!(Number(l.qty)>0)){showToast('أدخل كمية صحيحة (أكبر من صفر) لكل صنف');return;}
+    if(Number(l.price)<0){showToast('السعر مينفعش يكون بالسالب');return;}
+    const disc=Number(l.discount)||0;
+    if(disc<0||disc>100){showToast('نسبة الخصم لازم تكون بين 0% و100%');return;}
+    if(Number(l.bonus||0)<0){showToast('كمية البونص مينفعش تكون بالسالب');return;}
+  }
+  const purOverallDiscountNum=Number(purOverallDiscount)||0;
+  if(purOverallDiscountNum<0||purOverallDiscountNum>100){showToast('نسبة الخصم الإجمالي لازم تكون بين 0% و100%');return;}
+
   const subtotal=purchaseLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
     return s+(Number(l.qty)*afterDiscount);
@@ -6504,7 +6552,7 @@ function savePurchase(){
   }
 
   const purId = editPurchaseId || uid();
-  const purNum = removedPur ? removedPur.number : (purchases.length>0?Math.max(...purchases.map(p=>p.number||0)):0)+1;
+  const purNum = removedPur ? removedPur.number : nextDocNumber(purchases,'purchase');
   const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
   const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && p.isCashAuto);
@@ -6919,7 +6967,7 @@ function savePurRet(){
   }
 
   const total=purRetLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
-  const retNum=(purchaseReturns.length>0?Math.max(...purchaseReturns.map(r=>r.number||0)):0)+1;
+  const retNum=nextDocNumber(purchaseReturns,'purchaseReturn');
   const ret={id:uid(),number:retNum,supplierId,date,lines:purRetLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,createdAt:new Date().toISOString()};
   purchaseReturns.push(ret);
   postJournal('purReturn',ret.id,date,'مردود مشتريات #'+retNum,
