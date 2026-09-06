@@ -2345,7 +2345,7 @@ function testSyncConnection(){
       _updatedBy: __deviceId,
       _updatedAt: Date.now()
     }).then(()=>{
-      showToast('✅ الاتصال شغال تمام! بياناتك الحقيقية (فواتير، عملاء، مخزون...) وصلت للسيرفر بنجاح.\nروح Firestore وشوف مستند: '+syncCode);
+      showToast('✅ الاتصال شغال تمام دلوقتي');
     }).catch(err=>{
       showToast('❌ فيه مشكلة في إرسال بياناتك الحقيقية:\n'+(err&&err.message?err.message:err));
     });
