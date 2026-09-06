@@ -458,6 +458,19 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   #lockScreen .ls-link{font-size:12px;}
   #lockScreen .ls-footer{font-size:13px;}
 }
+
+/* =====================================================================
+   المرحلة الثانية (باركود) — مسح الباركود بالكاميرا. إضافة مستقلة تمامًا،
+   مفيش أي كلاس أو قاعدة قديمة اتلمست. شغالة على كاميرا الموبايل (الخلفية)
+   وعلى أي كاميرا ويب في الكمبيوتر/اللابتوب.
+   ===================================================================== */
+#barcodeScanModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9700;align-items:center;justify-content:center;padding:16px;}
+#barcodeScanModal .bcs-box{background:#fff;border-radius:12px;padding:14px;max-width:420px;width:100%;text-align:center;}
+#barcodeScanModal .bcs-title{font-size:14px;font-weight:bold;color:#1A5276;margin-bottom:8px;}
+#barcodeScanModal .bcs-frame{position:relative;background:#000;border-radius:8px;overflow:hidden;line-height:0;}
+#barcodeScanModal video{width:100%;display:block;max-height:60vh;border-radius:8px;}
+#barcodeScanModal .bcs-guide{position:absolute;inset:12%;border:2px solid rgba(255,255,255,.55);border-radius:8px;pointer-events:none;}
+#barcodeScanModal .bcs-status{font-size:12px;color:#717D7E;margin-top:8px;min-height:16px;}
 </style>
 </head>
 <body>
@@ -581,6 +594,19 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   <div class="confirm-box">
     <div class="cbx-msg" id="alertMsg"></div>
     <button class="btn blue" style="width:100%" onclick="document.getElementById('alertModal').style.display='none'">تمام</button>
+  </div>
+</div>
+
+<!-- المرحلة الثانية (باركود) — مودال مسح الباركود بالكاميرا -->
+<div id="barcodeScanModal">
+  <div class="bcs-box">
+    <div class="bcs-title">📷 وجّه الكاميرا ناحية الباركود</div>
+    <div class="bcs-frame">
+      <video id="barcodeScanVideo" autoplay playsinline muted></video>
+      <div class="bcs-guide"></div>
+    </div>
+    <div class="bcs-status" id="barcodeScanStatus">بنجهّز الكاميرا...</div>
+    <button class="btn gray" style="width:100%;margin-top:10px" onclick="closeCameraBarcodeScanner()">إلغاء</button>
   </div>
 </div>
 
@@ -1058,14 +1084,21 @@ let _sselData={};
 function searchableSelectHtml(fieldId, options, placeholder, selectedId, onPickExtra){
   _sselData[fieldId]={options, onPickExtra: onPickExtra||''};
   const sel=options.find(o=>o.id===selectedId);
-  return `<div class="ssel-wrap">
+  // بس السلكت اللي بيختار من بين أصناف ليها باركود (فواتير/مرتجعات/مشتريات/إنتاج)
+  // بيظهرله زرار مسح بالكاميرا. سلكت العملاء/الموردين/البنوك ما لهاش باركود
+  // أصلًا، فبتفضل بالظبط زي ما كانت — صفر تغيير عليها.
+  const hasBarcodes=options.some(o=>o.code);
+  const inner=`<div class="ssel-wrap"${hasBarcodes?' style="flex:1;min-width:0"':''}>
     <input type="text" class="ssel-input" id="${fieldId}_search" placeholder="${placeholder}" autocomplete="off"
       value="${sel?esc(sel.label):''}"
       oninput="_sselFilter('${fieldId}')" onfocus="_sselFilter('${fieldId}')"
+      onkeydown="_sselKeydown(event,'${fieldId}')"
       onblur="setTimeout(()=>{const l=document.getElementById('${fieldId}_list');if(l)l.style.display='none';},200)">
     <input type="hidden" id="${fieldId}" value="${selectedId||''}">
     <div class="ssel-list" id="${fieldId}_list"></div>
   </div>`;
+  if(!hasBarcodes) return inner;
+  return `<div style="display:flex;gap:6px;align-items:flex-start">${inner}<button type="button" class="btn-sm blue" style="white-space:nowrap" onclick="_sselScanClick('${fieldId}')" title="مسح بالكاميرا">📷</button></div>`;
 }
 function _sselFilter(fieldId){
   const data=_sselData[fieldId];
@@ -1073,7 +1106,7 @@ function _sselFilter(fieldId){
   const q=(document.getElementById(fieldId+'_search')?.value||'').trim();
   const list=document.getElementById(fieldId+'_list');
   if(!list)return;
-  const matches=q?data.options.filter(o=>o.label.includes(q)):data.options;
+  const matches=q?data.options.filter(o=>o.label.includes(q)||(o.code&&o.code.includes(q))):data.options;
   if(matches.length===0){
     list.innerHTML=`<div class="ssel-empty">لا توجد نتائج</div>`;
   }else{
@@ -1093,6 +1126,169 @@ function _sselPick(fieldId, optId){
   if(search)search.value=opt.label;
   if(list)list.style.display='none';
   if(data.onPickExtra)(new Function(data.onPickExtra))();
+}
+// دعم قارئ الباركود USB: بيدخل الأرقام كأنه لوحة مفاتيح وبيبعت Enter في الآخر.
+// لو النص المكتوب مطابق تمامًا لباركود صنف موجود، نختاره فورًا من غير ما ننتظر ضغطة تانية
+function _sselKeydown(ev, fieldId){
+  if(ev.key!=='Enter') return;
+  const data=_sselData[fieldId];
+  if(!data) return;
+  const q=(document.getElementById(fieldId+'_search')?.value||'').trim();
+  if(!q) return;
+  const exact=data.options.find(o=>o.code && o.code===q);
+  if(exact){
+    ev.preventDefault();
+    _sselPick(fieldId, exact.id);
+  }
+}
+
+// ============================================================
+// المرحلة الثانية — مسح الباركود بالكاميرا
+// إضافة مستقلة تمامًا فوق أي حقل باركود موجود، من غير ما تغيّر شكله أو
+// سلوكه القديم (كتابة يدوية أو قارئ USB لسه شغالين زي ما هما بالظبط).
+// مكتبة القراءة بتتحمّل مرة واحدة بس أول ما حد يضغط زرار المسح، عشان لو
+// حد أصلًا مش هيستخدم الخاصية دي، سرعة وموثوقية التطبيق تفضل زي ما هي
+// من غير أي تأثير. لو مفيش نت وقت أول استخدام، بتظهر رسالة واضحة والباقي
+// (الكتابة اليدوية وقارئ الـUSB) يفضل شغال عادي.
+// ============================================================
+let _bcsStream=null, _bcsTimer=null, _bcsDetector=null, _bcsLibState='idle', _bcsOnResult=null; // idle | loading | ready | failed
+const BCS_LIB_URLS=[
+  'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@0.9.15/dist/index.js',
+  'https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@0.9.21/dist/index.js'
+];
+function _bcsLoadScript(src){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src=src; s.onload=()=>resolve(); s.onerror=()=>reject(new Error('load-failed'));
+    document.head.appendChild(s);
+  });
+}
+// لو المتصفح بيدعم قراءة الباركود أصلًا (زي كروم أندرويد) منحملش أي حاجة زيادة من النت
+async function _bcsEnsureLib(){
+  if(window.BarcodeDetector){ _bcsLibState='ready'; return true; }
+  if(_bcsLibState==='ready') return true;
+  if(_bcsLibState==='failed') return false;
+  try{
+    _bcsLibState='loading';
+    for(const url of BCS_LIB_URLS){ await _bcsLoadScript(url); }
+    if(!window.BarcodeDetector && window.barcodeDetectorPolyfill && window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill){
+      window.BarcodeDetector=window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill;
+    }
+    if(!window.BarcodeDetector) throw new Error('polyfill-missing');
+    _bcsLibState='ready';
+    return true;
+  }catch(e){
+    _bcsLibState='failed';
+    return false;
+  }
+}
+async function openCameraBarcodeScanner(onResult){
+  _bcsOnResult=onResult;
+  const modal=document.getElementById('barcodeScanModal');
+  const statusEl=document.getElementById('barcodeScanStatus');
+  const video=document.getElementById('barcodeScanVideo');
+  if(!modal||!video) return;
+  modal.style.display='flex';
+  statusEl.textContent='بنجهّز الكاميرا...';
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    statusEl.textContent='المتصفح ده مش بيدعم فتح الكاميرا من صفحة الويب.';
+    showToast('❌ المتصفح ده مش بيدعم فتح الكاميرا من صفحة الويب');
+    return;
+  }
+  try{
+    _bcsStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false});
+  }catch(e){
+    try{
+      _bcsStream=await navigator.mediaDevices.getUserMedia({video:true, audio:false});
+    }catch(e2){
+      const msg=(e2&&e2.name==='NotAllowedError')?'لازم توافق على استخدام الكاميرا من إعدادات المتصفح':
+                 (e2&&e2.name==='NotFoundError')?'مفيش كاميرا متاحة على الجهاز ده':'تعذر فتح الكاميرا';
+      statusEl.textContent=msg;
+      showToast('❌ '+msg);
+      return;
+    }
+  }
+  video.srcObject=_bcsStream;
+  try{ await video.play(); }catch(e){}
+  statusEl.textContent='بنحمّل خاصية قراءة الباركود...';
+  const libOk=await _bcsEnsureLib();
+  if(!libOk){
+    statusEl.textContent='محتاج اتصال بالإنترنت أول مرة تستخدم فيها مسح الكاميرا.';
+    showToast('❌ محتاج اتصال بالإنترنت أول مرة تستخدم فيها مسح الكاميرا بالباركود');
+    closeCameraBarcodeScanner();
+    return;
+  }
+  const wantedFormats=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','code_93','codabar','itf','qr_code'];
+  try{
+    _bcsDetector=new window.BarcodeDetector({formats:wantedFormats});
+  }catch(e){
+    try{ _bcsDetector=new window.BarcodeDetector(); }
+    catch(e2){
+      statusEl.textContent='تعذر تشغيل خاصية قراءة الباركود على المتصفح ده.';
+      showToast('❌ تعذر تشغيل خاصية قراءة الباركود على المتصفح ده');
+      closeCameraBarcodeScanner();
+      return;
+    }
+  }
+  statusEl.textContent='وجّه الكاميرا ناحية الباركود...';
+  _bcsTimer=setInterval(async ()=>{
+    if(!_bcsDetector||!video.videoWidth) return;
+    try{
+      const codes=await _bcsDetector.detect(video);
+      if(codes && codes.length>0){
+        const value=(codes[0].rawValue||'').trim();
+        if(value){
+          if(navigator.vibrate){ try{ navigator.vibrate(80); }catch(e){} }
+          const cb=_bcsOnResult;
+          closeCameraBarcodeScanner();
+          if(cb) cb(value);
+        }
+      }
+    }catch(e){ /* فريم مش واضح — بيتجاهل ويجرب تاني في الفريم اللي بعده */ }
+  }, 320);
+}
+function closeCameraBarcodeScanner(){
+  const modal=document.getElementById('barcodeScanModal');
+  const video=document.getElementById('barcodeScanVideo');
+  if(_bcsTimer){ clearInterval(_bcsTimer); _bcsTimer=null; }
+  if(_bcsStream){ _bcsStream.getTracks().forEach(t=>t.stop()); _bcsStream=null; }
+  if(video) video.srcObject=null;
+  _bcsDetector=null;
+  _bcsOnResult=null;
+  if(modal) modal.style.display='none';
+}
+// زرار المسح جوه مكوّن searchableSelectHtml (فواتير/مشتريات/إنتاج) — بيدور على
+// صنف بنفس الباركود المتسجل عليه بالظبط، بنفس منطق قارئ الـUSB تمامًا
+function _sselScanClick(fieldId){
+  openCameraBarcodeScanner(function(code){ _sselApplyScannedCode(fieldId, code); });
+}
+function _sselApplyScannedCode(fieldId, code){
+  const data=_sselData[fieldId];
+  if(!data) return;
+  const exact=data.options.find(o=>o.code && o.code===code);
+  if(exact){
+    _sselPick(fieldId, exact.id);
+  }else{
+    const search=document.getElementById(fieldId+'_search');
+    if(search){ search.value=code; _sselFilter(fieldId); }
+    showToast('⚠️ الباركود ده مش متسجل على أي صنف بعد');
+  }
+}
+// زرار المسح في حقل باركود المنتج (شاشة إضافة/تعديل صنف)
+function _scanIntoBarcodeField(){
+  openCameraBarcodeScanner(function(code){
+    const inp=document.getElementById('p_barcode');
+    if(inp) inp.value=code;
+    productFormDraft.barcode=code;
+  });
+}
+// زرار المسح في مربع البحث بشاشة المخزون
+function _scanIntoStockSearch(){
+  openCameraBarcodeScanner(function(code){
+    stockListSearch=code;
+    renderStock();
+    document.getElementById('stock_search_input')?.focus();
+  });
 }
 
 
@@ -2226,7 +2422,7 @@ function renderGlobalSearchResults(q){
 
   const matchedClients=clients.filter(c=>c.name.toLowerCase().includes(ql)||(c.phone||'').includes(q)||(c.area||'').toLowerCase().includes(ql)).slice(0,6);
   const matchedSuppliers=suppliers.filter(s=>s.name.toLowerCase().includes(ql)||(s.phone||'').includes(q)).slice(0,6);
-  const matchedProducts=stock.filter(p=>p.name.toLowerCase().includes(ql)).slice(0,6);
+  const matchedProducts=stock.filter(p=>p.name.toLowerCase().includes(ql)||(p.barcode||'').toLowerCase().includes(ql)).slice(0,6);
   const matchedInvoices=invoices.filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return String(inv.number).includes(q)||(c&&c.name.toLowerCase().includes(ql));
@@ -2650,6 +2846,12 @@ function renderClients(){
 function isDuplicateName(list,name,excludeId){
   const n=name.trim().toLowerCase();
   return list.some(x=>x.id!==excludeId&&(x.name||'').trim().toLowerCase()===n);
+}
+// عشان نمنع (بتحذير قابل للتجاوز، مش منع تام) نفس الباركود يتسجل على صنفين مختلفين بالغلط
+function isDuplicateBarcode(list,barcode,excludeId){
+  const b=(barcode||'').trim();
+  if(!b) return false;
+  return list.some(x=>x.id!==excludeId&&(x.barcode||'').trim()===b);
 }
 
 function addClient(){
@@ -3337,7 +3539,7 @@ function renderInvoices(){
   const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   let linesHtml=invLines.map(l=>{
-    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
+    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
     const bonusQty=Number(l.bonus)||0;
@@ -3955,7 +4157,7 @@ function renderReturns(){
   }).join('');
 
   let linesHtml=retLines.map(l=>{
-    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
+    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
@@ -4303,8 +4505,8 @@ async function printStockSummaryPdf(){
 }
 
 function renderStockOverview(){
-  const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
-  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch))
+  const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch)||(p.barcode||'').includes(stockListSearch))
     .filter(p=>stockCategoryFilter==='all'?true:stockCategoryFilter==='raw'?isRawCategory(p):!isRawCategory(p));
   let items=filteredStock.map(p=>{
     const qty=stockQty(p.id);
@@ -4339,7 +4541,8 @@ function renderStockOverview(){
       </div>
     </div>
     <div class="search-row" style="align-items:center">
-      <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${esc(stockListSearch)}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
+      <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث بالاسم أو الباركود..." value="${esc(stockListSearch)}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
+      <button class="btn-sm blue" onclick="_scanIntoStockSearch()" title="مسح بالكاميرا">📷</button>
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
     <div class="btn-row" style="margin-bottom:10px">
@@ -4365,6 +4568,14 @@ function renderStockOverview(){
             <select id="p_category" onchange="productFormDraft.category=this.value">
               ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${dv('category',editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
             </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">🏷️ الباركود — اختياري</div>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="p_barcode" style="flex:1" placeholder="امسح الباركود أو اكتبه يدويًا" value="${esc(dv('barcode',editingP?(editingP.barcode||''):''))}" oninput="productFormDraft.barcode=this.value">
+              <button type="button" class="btn-sm blue" onclick="_scanIntoBarcodeField()" title="مسح بالكاميرا">📷</button>
+            </div>
           </div>
         </div>
         <div class="form-row">
@@ -4462,6 +4673,7 @@ function saveProduct(){
   const unit=document.getElementById('p_unit')?.value||'وحدة';
   const manufacturer=document.getElementById('p_manufacturer')?.value.trim()||'';
   const activeIngredient=document.getElementById('p_active')?.value.trim()||'';
+  const barcode=document.getElementById('p_barcode')?.value.trim()||'';
   const price=Number(document.getElementById('p_price')?.value||0);
   const costPrice=Number(document.getElementById('p_cost_price')?.value||0);
   const category=document.getElementById('p_category')?.value||'finished';
@@ -4471,23 +4683,31 @@ function saveProduct(){
   if(editProductId){
     const p=stock.find(p=>p.id===editProductId);
     if(!p){editProductId=null;showProductForm=false;renderStock();return;}
-    p.name=name; p.unit=unit; p.category=category;
-    if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
-    if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
-    if(price>0)p.price=price; else delete p.price;
-    if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
-    if(lowStockThreshold>0)p.lowStockThreshold=lowStockThreshold; else delete p.lowStockThreshold;
-    if(validSubUnits.length>0)p.subUnits=validSubUnits; else delete p.subUnits;
-    // لو الصنف ده ليه رصيد افتتاحي (كمية) واتضاف/اتعدّل سعر التكلفة، نصحح قيد الافتتاحية بالقيمة الجديدة (أو نسجله لأول مرة لو كان ناقص)
-    const openingMov=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
-    removeJournalBySource('stockOpening', p.id);
-    if(openingMov && costPrice>0){
-      postJournal('stockOpening', p.id, openingMov.date, 'رصيد افتتاحي مخزون - '+name,
-        [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
+    const _applyEdit=function(){
+      p.name=name; p.unit=unit; p.category=category;
+      if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
+      if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
+      if(barcode)p.barcode=barcode; else delete p.barcode;
+      if(price>0)p.price=price; else delete p.price;
+      if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
+      if(lowStockThreshold>0)p.lowStockThreshold=lowStockThreshold; else delete p.lowStockThreshold;
+      if(validSubUnits.length>0)p.subUnits=validSubUnits; else delete p.subUnits;
+      // لو الصنف ده ليه رصيد افتتاحي (كمية) واتضاف/اتعدّل سعر التكلفة، نصحح قيد الافتتاحية بالقيمة الجديدة (أو نسجله لأول مرة لو كان ناقص)
+      const openingMov=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
+      removeJournalBySource('stockOpening', p.id);
+      if(openingMov && costPrice>0){
+        postJournal('stockOpening', p.id, openingMov.date, 'رصيد افتتاحي مخزون - '+name,
+          [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
+      }
+      save();
+      editProductId=null; showProductForm=false; productSubUnits=[]; productFormDraft={};
+      renderStock();
+    };
+    if(barcode && isDuplicateBarcode(stock,barcode,editProductId)){
+      showConfirm('الباركود ده متسجل بالفعل على صنف تاني، تحب تكمل؟', _applyEdit);
+    }else{
+      _applyEdit();
     }
-    save();
-    editProductId=null; showProductForm=false; productSubUnits=[]; productFormDraft={};
-    renderStock();
     return;
   }
   const openingQty=Number(document.getElementById('p_opening_qty')?.value||0);
@@ -4497,6 +4717,7 @@ function saveProduct(){
     const newProduct={id:uid(),name,unit,category};
     if(manufacturer)newProduct.manufacturer=manufacturer;
     if(activeIngredient)newProduct.activeIngredient=activeIngredient;
+    if(barcode)newProduct.barcode=barcode;
     if(price>0)newProduct.price=price;
     if(costPrice>0)newProduct.costPrice=costPrice;
     if(lowStockThreshold>0)newProduct.lowStockThreshold=lowStockThreshold;
@@ -4511,11 +4732,18 @@ function saveProduct(){
     }
     save();showProductForm=false;productSubUnits=[];productFormDraft={};renderStock();
   }
-  if(openingQty>0 && costPrice<=0){
-    showConfirm('من غير سعر التكلفة، الكمية دي مش هتظهر في تقاريرك المالية (ميزان المراجعة والميزانية). تحب تكمل من غيرها؟', _commitNewProduct);
-    return;
+  function _afterBarcodeCheck(){
+    if(openingQty>0 && costPrice<=0){
+      showConfirm('من غير سعر التكلفة، الكمية دي مش هتظهر في تقاريرك المالية (ميزان المراجعة والميزانية). تحب تكمل من غيرها؟', _commitNewProduct);
+      return;
+    }
+    _commitNewProduct();
   }
-  _commitNewProduct();
+  if(barcode && isDuplicateBarcode(stock,barcode)){
+    showConfirm('الباركود ده متسجل بالفعل على صنف تاني، تحب تكمل؟', _afterBarcodeCheck);
+  }else{
+    _afterBarcodeCheck();
+  }
 }
 function deleteProduct(id){
   showConfirm('هتحذف المنتج ده؟', function(){
@@ -4645,8 +4873,8 @@ function deleteProduction(id){
 }
 function renderProduction(){
   const outputId=document.getElementById('prod_output')?.value||'';
-  const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`}));
-  const inputOptsArr=stock.filter(p=>isRawCategory(p)&&p.id!==outputId).map(p=>({id:p.id,label:p.name,sub:`${productCategoryLabel(p.category)} — الرصيد: ${stockQty(p.id)} ${p.unit}`}));
+  const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const inputOptsArr=stock.filter(p=>isRawCategory(p)&&p.id!==outputId).map(p=>({id:p.id,label:p.name,sub:`${productCategoryLabel(p.category)} — الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   const linesHtml=prodInputLines.map(l=>{
     const cost=l.productId?productAvgCost(l.productId):0;
     const lineTotal=cost*(Number(l.qty)||0);
@@ -6396,7 +6624,7 @@ function renderPurchases(){
   let formHtml='';
   if(showPurForm){
     let linesHtml=purchaseLines.map(l=>{
-      const stockOptsArr=stock.map(p=>({id:p.id,label:p.name}));
+      const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:p.barcode?`🏷️ ${p.barcode}`:'',code:p.barcode||''}));
       const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
       const lineTotal=Number(l.qty)*afterDiscount;
       const bonusQty=Number(l.bonus)||0;
@@ -6879,7 +7107,7 @@ function renderPurReturns(){
   }).join('');
 
   let linesHtml=purRetLines.map(l=>{
-    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`}));
+    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
