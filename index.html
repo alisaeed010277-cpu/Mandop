@@ -7771,6 +7771,71 @@ function _activate(dCode){
   }
 }
 
+// ============================================================
+// زرار/إيماءة الرجوع في الموبايل — بيقفل المودالز وشاشات التفاصيل
+// المفتوحة خطوة بخطوة (بدل ما يقفل التطبيق على طول من أول ضغطة)،
+// وبيحتاج ضغطتين متتاليتين عشان يقفل التطبيق فعليًا لما مفيش أي
+// حاجة مفتوحة. إضافة مستقلة بالكامل: مبتلمسش أي زرار أو دالة إغلاق
+// موجودة، بس بتراقب نفس متغيرات الحالة الموجودة أصلًا في التطبيق.
+// ============================================================
+let __backExitArmed=false;
+let __backExitTimer=null;
+
+function _pushBackGuard(){
+  try{ history.pushState({__navGuard:true}, '', location.href); }catch(e){}
+}
+
+// بيقفل أعلى "طبقة" مفتوحة دلوقتي: المودالز الأول (لأنها فوق كل حاجة
+// بصريًا)، وبعدين شاشات تفاصيل التابات. بيرجع true لو قفل حاجة فعلًا
+function _closeTopmostBackLayer(){
+  if(document.getElementById('barcodeScanModal')?.style.display==='flex'){ closeCameraBarcodeScanner(); return true; }
+  if(document.getElementById('confirmModal')?.style.display==='flex'){ _confirmModalClose(false); return true; }
+  if(document.getElementById('alertModal')?.style.display==='flex'){ document.getElementById('alertModal').style.display='none'; return true; }
+  if(document.getElementById('globalSearchModal')?.style.display==='flex'){ closeGlobalSearch(); return true; }
+  if(document.getElementById('moreTabsModal')?.style.display==='flex'){ document.getElementById('moreTabsModal').style.display='none'; return true; }
+  if(document.getElementById('syncModal')?.style.display==='flex'){ document.getElementById('syncModal').style.display='none'; return true; }
+  if(document.getElementById('tabOrderModal')?.style.display==='flex'){ document.getElementById('tabOrderModal').style.display='none'; return true; }
+  if(document.getElementById('pinModal')?.style.display==='flex'){ document.getElementById('pinModal').style.display='none'; return true; }
+  if(document.getElementById('exportModal')?.style.display==='flex'){ document.getElementById('exportModal').style.display='none'; return true; }
+
+  if(invDetailId){ goBackFromInvDetail(); return true; }
+  if(retDetailId){ goBackFromRetDetail(); return true; }
+  if(purDetailId){ goBackFromPurDetail(); return true; }
+  if(purRetDetailId){ goBackFromPurRetDetail(); return true; }
+  if(clientDetailId){ clientDetailId=null; renderClients(); return true; }
+  if(supplierDetailId){ supplierDetailId=null; renderSuppliers(); return true; }
+  if(payDetailId){ payDetailId=null; renderPayments(); return true; }
+  if(stockDetailId){ stockDetailId=null; renderStock(); return true; }
+  if(supPayTabDetailId){ supPayTabDetailId=null; renderSupPayTab(); return true; }
+  if(bankAccountDetailId){ bankAccountDetailId=null; renderBanks(); return true; }
+
+  return false;
+}
+
+window.addEventListener('popstate', function(){
+  // شاشة التفعيل أو قفل الـ PIN شاشات أمان — من غير تدخل من زرار الرجوع
+  if(document.getElementById('lockScreen') || document.getElementById('pinLockScreen')) return;
+
+  if(_closeTopmostBackLayer()){
+    _pushBackGuard(); // نجهّز الـ guard تاني عشان الضغطة الجاية تشتغل برضه
+    return;
+  }
+
+  // مفيش حاجة مفتوحة نقفلها = المستخدم بيحاول يخرج من التطبيق فعليًا
+  if(!__backExitArmed){
+    __backExitArmed=true;
+    showToast('اضغط رجوع مرة كمان للخروج', {type:'warn', duration:2000});
+    _pushBackGuard(); // نمسك ضغطة تانية خلال المهلة الجاية
+    __backExitTimer=setTimeout(()=>{ __backExitArmed=false; }, 2000);
+  } else {
+    // ضغطة تانية خلال المهلة: سيبها تقفل التطبيق فعليًا (من غير guard جديد)
+    clearTimeout(__backExitTimer);
+    __backExitArmed=false;
+  }
+});
+
+_pushBackGuard(); // أول guard بعد تحميل الصفحة، عشان أول ضغطة رجوع تستهلكه
+
 // تسجيل السيرفس ووركر لتفعيل تثبيت التطبيق كأيقونة مستقلة (PWA)
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
