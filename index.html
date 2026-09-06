@@ -1060,7 +1060,7 @@ function searchableSelectHtml(fieldId, options, placeholder, selectedId, onPickE
   const sel=options.find(o=>o.id===selectedId);
   return `<div class="ssel-wrap">
     <input type="text" class="ssel-input" id="${fieldId}_search" placeholder="${placeholder}" autocomplete="off"
-      value="${sel?sel.label.replace(/"/g,'&quot;'):''}"
+      value="${sel?esc(sel.label):''}"
       oninput="_sselFilter('${fieldId}')" onfocus="_sselFilter('${fieldId}')"
       onblur="setTimeout(()=>{const l=document.getElementById('${fieldId}_list');if(l)l.style.display='none';},200)">
     <input type="hidden" id="${fieldId}" value="${selectedId||''}">
@@ -1077,7 +1077,7 @@ function _sselFilter(fieldId){
   if(matches.length===0){
     list.innerHTML=`<div class="ssel-empty">لا توجد نتائج</div>`;
   }else{
-    list.innerHTML=matches.slice(0,100).map(o=>`<div class="ssel-item" onmousedown="_sselPick('${fieldId}','${o.id}')"><div>${o.label}</div>${o.sub?`<div class="sub">${o.sub}</div>`:''}</div>`).join('');
+    list.innerHTML=matches.slice(0,100).map(o=>`<div class="ssel-item" onmousedown="_sselPick('${fieldId}','${o.id}')"><div>${esc(o.label)}</div>${o.sub?`<div class="sub">${esc(o.sub)}</div>`:''}</div>`).join('');
   }
   list.style.display='block';
 }
@@ -1454,6 +1454,10 @@ function seedAccountingIfNeeded(){
 
 let _id=Date.now();
 const uid=()=>(++_id).toString(36);
+// تأمين أي نص بيدخله المستخدم (اسم عميل/مورد/منتج، ملاحظة، إلخ) قبل حقنه داخل HTML —
+// بيمنع إن علامات HTML أو أكواد غريبة يدخلها حد بالغلط أو قصدًا تفسد شكل الصفحة أو تنفّذ كأكواد.
+// آمن للاستخدام سواء جوه نص عادي أو جوه قيمة attribute بين علامات تنصيص.
+const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
 // بيرجع رقم المستند الجديد (فاتورة مبيعات/مشتريات) بشكل ميتكررش أبدًا حتى لو
 // اتمسحت فواتير قبل كده - بياخد الأكبر بين (أعلى رقم موجود فعليًا في المصفوفة
@@ -1465,7 +1469,9 @@ function nextDocNumber(existingArr, counterKey){
   docNumberCounters[counterKey] = base+1;
   return base+1;
 }
-const today=()=>new Date().toISOString().slice(0,10);
+// تاريخ اليوم/أي تاريخ بالتوقيت المحلي للجهاز (بدل UTC)، عشان ميحصلش اختلاف يوم كامل حوالين منتصف الليل
+const toLocalDateStr=(d)=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const today=()=>toLocalDateStr(new Date());
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 // تنسيق كميات مخزون ممكن تكون كسور (لما نبيع بالتجزئة) من غير ما تظهر أرقام عشرية غريبة بسبب حسابات الفاصلة العائمة
 const fmtQty=(n)=>{
@@ -1477,7 +1483,7 @@ const fmtQty=(n)=>{
 // (بيحل مشكلة فاتورتين في نفس اليوم بفارق دقايق — الترتيب بينهم بيبقى مظبوط دايمًا)
 const tsKey=(r)=>(r.date||'')+'T'+(r.createdAt||'');
 function lineDetailText(l){
-  const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId||'—';
+  const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId||'—');
   const afterDiscount=l.price*(1-(l.discount||0)/100);
   const lineTotal=(l.qty||0)*afterDiscount;
   const extras=[];
@@ -1560,7 +1566,7 @@ function lineMainBonus(l){ return (Number(l.bonus)||0)/lineUnitFactor(l); }
 function lineUnitLabel(l){
   const p=stock.find(s=>s.id===l.productId);
   const su=getSubUnit(l.productId,l.saleUnit);
-  return su?su.name:(p?.unit||'');
+  return esc(su?su.name:(p?.unit||''));
 }
 // بيجيب الكميات مقسمة على تواريخ الصلاحية
 const stockBatches=(pid)=>{
@@ -2209,12 +2215,12 @@ function renderGlobalSearchResults(q){
   const box=document.getElementById('globalSearchResults');
   if(!q){ box.innerHTML='<div class="gs-empty" style="text-align:center;color:#AAB7B8;padding:20px 0">اكتب عشان تبدأ البحث...</div>'; return; }
   const ql=q.toLowerCase();
-  const secHtml=(title,rowsHtml)=>rowsHtml?`<div style="margin-bottom:10px"><div class="gs-sec-title" style="font-weight:bold;color:#7D8B94;margin-bottom:2px">${title}</div>${rowsHtml}</div>`:'';
+  const secHtml=(title,rowsHtml)=>rowsHtml?`<div style="margin-bottom:10px"><div class="gs-sec-title" style="font-weight:bold;color:#7D8B94;margin-bottom:2px">${esc(title)}</div>${rowsHtml}</div>`:'';
   const rowHtml=(icon,title,sub,onclick)=>`<div style="display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #F2F3F4;cursor:pointer" onclick="${onclick}">
       <div class="gs-icon">${icon}</div>
       <div style="flex:1;min-width:0">
-        <div class="gs-row-title" style="font-weight:bold;color:#1C2833;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div>
-        ${sub?`<div class="gs-row-sub" style="color:#909497">${sub}</div>`:''}
+        <div class="gs-row-title" style="font-weight:bold;color:#1C2833;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(title)}</div>
+        ${sub?`<div class="gs-row-sub" style="color:#909497">${esc(sub)}</div>`:''}
       </div>
     </div>`;
 
@@ -2257,7 +2263,7 @@ function renderCompanyBar(){
     bar.innerHTML=`
       <div onclick="openCompanyModal()" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;opacity:.9">
         ${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:18px;height:18px;border-radius:4px;object-fit:cover">`:''}
-        <span><strong>${companyProfile.name}</strong>${companyProfile.phone?' — '+companyProfile.phone:''}${companyProfile.taxNumber?' — رقم ضريبي: '+companyProfile.taxNumber:''} ✏️</span>
+        <span><strong>${esc(companyProfile.name)}</strong>${companyProfile.phone?' — '+esc(companyProfile.phone):''}${companyProfile.taxNumber?' — رقم ضريبي: '+esc(companyProfile.taxNumber):''} ✏️</span>
       </div>`;
   }else{
     bar.innerHTML=`<div onclick="openCompanyModal()" style="cursor:pointer;font-size:11px;opacity:.85;text-decoration:underline">+ أضف بيانات شركتك</div>`;
@@ -2282,9 +2288,9 @@ function openCompanyModal(){
         <input type="file" accept="image/*" style="display:none" onchange="_handleLogoUpload(this)">
       </label>
       ${companyProfile.logo?`<div onclick="_removeLogo()" class="cm-small" style="text-align:center;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
-      <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${companyProfile.name||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
-      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${companyProfile.phone||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
-      <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${companyProfile.taxNumber||''}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
+      <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${esc(companyProfile.name||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
+      <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${esc(companyProfile.phone||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
+      <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${esc(companyProfile.taxNumber||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveCompanyProfile()" class="cm-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -2344,7 +2350,7 @@ function openOpeningBalanceModal(type, id){
   modal.innerHTML=`
     <div class="mini-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
       <div class="mini-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px;text-align:center">✏️ تعديل الرصيد الافتتاحي</div>
-      <div class="mini-sub" style="color:#717D7E;margin-bottom:14px;text-align:center">${item.name}</div>
+      <div class="mini-sub" style="color:#717D7E;margin-bottom:14px;text-align:center">${esc(item.name)}</div>
       <div class="lbl">الرصيد الافتتاحي (ج)</div>
       <input id="openingAmountInput" type="number" min="0" value="${item.opening||0}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
       <div class="lbl">تاريخ الرصيد الافتتاحي</div>
@@ -2379,7 +2385,7 @@ function openEditNameModal(type, id){
     <div class="mini-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
       <div class="mini-title" style="font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">✏️ تعديل اسم ${type==='client'?'العميل':'المورد'}</div>
       <div class="lbl">الاسم</div>
-      <input id="editNameInput" type="text" value="${item.name}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
+      <input id="editNameInput" type="text" value="${esc(item.name)}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('editNameModal').remove()" class="mini-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveEditedName('${type}','${id}')" class="mini-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -2443,7 +2449,7 @@ function supplierSummaryData(from,to){
 
 function renderHome(){
   const lowStock=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p));
-  let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${p.name}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
+  let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(p.name)}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
 
   const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
 
@@ -2468,7 +2474,7 @@ function renderClientSummaryReportBlock(){
   const clientRows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
     return `<tr onclick="clientDetailId='${c.id}';switchTab('clients')" style="cursor:pointer">
-      <td style="font-weight:bold">${c.name}</td>
+      <td style="font-weight:bold">${esc(c.name)}</td>
       <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td style="text-align:center;color:#1A5276">${sales>0?fmt(sales):'—'}</td>
       <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
@@ -2520,7 +2526,7 @@ function renderSupplierSummaryReportBlock(){
   const supplierRows=supSummaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
     return `<tr onclick="supplierDetailId='${sup.id}';switchTab('suppliers')" style="cursor:pointer">
-      <td style="font-weight:bold">${sup.name}</td>
+      <td style="font-weight:bold">${esc(sup.name)}</td>
       <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td style="text-align:center;color:#1A5276">${purch>0?fmt(purch):'—'}</td>
       <td style="text-align:center;color:#D68910">${ret>0?fmt(ret):'—'}</td>
@@ -2568,7 +2574,7 @@ function renderSupplierSummaryReportBlock(){
 // تنبيه الشيكات المستحقة خلال 7 أيام (كان في الرئيسية، دلوقتي فوق تبويب البنوك)
 function renderDueSoonChecksBlock(){
   const soon=new Date(); soon.setDate(soon.getDate()+7);
-  const soonStr=soon.toISOString().slice(0,10);
+  const soonStr=toLocalDateStr(soon);
   const dueSoon=[
     ...checksPayable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'دفع'})),
     ...checksReceivable.filter(c=>c.status==='pending'&&c.dueDate<=soonStr).map(c=>({...c,kind:'قبض'}))
@@ -2577,7 +2583,7 @@ function renderDueSoonChecksBlock(){
   const dueRows=dueSoon.map(c=>{
     const overdue=c.dueDate<today();
     return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;cursor:pointer" onclick="banksSubView='${c.kind==='دفع'?'payable':'receivable'}';renderBanks()">
-      <span>${checkHolderDisplay(c)} — شيك ${c.kind} #${c.number}</span>
+      <span>${esc(checkHolderDisplay(c))} — شيك ${c.kind} #${c.number}</span>
       <span style="color:${overdue?'#C0392B':'#D68910'};font-weight:bold">${fmt(c.amount)} ج (${c.dueDate}${overdue?' متأخر':''})</span>
     </div>`;
   }).join('');
@@ -2598,7 +2604,7 @@ function renderClients(){
     const balLbl=bal>0?'مستحق':bal<0?'له رصيد':'صافي';
     return `<div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${c.name}</div><div class="list-item-sub">${c.area?'📍 '+c.area:''}${c.phone?' • 📞 '+c.phone:''}</div></div>
+        <div><div class="list-item-name">${esc(c.name)}</div><div class="list-item-sub">${c.area?'📍 '+esc(c.area):''}${c.phone?' • 📞 '+esc(c.phone):''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${balColor}">${fmt(Math.abs(bal))} ج</div><div class="list-item-bal-lbl">${balLbl}</div></div>
       </div>
       <div class="list-item-actions">
@@ -2633,7 +2639,7 @@ function renderClients(){
       </div>
     </div>`:''}
     <div class="search-row" style="align-items:center">
-      <input type="text" id="client_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${clientSearch}" oninput="searchInputHandler(this,v=>clientSearch=v,renderClients)">
+      <input type="text" id="client_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(clientSearch)}" oninput="searchInputHandler(this,v=>clientSearch=v,renderClients)">
       ${!showClientForm?`<button class="btn green" onclick="showClientForm=true;renderClients()">+ عميل جديد</button>`:''}
       ${clients.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص العملاء PDF</button>`:''}
     </div>
@@ -2722,13 +2728,13 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
   const smallAppLogo = `<svg width="14" height="14" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><defs><linearGradient id="pgf" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pgf)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
   const companyBlock = companyProfile.name ? `
       <div style="text-align:right">
-        <div class="doc-title">${companyProfile.name}</div>
-        ${companyProfile.phone?`<div style="font-size:12px;color:#717D7E;margin-top:2px">${companyProfile.phone}</div>`:''}
-        ${companyProfile.taxNumber?`<div style="font-size:12px;color:#717D7E;margin-top:2px">رقم ضريبي: ${companyProfile.taxNumber}</div>`:''}
+        <div class="doc-title">${esc(companyProfile.name)}</div>
+        ${companyProfile.phone?`<div style="font-size:12px;color:#717D7E;margin-top:2px">${esc(companyProfile.phone)}</div>`:''}
+        ${companyProfile.taxNumber?`<div style="font-size:12px;color:#717D7E;margin-top:2px">رقم ضريبي: ${esc(companyProfile.taxNumber)}</div>`:''}
       </div>` : `<div class="doc-title">صديقك المحاسبي</div>`;
   return `<div class="doc-header">
       <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
-      <div class="doc-meta">${title}</div>
+      <div class="doc-meta">${esc(title)}</div>
     </div>
     ${bodyHtml}
     <div class="doc-footer" style="display:flex;align-items:center;gap:5px;justify-content:flex-start;direction:ltr;text-align:left">
@@ -2741,7 +2747,7 @@ function printDocument(title, bodyHtml){
   const logoSvg = `<svg width="60" height="60" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
   const win = window.open('', '_blank');
   if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع أو تحفظ PDF'); return; }
-  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${title}</title>
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${esc(title)}</title>
   <style>${DOC_STYLE}</style></head><body>
     ${buildDocInnerHtml(title, bodyHtml, logoSvg)}
     <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
@@ -2976,7 +2982,7 @@ async function printClientsSummaryPdf(from,to){
   const {rows:summaryRows,totals}=clientSummaryData(from||'',to||'');
   const rows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     return `<tr>
-      <td>${c.name}</td>
+      <td>${esc(c.name)}</td>
       <td>${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td>${sales>0?fmt(sales):'—'}</td>
       <td>${ret>0?fmt(ret):'—'}</td>
@@ -3012,7 +3018,7 @@ async function printSuppliersSummaryPdf(from,to){
   const {rows:summaryRows,totals}=supplierSummaryData(from||'',to||'');
   const rows=summaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
     return `<tr>
-      <td>${sup.name}</td>
+      <td>${esc(sup.name)}</td>
       <td>${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td>${purch>0?fmt(purch):'—'}</td>
       <td>${ret>0?fmt(ret):'—'}</td>
@@ -3068,7 +3074,7 @@ async function printClientStatement(cid){
     running += debit - credit;
     const detail=(ev.type==='invoice'||ev.type==='return')?linesDetailHtml(ev.lines):'';
     return `<tr>
-      <td>${ev.date}</td><td>${ev.label}${detail}</td>
+      <td>${ev.date}</td><td>${esc(ev.label)}${detail}</td>
       <td>${debit?fmt(debit):'—'}</td>
       <td>${credit?fmt(credit):'—'}</td>
       <td>${fmt(running)}</td>
@@ -3077,8 +3083,8 @@ async function printClientStatement(cid){
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
   const body=`
     <div class="doc-info">
-      <div><strong>العميل:</strong> ${c.name}</div>
-      ${c.phone?`<div><strong>الهاتف:</strong> ${c.phone}</div>`:''}
+      <div><strong>العميل:</strong> ${esc(c.name)}</div>
+      ${c.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
       <div><strong>تاريخ الكشف:</strong> ${today()}</div>
     </div>
     <div class="doc-summary">
@@ -3111,7 +3117,7 @@ function renderClientDetail(){
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=events.map(ev=>`<tr ${ev.type==='invoice'?`onclick="openInvoiceFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:ev.type==='return'?`onclick="openReturnFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:''}>
     <td>${ev.date}${ev.type==='invoice'||ev.type==='return'?' 👁':''}</td>
-    <td>${ev.type==='opening'?`<span class="badge orange">${ev.label}</span>`:ev.label}</td>
+    <td>${ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label)}</td>
     <td style="color:#C0392B;font-weight:bold">${ev.type==='invoice'||ev.type==='opening'||ev.type==='refund'?fmt(ev.amount):'—'}</td>
     <td style="color:#1E8449;font-weight:bold">${ev.type==='payment'||ev.type==='return'?fmt(ev.amount):'—'}</td>
   </tr>`).join('');
@@ -3120,7 +3126,7 @@ function renderClientDetail(){
   document.getElementById('tab-clients').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="clientDetailId=null;showClientNoteForm=false;renderClients()">← رجوع</button>
-      <div class="page-title">كشف حساب: ${c.name}</div>
+      <div class="page-title">كشف حساب: ${esc(c.name)}</div>
     </div>
     <div class="summary">
       <div class="sum-card blue"><div class="sum-num">${fmt(totalInv)}</div><div class="sum-lbl">إجمالي الفواتير</div></div>
@@ -3155,7 +3161,7 @@ function renderClientDetail(){
           ${[...clientNotes].filter(n=>n.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
             <div class="list-item" style="background:#FEF9E7">
               <div class="list-item-head">
-                <div><div class="list-item-name">${n.text}</div><div class="list-item-sub">📅 ${n.date}</div></div>
+                <div><div class="list-item-name">${esc(n.text)}</div><div class="list-item-sub">📅 ${n.date}</div></div>
                 ${n.amount?`<div class="list-item-bal"><div class="list-item-bal-num" style="color:#B7950B">${fmt(n.amount)} ج</div></div>`:''}
               </div>
               <div class="list-item-actions">
@@ -3230,7 +3236,7 @@ function renderReturnDetail(){
   if(!ret){retDetailId=null;renderReturns();return;}
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
     return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
@@ -3241,7 +3247,7 @@ function renderReturnDetail(){
     </div>
     <div class="card">
       <div class="card-body">
-        <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
+        <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
@@ -3257,13 +3263,13 @@ async function printReturn(retId){
   if(!ret)return;
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
     return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
-      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
+      <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
@@ -3278,7 +3284,7 @@ async function printReturnsSummaryPdf(from,to){
   const total=filtered.reduce((s,r)=>s+r.total,0);
   const rows=filtered.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
-    return `<tr><td>${r.number}</td><td>${c?.name||'—'}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
+    return `<tr><td>${r.number}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -3319,7 +3325,7 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${inv.number}</td><td style="white-space:nowrap">${c?.name||'—'}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
+      <td>${inv.number}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
@@ -3335,11 +3341,24 @@ function renderInvoices(){
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
     const bonusQty=Number(l.bonus)||0;
+    // تنبيه هامش الربح: بيقارن سعر البيع (بعد الخصم) بمتوسط سعر التكلفة المعروف للصنف، ومش بيظهر لو مفيش سعر تكلفة معروف أصلاً
+    let marginWarningHtml='';
+    if(l.productId && Number(l.qty)>0 && afterDiscount>0){
+      const costPerSaleUnit=productAvgCost(l.productId)/lineUnitFactor(l);
+      if(costPerSaleUnit>0){
+        const marginPct=(afterDiscount-costPerSaleUnit)/afterDiscount*100;
+        if(afterDiscount<=costPerSaleUnit){
+          marginWarningHtml=`<div class="bonus-box" style="background:#FDEDEC;border-color:#C0392B;color:#C0392B">⚠️ سعر البيع (${fmt(afterDiscount)} ج) أقل من أو يساوي سعر التكلفة (${fmt(costPerSaleUnit)} ج) — الصنف ده بيتباع بخسارة أو من غير أي ربح</div>`;
+        } else if(marginPct<10){
+          marginWarningHtml=`<div class="bonus-box" style="background:#FEF9E7;border-color:#D68910;color:#9C640C">⚠️ هامش الربح منخفض جدًا (${marginPct.toFixed(0)}%) — التكلفة ${fmt(costPerSaleUnit)} ج مقابل سعر بيع ${fmt(afterDiscount)} ج، يفضل تراجع سعر الصنف ده</div>`;
+        }
+      }
+    }
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
-          ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
+          ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
@@ -3354,7 +3373,7 @@ function renderInvoices(){
           <div class="lbl">وحدة البيع</div>
           <select onchange="updateLineUnit('${l.id}',this.value)">
             <option value="" ${!l.saleUnit?'selected':''}>${p.unit}</option>
-            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${u.name}</option>`).join('')}
+            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
           </select>
         </div>`:'';})()}
         <div class="form-group">
@@ -3392,6 +3411,7 @@ function renderInvoices(){
         ${l.discount>0?`✂️ خصم ${l.discount}% على السعر`:''}
         ${bonusQty>0?` &nbsp;🎁 ${bonusQty} ${lineUnitLabel(l)||'وحدة'} هدية (تُخصم من المخزن بدون حساب)`:''}
       </div>`:''}
+      ${marginWarningHtml}
     </div>`;
   }).join('');
   const subtotal=invLines.reduce((s,l)=>{
@@ -3439,7 +3459,7 @@ function renderInvoices(){
       </div>
     </div>`:''}
     <div class="search-row">
-      <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${invSearch}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
+      <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(invSearch)}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
       ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -3650,7 +3670,7 @@ async function printInvoice(invId){
   if(!inv)return;
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId;
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
     const uLabel=lineUnitLabel(l);
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
@@ -3664,7 +3684,7 @@ async function printInvoice(invId){
   }).join('');
   const body=`
     <div class="doc-info">
-      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
+      <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       <div><strong>رقم الفاتورة:</strong> #${inv.number}</div>
       <div><strong>التاريخ:</strong> ${inv.date}</div>
       ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
@@ -3681,7 +3701,7 @@ async function printInvoicesSummaryPdf(from,to){
   const total=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return `<tr><td>${inv.number}</td><td>${c?.name||'—'}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
+    return `<tr><td>${inv.number}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -3703,7 +3723,7 @@ function renderInvDetail(){
   if(!inv){invDetailId=null;renderInvoices();return;}
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId;
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
     const uLabel=lineUnitLabel(l);
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
@@ -3722,7 +3742,7 @@ function renderInvDetail(){
     </div>
     <div class="card">
       <div class="card-body">
-        <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
+        <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date} ${inv.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${inv.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${inv.overallDiscount}% على إجمالي الفاتورة (- ${fmt(inv.subtotal-inv.total)} ج) — الإجمالي قبل الخصم: ${fmt(inv.subtotal)} ج</div>`:''}
@@ -3744,7 +3764,7 @@ async function printCollectionsSummaryPdf(from,to){
   const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return `<tr><td>${p.date}</td><td>${c?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=sorted.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -3771,7 +3791,7 @@ function renderPayments(){
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
-      <td style="white-space:nowrap">${c?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
+      <td style="white-space:nowrap">${esc(c?.name||'—')}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
         <button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>
@@ -3834,11 +3854,11 @@ async function printPaymentReceipt(pid){
   const bal=c?clientBalance(c.id):0;
   const body=`
     <div class="doc-info">
-      <div><strong>العميل:</strong> ${c?.name||'—'}</div>
-      ${c?.phone?`<div><strong>الهاتف:</strong> ${c.phone}</div>`:''}
+      <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
+      ${c?.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
       <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
-      ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
+      ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
       <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المحصّل نقدًا</div></div>
@@ -3861,12 +3881,12 @@ function renderPaymentDetail(){
     </div>
     <div class="card">
       <div class="card-body">
-        <div style="margin-bottom:10px"><strong>العميل:</strong> ${c?.name||'—'}</div>
+        <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
         <div style="margin-bottom:10px"><strong>المبلغ المحصّل نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مسموح به:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
-        <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
+        <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
         </div>
@@ -3925,7 +3945,7 @@ function renderReturns(){
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
-      <td>${r.number}</td><td style="white-space:nowrap">${c?.name||'—'}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
+      <td>${r.number}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
       <td style="font-weight:bold;color:#1E8449;white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
@@ -3942,7 +3962,7 @@ function renderReturns(){
           <div class="lbl">المنتج</div>
           ${stock.length>0
             ?searchableSelectHtml(`retline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateRetLine('${l.id}','productId',document.getElementById('retline_${l.id}').value);updateRetLine('${l.id}','expiry','')`)
-            :`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updateRetLine('${l.id}','productName',this.value)">`}
+            :`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateRetLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
@@ -3957,7 +3977,7 @@ function renderReturns(){
           <div class="lbl">وحدة الإرجاع</div>
           <select onchange="updateRetLineUnit('${l.id}',this.value)">
             <option value="" ${!l.saleUnit?'selected':''}>${p.unit}</option>
-            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${u.name}</option>`).join('')}
+            ${subs.map(u=>`<option value="${u.id}" ${l.saleUnit===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
           </select>
         </div>`:'';})()}
         <div class="form-group">
@@ -4211,7 +4231,7 @@ function renderStockValueReport(){
     <div class="list-item">
       <div class="list-item-head">
         <div style="flex:1">
-          <div class="list-item-name">${r.p.name}${r.qty>0&&r.cost<=0?' <span style="color:#C0392B;font-size:10.5px">⚠️ من غير سعر تكلفة</span>':''}</div>
+          <div class="list-item-name">${esc(r.p.name)}${r.qty>0&&r.cost<=0?' <span style="color:#C0392B;font-size:10.5px">⚠️ من غير سعر تكلفة</span>':''}</div>
           <div class="list-item-sub">الكمية: ${fmtQty(r.qty)} ${r.p.unit} &nbsp;•&nbsp; متوسط التكلفة: ${fmt(r.cost)}</div>
         </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1A5276;font-size:18px">${fmt(r.value)}</div><div class="list-item-bal-lbl">قيمة</div></div>
@@ -4236,7 +4256,7 @@ async function printStockValuePdf(){
   }).sort((a,b)=>b.value-a.value);
   const grandTotal=rows.reduce((s,r)=>s+r.value,0);
   const tableRows=rows.map(r=>`<tr>
-      <td>${r.p.name}${r.qty>0&&r.cost<=0?' ⚠️':''}</td>
+      <td>${esc(r.p.name)}${r.qty>0&&r.cost<=0?' ⚠️':''}</td>
       <td>${r.p.unit}</td>
       <td>${fmtQty(r.qty)}</td>
       <td>${fmt(r.cost)}</td>
@@ -4260,7 +4280,7 @@ async function printStockSummaryPdf(){
     const batches=stockBatches(p.id);
     const batchTxt=batches.length>0?batches.map(([exp,q])=>`${exp}: ${q}`).join(' | '):'—';
     return `<tr>
-      <td>${p.name}</td>
+      <td>${esc(p.name)}</td>
       <td>${p.unit}</td>
       <td style="font-weight:bold;color:${qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449'}">${fmtQty(qty)}</td>
       <td>${p.price?fmt(p.price):'—'}</td>
@@ -4296,10 +4316,10 @@ function renderStockOverview(){
     return `<div class="list-item">
       <div class="list-item-head">
         <div style="flex:1">
-          <div class="list-item-name">${p.name}</div>
+          <div class="list-item-name">${esc(p.name)}</div>
           <div class="list-item-sub">وحدة: ${p.unit} &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span></div>
           ${p.lowStockThreshold>0?`<div style="margin-top:2px;font-size:10.5px;color:#2E86C1">🔔 حد تنبيه خاص: ${fmtQty(p.lowStockThreshold)} ${p.unit}</div>`:''}
-          ${(p.subUnits&&p.subUnits.length>0)?`<div style="margin-top:3px;font-size:10.5px;color:#8E44AD">🧩 ${p.subUnits.map(u=>`${fmtQty(qty*u.qtyPerUnit)} ${u.name}`).join(' &nbsp;|&nbsp; ')}</div>`:''}
+          ${(p.subUnits&&p.subUnits.length>0)?`<div style="margin-top:3px;font-size:10.5px;color:#8E44AD">🧩 ${p.subUnits.map(u=>`${fmtQty(qty*u.qtyPerUnit)} ${esc(u.name)}`).join(' &nbsp;|&nbsp; ')}</div>`:''}
           ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
         </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${qtyColor};font-size:20px">${fmtQty(qty)}</div><div class="list-item-bal-lbl">${p.unit}</div></div>
@@ -4319,7 +4339,7 @@ function renderStockOverview(){
       </div>
     </div>
     <div class="search-row" style="align-items:center">
-      <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${stockListSearch}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
+      <input type="text" id="stock_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${esc(stockListSearch)}" oninput="searchInputHandler(this,v=>stockListSearch=v,renderStock)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
     <div class="btn-row" style="margin-bottom:10px">
@@ -4335,9 +4355,9 @@ function renderStockOverview(){
       <div class="card-head ${editingP?'orange':'green'}">${editingP?'✏️ تعديل بيانات المنتج':'إضافة منتج جديد'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${dv('name',editingP?editingP.name:'')}" oninput="productFormDraft.name=this.value"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${esc(dv('name',editingP?editingP.name:''))}" oninput="productFormDraft.name=this.value"></div>
           <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
-            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${dv('unit',editingP?(editingP.unit||''):'')}" oninput="productFormDraft.unit=this.value">
+            <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${esc(dv('unit',editingP?(editingP.unit||''):''))}" oninput="productFormDraft.unit=this.value">
           </div>
         </div>
         <div class="form-row">
@@ -4351,8 +4371,8 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">🔔 حد تنبيه "قارب على النفاذ" لهذا الصنف — اختياري</div><input type="number" id="p_low_stock_threshold" min="0" step="any" placeholder="لو فاضي هيستخدم الحد العام (${lowStockDefault})" value="${dv('lowStockThreshold',editingP?(editingP.lowStockThreshold||''):'')}" oninput="productFormDraft.lowStockThreshold=this.value"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${dv('manufacturer',editingP?(editingP.manufacturer||''):'')}" oninput="productFormDraft.manufacturer=this.value"></div>
-          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${dv('activeIngredient',editingP?(editingP.activeIngredient||''):'')}" oninput="productFormDraft.activeIngredient=this.value"></div>
+          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${esc(dv('manufacturer',editingP?(editingP.manufacturer||''):''))}" oninput="productFormDraft.manufacturer=this.value"></div>
+          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${esc(dv('activeIngredient',editingP?(editingP.activeIngredient||''):''))}" oninput="productFormDraft.activeIngredient=this.value"></div>
         </div>
         ${editingP?'':`
         <div class="form-row">
@@ -4370,10 +4390,10 @@ function renderStockOverview(){
         ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
         <div class="divider"></div>
         <div class="section-title">🧩 بيع بالتجزئة (اختياري)</div>
-        <div style="font-size:11px;color:#717D7E;margin-bottom:8px">لو عايز تبيع أجزاء من "${editingP?(editingP.unit||'الوحدة الأساسية'):'الوحدة الأساسية اللي هتكتبها فوق'}" (زي حبة من العلبة، أو مل من العبوة)، ضيف وحدات البيع دي. المخزون هيفضل متسجل بالوحدة الأساسية زي ما هو، والنظام هيحول تلقائي. من غير ما تضيف حاجة هنا، الصنف هيفضل بيتباع بالوحدة الأساسية بس زي ما هو دلوقتي.</div>
+        <div style="font-size:11px;color:#717D7E;margin-bottom:8px">لو عايز تبيع أجزاء من "${editingP?esc(editingP.unit||'الوحدة الأساسية'):'الوحدة الأساسية اللي هتكتبها فوق'}" (زي حبة من العلبة، أو مل من العبوة)، ضيف وحدات البيع دي. المخزون هيفضل متسجل بالوحدة الأساسية زي ما هو، والنظام هيحول تلقائي. من غير ما تضيف حاجة هنا، الصنف هيفضل بيتباع بالوحدة الأساسية بس زي ما هو دلوقتي.</div>
         ${productSubUnits.map(u=>`
         <div class="form-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">اسم وحدة البيع</div><input type="text" placeholder="مثال: حبة" value="${u.name||''}" onchange="updateSubUnit('${u.id}','name',this.value)"></div>
+          <div class="form-group"><div class="lbl">اسم وحدة البيع</div><input type="text" placeholder="مثال: حبة" value="${esc(u.name||'')}" onchange="updateSubUnit('${u.id}','name',this.value)"></div>
           <div class="form-group"><div class="lbl">كام فيها الوحدة الأساسية؟</div><input type="number" min="0.0001" step="any" placeholder="مثال: 50" value="${u.qtyPerUnit||''}" onchange="updateSubUnit('${u.id}','qtyPerUnit',this.value)"></div>
           <div class="form-group"><div class="lbl">سعرها — اختياري</div><input type="number" min="0" placeholder="نسبي لو فاضي" value="${u.price||''}" onchange="updateSubUnit('${u.id}','price',this.value)"></div>
           <button class="btn red" style="padding:6px 10px" onclick="removeSubUnit('${u.id}')">✕</button>
@@ -4529,11 +4549,11 @@ function renderStockMovements(){
   const sorted=[...movements].sort((a,b)=>b.date.localeCompare(a.date));
   const rows=sorted.map(m=>{
     const p=stock.find(p=>p.id===m.productId);
-    return `<tr><td>${p?.name||'—'}</td><td>${m.date}</td>
+    return `<tr><td>${esc(p?.name||'—')}</td><td>${m.date}</td>
       <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد':'صادر'}</span></td>
       <td style="font-weight:bold">${fmtQty(m.qty)}</td>
       <td>${m.expiry||'—'}</td>
-      <td>${m.note||'—'}</td></tr>`;
+      <td>${esc(m.note||'—')}</td></tr>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
@@ -4657,14 +4677,14 @@ function renderProduction(){
     const cost=productionOutputCost(op);
     const inputNames=(op.inputs||[]).map(inp=>{
       const p=stock.find(s=>s.id===inp.productId);
-      return `${p?.name||'—'} (${inp.qty})`;
+      return `${esc(p?.name||'—')} (${inp.qty})`;
     }).join('، ');
     return `<div class="list-item">
       <div class="list-item-head">
         <div style="flex:1">
-          <div class="list-item-name">🏭 ${outP?.name||'—'} <span style="color:#717D7E;font-weight:normal">× ${op.outputQty}</span></div>
+          <div class="list-item-name">🏭 ${esc(outP?.name||'—')} <span style="color:#717D7E;font-weight:normal">× ${op.outputQty}</span></div>
           <div class="list-item-sub">من: ${inputNames}</div>
-          <div class="list-item-sub">${op.date}${op.note?' — '+op.note:''}</div>
+          <div class="list-item-sub">${op.date}${op.note?' — '+esc(op.note):''}</div>
         </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1E8449;font-size:16px">${fmt(cost)}</div><div class="list-item-bal-lbl">تكلفة الدفعة</div></div>
       </div>
@@ -4702,7 +4722,7 @@ function renderProduction(){
           <div class="form-group"><div class="lbl">تكلفة تصنيع إضافية (ج) — اختياري، زي أجور/تعبئة</div><input type="number" min="0" id="prod_extra_cost" placeholder="0.00" value="${document.getElementById('prod_extra_cost')?.value||''}" onchange="rerenderProductionFormKeepFields()"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="prod_note" value="${document.getElementById('prod_note')?.value||''}"></div>
+          <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="prod_note" value="${esc(document.getElementById('prod_note')?.value||'')}"></div>
         </div>
         <div class="bonus-box">
           💡 تكلفة الخامات: ${fmt(rawCostPreview)} ج${extraCostPreview>0?` + تكلفة إضافية: ${fmt(extraCostPreview)} ج`:''} = إجمالي التكلفة: <b>${fmt(totalCostPreview)} ج</b>
@@ -4726,12 +4746,12 @@ function renderStockDetail(){
   const rows=moves.map(m=>`<tr>
     <td>${m.date}</td>
     <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد ↓':'صادر ↑'}</span></td>
-    <td style="font-weight:bold">${fmtQty(m.qty)}</td><td>${m.note||'—'}</td>
+    <td style="font-weight:bold">${fmtQty(m.qty)}</td><td>${esc(m.note||'—')}</td>
   </tr>`).join('');
   document.getElementById('tab-stock').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="stockDetailId=null;renderStock()">← رجوع</button>
-      <div class="page-title">حركة مخزن: ${p.name}</div>
+      <div class="page-title">حركة مخزن: ${esc(p.name)}</div>
     </div>
     <div class="summary">
       <div class="sum-card blue"><div class="sum-num">${stockQty(p.id)}</div><div class="sum-lbl">الرصيد الحالي (${p.unit})</div></div>
@@ -4962,7 +4982,7 @@ function renderExpenses(){
   if(expenseQuickFilter==='today'){ fromVal=today(); toVal=today(); }
   else if(expenseQuickFilter==='week'){
     const d=new Date(); d.setDate(d.getDate()-6);
-    fromVal=d.toISOString().slice(0,10); toVal=today();
+    fromVal=toLocalDateStr(d); toVal=today();
   }
   else if(expenseQuickFilter==='month'){ fromVal=defFrom; toVal=defTo; }
   else if(expenseQuickFilter==='all'){ fromVal='0000-01-01'; toVal='9999-12-31'; }
@@ -4981,7 +5001,7 @@ function renderExpenses(){
   const rows=filtered.map(e=>`
     <div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${e.label}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}</div></div>
+        <div><div class="list-item-name">${esc(e.label)}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#C0392B">${fmt(e.amount)} ج</div></div>
       </div>
       <div class="list-item-actions">
@@ -5073,7 +5093,7 @@ function renderExpenses(){
             ${[...repNotes].sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
               <div class="list-item" style="background:#FEF9E7">
                 <div class="list-item-head">
-                  <div><div class="list-item-name">${n.text}</div><div class="list-item-sub">📅 ${n.date}</div></div>
+                  <div><div class="list-item-name">${esc(n.text)}</div><div class="list-item-sub">📅 ${n.date}</div></div>
                   ${n.amount?`<div class="list-item-bal"><div class="list-item-bal-num" style="color:#B7950B">${fmt(n.amount)} ج</div></div>`:''}
                 </div>
                 <div class="list-item-actions">
@@ -5182,13 +5202,13 @@ function renderTreasury(){
   const inRows=incoming.length?incoming.map(x=>`
     <div class="tr-item">
       <div class="tr-date">${x.date}</div>
-      <div class="tr-label">${x.label}${x.note?` <span class="tr-note">(${x.note})</span>`:''}</div>
+      <div class="tr-label">${esc(x.label)}${x.note?` <span class="tr-note">(${esc(x.note)})</span>`:''}</div>
       <div class="tr-amount in">+ ${fmt(x.amount)}</div>
     </div>`).join(''):`<div class="tr-empty">لا توجد عمليات وارد في هذا اليوم</div>`;
   const outRows=outgoing.length?outgoing.map(x=>`
     <div class="tr-item">
       <div class="tr-date">${x.date}</div>
-      <div class="tr-label">${x.label}<span class="tr-note"> (${x.note})</span></div>
+      <div class="tr-label">${esc(x.label)}<span class="tr-note"> (${esc(x.note)})</span></div>
       <div class="tr-amount out">- ${fmt(x.amount)}</div>
     </div>`).join(''):`<div class="tr-empty">لا توجد عمليات صادر في هذا اليوم</div>`;
 
@@ -5234,8 +5254,8 @@ function renderTreasury(){
 }
 async function printTreasuryPdf(){
   const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=treasuryData(treasuryDate);
-  const inRows=incoming.map(x=>`<tr><td>${x.date}</td><td>${x.label}${x.note?` (${x.note})`:''}</td><td style="color:#1E8449;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
-  const outRows=outgoing.map(x=>`<tr><td>${x.date}</td><td>${x.label} (${x.note})</td><td style="color:#C0392B;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const inRows=incoming.map(x=>`<tr><td>${x.date}</td><td>${esc(x.label)}${x.note?` (${esc(x.note)})`:''}</td><td style="color:#1E8449;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const outRows=outgoing.map(x=>`<tr><td>${x.date}</td><td>${esc(x.label)} (${esc(x.note)})</td><td style="color:#C0392B;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
   const body=`
     <div class="doc-info">
       <div><strong>اليوم:</strong> ${day}</div>
@@ -5274,15 +5294,15 @@ function renderPriceList(){
   const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   const rows=filtered.map(p=>`
     <div class="pl-row">
-      <div class="pl-name">${p.name}${(p.subUnits&&p.subUnits.length>0)?`<div style="font-size:9.5px;color:#8E44AD;font-weight:normal">🧩 ${p.subUnits.map(u=>u.name+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</div>`:''}</div>
-      <input type="text" class="pl-manu" value="${p.manufacturer||''}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">
-      <input type="text" class="pl-active" value="${p.activeIngredient||''}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">
+      <div class="pl-name">${esc(p.name)}${(p.subUnits&&p.subUnits.length>0)?`<div style="font-size:9.5px;color:#8E44AD;font-weight:normal">🧩 ${p.subUnits.map(u=>esc(u.name)+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</div>`:''}</div>
+      <input type="text" class="pl-manu" value="${esc(p.manufacturer||'')}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">
+      <input type="text" class="pl-active" value="${esc(p.activeIngredient||'')}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">
       <div class="pl-unit">${p.unit}</div>
       <input type="number" class="pl-price" min="0" value="${p.price||''}" placeholder="0" onchange="updateProductPrice('${p.id}',this.value)">
     </div>`).join('');
   document.getElementById('tab-pricelist').innerHTML=`
     <div class="search-row" style="align-items:center">
-      <input type="text" id="pricelist_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${pricelistSearch}" oninput="searchInputHandler(this,v=>pricelistSearch=v,renderPriceList)">
+      <input type="text" id="pricelist_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث عن صنف..." value="${esc(pricelistSearch)}" oninput="searchInputHandler(this,v=>pricelistSearch=v,renderPriceList)">
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printPriceListPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال قائمة الأسعار PDF</button>`:''}
     </div>
     <div class="card">
@@ -5298,7 +5318,7 @@ function renderPriceList(){
 }
 async function printPriceListPdf(){
   const sorted=[...stock].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  const rows=sorted.map(p=>`<tr><td>${p.name}${(p.subUnits&&p.subUnits.length>0)?`<br><small style="color:#8E44AD">🧩 ${p.subUnits.map(u=>u.name+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</small>`:''}</td><td>${p.manufacturer||'—'}</td><td>${p.activeIngredient||'—'}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
+  const rows=sorted.map(p=>`<tr><td>${esc(p.name)}${(p.subUnits&&p.subUnits.length>0)?`<br><small style="color:#8E44AD">🧩 ${p.subUnits.map(u=>esc(u.name)+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</small>`:''}</td><td>${esc(p.manufacturer||'—')}</td><td>${esc(p.activeIngredient||'—')}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ القائمة:</strong> ${today()}</div>
@@ -5525,12 +5545,12 @@ function renderAccountForm(editingAcc){
             <span style="font-size:11px;color:#2E86C1;cursor:pointer;font-weight:normal" onclick="toggleBankAccCustomName()">${bankAccUseCustomName?'↩ اختار من القايمة':'✎ بنك تاني؟'}</span>
           </div>
           ${bankAccUseCustomName
-            ?`<input type="text" id="bankacc_bank_custom" placeholder="اكتب اسم البنك..." value="${editingAcc&&bankAccUseCustomName?editingAcc.bankName:''}">`
+            ?`<input type="text" id="bankacc_bank_custom" placeholder="اكتب اسم البنك..." value="${editingAcc&&bankAccUseCustomName?esc(editingAcc.bankName):''}">`
             :searchableSelectHtml('bankacc_bank', bankOpts, '🔍 دور على البنك...', (editingAcc&&!bankAccUseCustomName)?editingAcc.bankName:'')}
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><div class="lbl">رقم الحساب *</div><input type="text" id="bankacc_number" placeholder="رقم الحساب" value="${editingAcc?editingAcc.accountNumber:''}"></div>
+        <div class="form-group"><div class="lbl">رقم الحساب *</div><input type="text" id="bankacc_number" placeholder="رقم الحساب" value="${editingAcc?esc(editingAcc.accountNumber):''}"></div>
         <div class="form-group"><div class="lbl">رصيد أول المدة</div><input type="number" id="bankacc_opening" placeholder="0" value="${editingAcc?(editingAcc.opening||''):''}"></div>
       </div>
       <div class="btn-row">
@@ -5545,13 +5565,13 @@ function renderAccountDetail(acc){
   const tx=bankAccountTransactions(acc.id);
   const rows=tx.map(t=>`<div class="tr-item">
       <div class="tr-date">${t.date}</div>
-      <div class="tr-label">${t.label}<span class="tr-note"> (${t.note})</span></div>
+      <div class="tr-label">${esc(t.label)}<span class="tr-note"> (${esc(t.note)})</span></div>
       <div class="tr-amount ${t.type==='in'?'in':'out'}">${t.type==='in'?'+':'-'} ${fmt(t.amount)}</div>
     </div>`).join('');
   const balance=bankAccountBalance(acc.id);
   return `
     <div class="card" style="margin-bottom:14px">
-      <div class="card-head blue">🏦 ${acc.bankName} <span style="font-weight:normal;font-size:12px">— حساب رقم ${acc.accountNumber}</span></div>
+      <div class="card-head blue">🏦 ${esc(acc.bankName)} <span style="font-weight:normal;font-size:12px">— حساب رقم ${esc(acc.accountNumber)}</span></div>
       <div class="card-body">
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
           <div><div style="font-size:12px;color:#717D7E">رصيد أول المدة</div><div style="font-weight:bold">${fmt(acc.opening||0)} ج</div></div>
@@ -5587,7 +5607,7 @@ function renderBankAccounts(){
     const bal=bankAccountBalance(a.id);
     return `<div class="list-item" style="cursor:pointer" onclick="bankAccountDetailId='${a.id}';renderBanks()">
       <div class="list-item-head">
-        <div><div class="list-item-name">🏦 ${a.bankName}</div><div class="list-item-sub">رقم الحساب: ${a.accountNumber}</div></div>
+        <div><div class="list-item-name">🏦 ${esc(a.bankName)}</div><div class="list-item-sub">رقم الحساب: ${esc(a.accountNumber)}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${bal>=0?'#1E8449':'#C0392B'}">${fmt(bal)} ج</div></div>
       </div>
     </div>`;
@@ -5643,7 +5663,7 @@ function renderBanks(){
              <button class="btn-sm" style="background:${settlingDestination==='bank'?'#1A5276':'#D5D8DC'};color:${settlingDestination==='bank'?'#fff':'#333'}" onclick="setSettleDestination('bank')">🏦 حساب بنكي</button>
            </div>
            ${settlingDestination==='bank'&&bankAccounts.length>1?`<div class="form-group" style="margin-bottom:6px">${searchableSelectHtml('chk_dest_bank', bankAccounts.map(a=>({id:a.id,label:a.bankName+' - '+a.accountNumber})), '🔍 اختار الحساب...', settlingBankAccountId)}</div>`:''}
-           ${settlingDestination==='bank'&&bankAccounts.length===1?`<div style="font-size:12px;color:#717D7E;margin-bottom:6px">هيترمي في: ${bankAccountLabel(bankAccounts[0].id)}</div>`:''}
+           ${settlingDestination==='bank'&&bankAccounts.length===1?`<div style="font-size:12px;color:#717D7E;margin-bottom:6px">هيترمي في: ${esc(bankAccountLabel(bankAccounts[0].id))}</div>`:''}
            `:''}
            <div class="btn-row" style="margin:0 0 10px">
              <button class="btn-sm green" onclick="confirmSettleCheck('${c.id}')">✓ تأكيد</button>
@@ -5668,15 +5688,15 @@ function renderBanks(){
     return `<div class="list-item">
       <div class="list-item-head">
         <div>
-          <div class="list-item-name">${checkHolderDisplay(c)} ${overdue?'<span class="badge red">متأخر</span>':''}</div>
-          <div class="list-item-sub">🏦 ${c.bank} · شيك رقم #${c.number} · 📅 استحقاق ${c.dueDate}${c.status==='done'?` · ✅ ${c.settledDate} · ${c.destination==='bank'?'🏦 '+bankAccountLabel(c.bankAccountId):'💵 كاش'}`:''}</div>
+          <div class="list-item-name">${esc(checkHolderDisplay(c))} ${overdue?'<span class="badge red">متأخر</span>':''}</div>
+          <div class="list-item-sub">🏦 ${esc(c.bank)} · شيك رقم #${c.number} · 📅 استحقاق ${c.dueDate}${c.status==='done'?` · ✅ ${c.settledDate} · ${c.destination==='bank'?'🏦 '+esc(bankAccountLabel(c.bankAccountId)):'💵 كاش'}`:''}</div>
         </div>
         <div class="list-item-bal">
           <div class="list-item-bal-num" style="color:${isPayable?'#C0392B':'#1E8449'}">${fmt(c.amount)} ج</div>
           <div class="list-item-bal-lbl">${statusBadge}</div>
         </div>
       </div>
-      ${c.note?`<div style="padding:0 14px 6px;font-size:12px;color:#717D7E">📝 ${c.note}</div>`:''}
+      ${c.note?`<div style="padding:0 14px 6px;font-size:12px;color:#717D7E">📝 ${esc(c.note)}</div>`:''}
       ${actionsOrForm}
     </div>`;
   }).join(''):`<div class="empty">لا توجد شيكات ${banksStatusFilter!=='all'||banksSearch.trim()?'مطابقة':''}</div>`;
@@ -5692,7 +5712,7 @@ function renderBanks(){
       <div class="card-head ${editingChk?'orange':'green'}">${editingChk?'✏️ تعديل الشيك':'➕ إضافة '+(isPayable?'شيك دفع':'شيك قبض')+' جديد'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group"><div class="lbl">رقم الشيك *</div><input type="text" id="chk_number" placeholder="مثال: 123456" value="${editingChk?editingChk.number:''}"></div>
+          <div class="form-group"><div class="lbl">رقم الشيك *</div><input type="text" id="chk_number" placeholder="مثال: 123456" value="${editingChk?esc(editingChk.number):''}"></div>
           <div class="form-group"><div class="lbl">مبلغ الشيك *</div><input type="number" id="chk_amount" min="0" placeholder="0" value="${editingChk?editingChk.amount:''}"></div>
         </div>
         <div class="form-row">
@@ -5702,16 +5722,16 @@ function renderBanks(){
               <span style="font-size:11px;color:#2E86C1;cursor:pointer;font-weight:normal" onclick="toggleChkHolderMode()">${chkUseCustomHolder?'↩ اختار من القايمة':'✎ اسم يدوي؟'}</span>
             </div>
             ${chkUseCustomHolder
-              ?`<input type="text" id="chk_holder_custom" placeholder="اكتب الاسم..." value="${editingChk&&editingChk.holderType==='custom'?editingChk.holderName:''}">`
+              ?`<input type="text" id="chk_holder_custom" placeholder="اكتب الاسم..." value="${editingChk&&editingChk.holderType==='custom'?esc(editingChk.holderName):''}">`
               :searchableSelectHtml('chk_holder', holderOpts, isPayable?'🔍 دور على المورد...':'🔍 دور على العميل...', (editingChk&&editingChk.holderType!=='custom')?editingChk.holderId:'')}
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">البنك *</div><input type="text" id="chk_bank" placeholder="مثال: البنك الأهلي" value="${editingChk?editingChk.bank:''}"></div>
+          <div class="form-group"><div class="lbl">البنك *</div><input type="text" id="chk_bank" placeholder="مثال: البنك الأهلي" value="${editingChk?esc(editingChk.bank):''}"></div>
           <div class="form-group"><div class="lbl">تاريخ الاستحقاق *</div><input type="date" id="chk_due" value="${editingChk?editingChk.dueDate:''}"></div>
         </div>
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="chk_note" placeholder="..." value="${editingChk?(editingChk.note||''):''}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="chk_note" placeholder="..." value="${editingChk?esc(editingChk.note||''):''}"></div>
         </div>
         <div class="btn-row">
           <button class="btn ${editingChk?'orange':'green'}" onclick="saveCheck()">${editingChk?'✓ حفظ التعديل':'✓ حفظ الشيك'}</button>
@@ -5734,7 +5754,7 @@ function renderBanks(){
     </div>
 
     <div class="search-row" style="align-items:center;flex-wrap:wrap">
-      <input type="text" style="flex:1;min-width:140px;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px" placeholder="🔍 بحث برقم الشيك/الاسم/البنك..." value="${banksSearch}" oninput="searchInputHandler(this,v=>banksSearch=v,renderBanks)">
+      <input type="text" style="flex:1;min-width:140px;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px" placeholder="🔍 بحث برقم الشيك/الاسم/البنك..." value="${esc(banksSearch)}" oninput="searchInputHandler(this,v=>banksSearch=v,renderBanks)">
       ${arrAll.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printChecksPdf('${banksSubView}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير PDF</button>`:''}
     </div>
     <div class="btn-row" style="margin-bottom:12px">
@@ -5754,12 +5774,12 @@ async function printChecksPdf(subview){
   const destLabel=c=>c.status!=='done'?'—':(c.destination==='bank'?bankAccountLabel(c.bankAccountId):'كاش (الخزنة)');
   const rows=arr.map(c=>`<tr>
       <td>${c.number}</td>
-      <td>${checkHolderDisplay(c)}</td>
-      <td>${c.bank}</td>
+      <td>${esc(checkHolderDisplay(c))}</td>
+      <td>${esc(c.bank)}</td>
       <td>${c.dueDate}</td>
       <td style="font-weight:bold">${fmt(c.amount)}</td>
       <td>${statusLabel(c)}</td>
-      <td>${destLabel(c)}</td>
+      <td>${esc(destLabel(c))}</td>
     </tr>`).join('');
   const total=arr.reduce((s,c)=>s+c.amount,0);
   const body=`
@@ -5929,7 +5949,7 @@ function renderItemProfitabilityHtml(fromVal,toVal){
   const totalProfit=totalRevenue-totalCost;
   const sortBtn=(key,label)=>`<button class="btn-sm" style="background:${itemProfitSort===key?'#1A5276':'#D5D8DC'};color:${itemProfitSort===key?'#fff':'#333'}" onclick="itemProfitSort='${key}';renderReports()">${label}</button>`;
   const rowsHtml=rows.map(r=>`<tr>
-      <td>${r.name}${r.bonusQty>0.001?`<div style="font-size:10px;color:#AAB7B8">+${fmtQty(r.bonusQty)} بونص</div>`:''}</td>
+      <td>${esc(r.name)}${r.bonusQty>0.001?`<div style="font-size:10px;color:#AAB7B8">+${fmtQty(r.bonusQty)} بونص</div>`:''}</td>
       <td style="text-align:center;white-space:nowrap">${fmtQty(r.qty)} ${r.unit}</td>
       <td style="text-align:center">${fmt(r.revenue)}</td>
       <td style="text-align:center">${fmt(r.cost)}</td>
@@ -5981,7 +6001,7 @@ function renderGeneralLedgerHtml(){
     running+=r.debit-r.credit;
     return `<tr>
       <td>${r.date}</td>
-      <td style="font-size:12px">${r.description}</td>
+      <td style="font-size:12px">${esc(r.description)}</td>
       <td style="text-align:center">${r.debit>0?fmt(r.debit):'—'}</td>
       <td style="text-align:center">${r.credit>0?fmt(r.credit):'—'}</td>
       <td style="text-align:center;font-weight:bold;white-space:nowrap">${fmt(Math.abs(running))} ${running>=0?'م':'د'}</td>
@@ -6077,7 +6097,7 @@ function renderAgingReportBlock(){
   const rows=agingReportRows(today());
   const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
   const bodyRows=rows.map(r=>`<tr>
-      <td style="white-space:nowrap;font-weight:bold">${r.client.name}</td>
+      <td style="white-space:nowrap;font-weight:bold">${esc(r.client.name)}</td>
       ${r.buckets.map(b=>`<td style="text-align:center">${b>0?fmt(b):'—'}</td>`).join('')}
       <td style="text-align:center;font-weight:bold;color:#1A5276">${fmt(r.total)}</td>
     </tr>`).join('');
@@ -6107,7 +6127,7 @@ async function printAgingReportPdf(){
   const rows=agingReportRows(today());
   const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
   const bodyRows=rows.map(r=>`<tr>
-      <td>${r.client.name}</td>
+      <td>${esc(r.client.name)}</td>
       ${r.buckets.map(b=>`<td>${b>0?fmt(b):'—'}</td>`).join('')}
       <td style="font-weight:bold;color:#1A5276">${fmt(r.total)}</td>
     </tr>`).join('');
@@ -6137,7 +6157,7 @@ function renderSuppliers(){
     const balLbl=bal>0?'مستحق له':'له رصيد';
     return `<div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${s.name}</div><div class="list-item-sub">${s.phone?'📞 '+s.phone:''}${s.area?' • 📍 '+s.area:''}</div></div>
+        <div><div class="list-item-name">${esc(s.name)}</div><div class="list-item-sub">${s.phone?'📞 '+esc(s.phone):''}${s.area?' • 📍 '+esc(s.area):''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${balColor}">${fmt(Math.abs(bal))} ج</div><div class="list-item-bal-lbl">${balLbl}</div></div>
       </div>
       <div class="list-item-actions">
@@ -6167,7 +6187,7 @@ function renderSuppliers(){
       </div>
     </div>`:''}
     <div class="search-row" style="align-items:center">
-      <input type="text" id="supplier_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${supplierSearch}" oninput="searchInputHandler(this,v=>supplierSearch=v,renderSuppliers)">
+      <input type="text" id="supplier_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(supplierSearch)}" oninput="searchInputHandler(this,v=>supplierSearch=v,renderSuppliers)">
       ${!showSupplierForm?`<button class="btn green" onclick="showSupplierForm=true;renderSuppliers()">+ مورد جديد</button>`:''}
       ${suppliers.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص الموردين PDF</button>`:''}
     </div>
@@ -6236,7 +6256,7 @@ function renderSupplierDetail(){
       :m.type==='return'?`onclick="openPurRetFromSupplier('${m.id}','${s.id}')" style="cursor:pointer"`:'';
     return `<tr ${clickAttr}>
       <td>${m.date}${m.type==='purchase'||m.type==='return'?' 👁':''}</td>
-      <td>${m.desc}</td>
+      <td>${esc(m.desc)}</td>
       <td style="color:#C0392B">${m.type==='purchase'?fmt(m.amount):'—'}</td>
       <td style="color:#D68910">${m.type==='return'?fmt(m.amount):'—'}</td>
       <td style="color:#1E8449">${m.type==='payment'?fmt(m.amount):'—'}</td>
@@ -6247,9 +6267,9 @@ function renderSupplierDetail(){
   document.getElementById('tab-suppliers').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="supplierDetailId=null;renderSuppliers()">← رجوع</button>
-      <div class="page-title">كشف حساب: ${s.name}</div>
+      <div class="page-title">كشف حساب: ${esc(s.name)}</div>
     </div>
-    ${s.phone?`<div style="font-size:12px;color:#717D7E;margin-bottom:8px">📞 ${s.phone}</div>`:''}
+    ${s.phone?`<div style="font-size:12px;color:#717D7E;margin-bottom:8px">📞 ${esc(s.phone)}</div>`:''}
     <div class="summary">
       <div class="sum-card blue"><div class="sum-num">${fmt(totalPurchased)}</div><div class="sum-lbl">إجمالي المشتريات</div></div>
       <div class="sum-card green"><div class="sum-num">${fmt(totalPaid)}</div><div class="sum-lbl">إجمالي المدفوع</div></div>
@@ -6297,7 +6317,7 @@ async function printSupplierStatement(sid){
     running += debit - credit;
     const detail=(ev.type==='purchase'||ev.type==='return')?linesDetailHtml(ev.lines):'';
     return `<tr>
-      <td>${ev.date}</td><td>${ev.label}${detail}</td>
+      <td>${ev.date}</td><td>${esc(ev.label)}${detail}</td>
       <td>${debit?fmt(debit):'—'}</td>
       <td>${credit?fmt(credit):'—'}</td>
       <td>${fmt(running)}</td>
@@ -6306,8 +6326,8 @@ async function printSupplierStatement(sid){
   const balLbl=bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي';
   const body=`
     <div class="doc-info">
-      <div><strong>المورد:</strong> ${s.name}</div>
-      ${s.phone?`<div><strong>الهاتف:</strong> ${s.phone}</div>`:''}
+      <div><strong>المورد:</strong> ${esc(s.name)}</div>
+      ${s.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
       <div><strong>تاريخ الكشف:</strong> ${today()}</div>
     </div>
     <div class="doc-summary">
@@ -6363,7 +6383,7 @@ function renderPurchases(){
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td>${p.number}</td><td style="white-space:nowrap">${s?.name||'—'}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
+      <td>${p.number}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
@@ -6383,7 +6403,7 @@ function renderPurchases(){
       return `<div class="line-box">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المنتج</div>
-            ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
+            ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
           <div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>
         </div>
@@ -6460,7 +6480,7 @@ function renderPurchases(){
   document.getElementById('tab-purchases').innerHTML=`
     ${formHtml}
     <div class="search-row">
-      <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${purSearch}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
+      <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(purSearch)}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
       ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -6604,7 +6624,7 @@ function renderPurDetail(){
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${l.discount}%`);
     if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
-    return `<tr><td>${prod?.name||l.productName||'—'}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
+    return `<tr><td>${esc(prod?.name||l.productName||'—')}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
   }).join('');
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
@@ -6612,7 +6632,7 @@ function renderPurDetail(){
       <div class="page-title">فاتورة مشتريات #${pur.number}</div>
     </div>
     <div class="card">
-      <div style="margin-bottom:8px"><strong>المورد:</strong> ${s?.name||'—'}</div>
+      <div style="margin-bottom:8px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
       <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
       <div style="margin-bottom:10px"><strong>الإجمالي:</strong> <span style="color:#1A5276;font-weight:bold">${fmt(pur.total)} ج</span></div>
       <div class="tbl-wrap"><table>
@@ -6633,7 +6653,7 @@ async function printPurchase(purId){
   const s=suppliers.find(s=>s.id===pur.supplierId);
   const rows=(pur.lines||[]).map(l=>{
     const prod=stock.find(p=>p.id===l.productId);
-    const pName=prod?.name||l.productName||'—';
+    const pName=esc(prod?.name||l.productName||'—');
     const afterDiscount=l.price*(1-(l.discount||0)/100);
     const lineTotal=l.qty*afterDiscount;
     const extras=[];
@@ -6643,7 +6663,7 @@ async function printPurchase(purId){
   }).join('');
   const body=`
     <div class="doc-info">
-      <div><strong>المورد:</strong> ${s?.name||'—'}</div>
+      <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
       <div><strong>رقم الفاتورة:</strong> #${pur.number}</div>
       <div><strong>التاريخ:</strong> ${pur.date}</div>
       ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
@@ -6660,7 +6680,7 @@ async function printPurchasesSummaryPdf(from,to){
   const total=filtered.reduce((s,p)=>s+p.total,0);
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.number}</td><td>${s?.name||'—'}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
+    return `<tr><td>${p.number}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -6685,7 +6705,7 @@ async function printSupplierPaymentsSummaryPdf(){
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.date}</td><td>${s?.name||'—'}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${p.note||'—'}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -6709,7 +6729,7 @@ function renderSupPayTab(){
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td style="white-space:nowrap">${s?.name||'—'}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.note||'—'}</td>
+      <td style="white-space:nowrap">${esc(s?.name||'—')}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
         <button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
@@ -6773,10 +6793,10 @@ async function printSupplierPaymentReceipt(pid){
   const bal=s?supplierBalance(s.id):0;
   const body=`
     <div class="doc-info">
-      <div><strong>المورد:</strong> ${s?.name||'—'}</div>
-      ${s?.phone?`<div><strong>الهاتف:</strong> ${s.phone}</div>`:''}
+      <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
+      ${s?.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
-      ${p.note?`<div><strong>ملاحظة:</strong> ${p.note}</div>`:''}
+      ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
       <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المدفوع نقدًا</div></div>
@@ -6798,11 +6818,11 @@ function renderSupPayTabDetail(){
     </div>
     <div class="card">
       <div class="card-body">
-        <div style="margin-bottom:10px"><strong>المورد:</strong> ${s?.name||'—'}</div>
+        <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
         <div style="margin-bottom:10px"><strong>المبلغ المدفوع نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مكتسب:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
-        <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${p.note||'—'}</div>
+        <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للمورد</button>
         </div>
@@ -6849,7 +6869,7 @@ function renderPurReturns(){
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
     return `<tr>
-      <td>${r.number}</td><td>${s?.name||'—'}</td><td style="white-space:nowrap">${r.date}</td>
+      <td>${r.number}</td><td>${esc(s?.name||'—')}</td><td style="white-space:nowrap">${r.date}</td>
       <td style="font-weight:bold;color:#D68910;white-space:nowrap">${fmt(r.total)} ج</td>
       <td>
         <button class="btn-sm blue" onclick="purRetDetailId='${r.id}';renderPurReturns()">👁</button>
@@ -6864,7 +6884,7 @@ function renderPurReturns(){
       <div class="form-row">
         <div class="form-group" style="flex:2">
           <div class="lbl">المنتج</div>
-          ${stock.length>0?searchableSelectHtml(`purretline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurRetLine('${l.id}','productId',document.getElementById('purretline_${l.id}').value);updatePurRetLine('${l.id}','expiry','')`):`<input type="text" value="${l.productName}" placeholder="اسم المنتج" onchange="updatePurRetLine('${l.id}','productName',this.value)">`}
+          ${stock.length>0?searchableSelectHtml(`purretline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurRetLine('${l.id}','productId',document.getElementById('purretline_${l.id}').value);updatePurRetLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurRetLine('${l.id}','productName',this.value)">`}
         </div>
         ${l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
@@ -7000,7 +7020,7 @@ function renderPurRetDetail(){
   if(!ret){purRetDetailId=null;renderPurReturns();return;}
   const s=suppliers.find(s=>s.id===ret.supplierId);
   const rows=(ret.lines||[]).map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     return `<tr><td>${pName}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   document.getElementById('tab-purreturns').innerHTML=`
@@ -7010,7 +7030,7 @@ function renderPurRetDetail(){
     </div>
     <div class="card">
       <div class="card-body">
-        <div style="margin-bottom:10px"><strong>المورد:</strong> ${s?.name||'—'}</div>
+        <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الصلاحية</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#D68910">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
@@ -7026,12 +7046,12 @@ async function printPurchaseReturn(retId){
   if(!ret)return;
   const s=suppliers.find(s=>s.id===ret.supplierId);
   const rows=(ret.lines||[]).map(l=>{
-    const pName=l.productName||stock.find(p=>p.id===l.productId)?.name||'—';
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
-      <div><strong>المورد:</strong> ${s?.name||'—'}</div>
+      <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
       <div><strong>رقم المردود:</strong> #${ret.number}</div>
       <div><strong>التاريخ:</strong> ${ret.date}</div>
     </div>
