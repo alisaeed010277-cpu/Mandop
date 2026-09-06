@@ -2790,6 +2790,7 @@ function renderDueSoonChecksBlock(){
 let clientSearch='';
 let showClientForm=false;
 let clientDetailId=null;
+let clientStmtFromDate='',clientStmtToDate='';
 
 function renderClients(){
   if(clientDetailId){renderClientDetail();return;}
@@ -2892,7 +2893,7 @@ function deleteClient(id){
     save();renderClients();
   });
 }
-function openClientDetail(id){clientDetailId=id;renderClients();}
+function openClientDetail(id){clientDetailId=id;clientStmtFromDate='';clientStmtToDate='';renderClients();}
 
 // ===== توليد PDF ومشاركته مباشرة (بدون أي مكتبات خارجية — يفضل البرنامج شغال أوفلاين بالكامل) =====
 
@@ -3252,42 +3253,77 @@ async function printSuppliersSummaryPdf(from,to){
   await sendDocument('ملخص الموردين', body, `ملخص-الموردين${suffix}.pdf`);
 }
 
-async function printClientStatement(cid){
+// بيانات كشف حساب العميل — دالة واحدة مشتركة بين العرض على الشاشة وملف الـ PDF عشان يفضلوا متطابقين تمامًا
+// لو فيه "from" بيتحسب "رصيد أول المدة" (بنفس منطق clientSummaryData بالظبط) كرقم واحد مجمّع لكل الحركات قبل تاريخ البداية،
+// وبعدين الجدول بيتفلتر على حركات الفترة بس، والرصيد الجاري بيبدأ من رصيد أول المدة ده.
+// لو من غير from/to (زي ما كان الوضع قبل كده) بيرجع بالظبط نفس نتيجة clientBalance() في نهاية الجدول.
+function getClientStatementData(cid, from, to){
   const c=clients.find(c=>c.id===cid);
-  if(!c)return;
-  const bal=clientBalance(c.id);
+  if(!c) return null;
   const cInvoices=invoices.filter(i=>i.clientId===cid);
   const cPayments=payments.filter(p=>p.clientId===cid);
   const cReturns=returns.filter(r=>r.clientId===cid);
-  const totalInv=cInvoices.reduce((s,i)=>s+i.total,0);
-  const totalPaid=cPayments.reduce((s,p)=>s+p.amount,0);
-  const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
-  const events=[
-    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,lines:i.lines,createdAt:i.createdAt})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,lines:r.lines,createdAt:r.createdAt})),
-    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,createdAt:r.createdAt}))
+  const allEvents=[
+    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,lines:i.lines,createdAt:i.createdAt})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt})),
+    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
-  let running=0;
-  const rows=events.map(ev=>{
-    const debit=(ev.type==='invoice'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
-    const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
+  const evDebit=ev=>(ev.type==='invoice'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
+  const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
+  const carryForward=from?allEvents.filter(ev=>ev.date<from).reduce((s,ev)=>s+evDebit(ev)-evCredit(ev),0):0;
+  const periodEvents=allEvents.filter(ev=>(!from||ev.date>=from)&&(!to||ev.date<=to));
+  let running=carryForward;
+  const rows=periodEvents.map(ev=>{
+    const debit=evDebit(ev), credit=evCredit(ev);
     running += debit - credit;
-    const detail=(ev.type==='invoice'||ev.type==='return')?linesDetailHtml(ev.lines):'';
-    return `<tr>
-      <td>${ev.date}</td><td>${esc(ev.label)}${detail}</td>
-      <td>${debit?fmt(debit):'—'}</td>
-      <td>${credit?fmt(credit):'—'}</td>
-      <td>${fmt(running)}</td>
-    </tr>`;
-  }).join('');
+    return {...ev, debit, credit, running};
+  });
+  const totalInv=periodEvents.filter(ev=>ev.type==='invoice').reduce((s,ev)=>s+ev.amount,0);
+  const totalPaid=periodEvents.filter(ev=>ev.type==='payment').reduce((s,ev)=>s+ev.amount,0);
+  const totalRet=periodEvents.filter(ev=>ev.type==='return').reduce((s,ev)=>s+ev.amount,0);
+  const closingBalance=rows.length?rows[rows.length-1].running:carryForward;
+  return {c,rows,carryForward,totalInv,totalPaid,totalRet,closingBalance,showCarry:!!from};
+}
+// صف واحد في جدول كشف الحساب — تفاصيل الفاتورة/المرتجع (لو موجودة) ظاهرة على طول جوه نفس الصف.
+// clickable بتتفعّل بس في عرض الشاشة (مش في الـ PDF) عشان تفتح تفاصيل الفاتورة/المرتجع بالدوس عليها زي ما كان.
+function clientStatementRowHtml(ev, cid, clickable){
+  const detail=(ev.type==='invoice'||ev.type==='return')?linesDetailHtml(ev.lines):'';
+  const rowAttr=!clickable?'':ev.type==='invoice'?` onclick="openInvoiceFromClient('${ev.id}','${cid}')" style="cursor:pointer"`:ev.type==='return'?` onclick="openReturnFromClient('${ev.id}','${cid}')" style="cursor:pointer"`:'';
+  const eyeMark=clickable&&(ev.type==='invoice'||ev.type==='return')?' 👁':'';
+  const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
+  return `<tr${rowAttr}>
+    <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
+    <td>${label}${detail}</td>
+    <td style="color:#C0392B;font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
+    <td style="color:#1E8449;font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
+    <td style="font-weight:bold">${fmt(ev.running)}</td>
+  </tr>`;
+}
+function carryForwardRowHtml(from, amount){
+  return `<tr style="background:#F4F6F7">
+    <td style="white-space:nowrap">${from}</td>
+    <td><em>رصيد أول المدة</em></td>
+    <td>—</td>
+    <td>—</td>
+    <td style="font-weight:bold">${fmt(amount)}</td>
+  </tr>`;
+}
+
+async function printClientStatement(cid, from='', to=''){
+  const data=getClientStatementData(cid, from, to);
+  if(!data) return;
+  const {c,rows,carryForward,totalInv,totalPaid,totalRet,closingBalance,showCarry}=data;
+  const bal=closingBalance;
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
+  const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>clientStatementRowHtml(ev,c.id,false)).join('');
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c.name)}</div>
       ${c.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
       <div><strong>تاريخ الكشف:</strong> ${today()}</div>
+      ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
       <div class="doc-sum-box"><div class="n">${fmt(totalInv)}</div><div class="l">إجمالي الفواتير</div></div>
@@ -3295,36 +3331,20 @@ async function printClientStatement(cid){
       ${totalRet>0?`<div class="doc-sum-box"><div class="n">${fmt(totalRet)}</div><div class="l">إجمالي المرتجع</div></div>`:''}
       <div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${balLbl}</div></div>
     </div>
-    ${events.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}</tbody></table>`}
+    ${(rows.length===0&&!showCarry)?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>`}
     <div class="doc-total">${balLbl}: ${fmt(Math.abs(bal))} جنيه</div>`;
-  await sendDocument(`كشف حساب: ${c.name}`, body, `كشف-حساب-${c.name}.pdf`);
+  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
+  await sendDocument(`كشف حساب: ${c.name}`, body, `كشف-حساب-${c.name}${suffix}.pdf`);
 }
 
 function renderClientDetail(){
-  const c=clients.find(c=>c.id===clientDetailId);
-  if(!c){clientDetailId=null;renderClients();return;}
-  const bal=clientBalance(c.id);
-  const cInvoices=invoices.filter(i=>i.clientId===c.id);
-  const cPayments=payments.filter(p=>p.clientId===c.id);
-  const cReturns=returns.filter(r=>r.clientId===c.id);
-  const totalInv=cInvoices.reduce((s,i)=>s+i.total,0);
-  const totalPaid=cPayments.reduce((s,p)=>s+p.amount,0);
-  const totalRet=cReturns.reduce((s,r)=>s+r.total,0);
-  const events=[
-    ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,createdAt:i.createdAt})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,createdAt:r.createdAt})),
-    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
-  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
-  const rows=events.map(ev=>`<tr ${ev.type==='invoice'?`onclick="openInvoiceFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:ev.type==='return'?`onclick="openReturnFromClient('${ev.id}','${c.id}')" style="cursor:pointer"`:''}>
-    <td>${ev.date}${ev.type==='invoice'||ev.type==='return'?' 👁':''}</td>
-    <td>${ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label)}</td>
-    <td style="color:#C0392B;font-weight:bold">${ev.type==='invoice'||ev.type==='opening'||ev.type==='refund'?fmt(ev.amount):'—'}</td>
-    <td style="color:#1E8449;font-weight:bold">${ev.type==='payment'||ev.type==='return'?fmt(ev.amount):'—'}</td>
-  </tr>`).join('');
-  const balColor=bal>0?'#C0392B':'#1E8449';
+  const data=getClientStatementData(clientDetailId, clientStmtFromDate, clientStmtToDate);
+  if(!data){clientDetailId=null;renderClients();return;}
+  const {c,rows,carryForward,totalInv,totalPaid,totalRet,closingBalance,showCarry}=data;
+  const bal=closingBalance;
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
+  const hasFilter=!!(clientStmtFromDate||clientStmtToDate);
+  const tableRows=(showCarry?carryForwardRowHtml(clientStmtFromDate,carryForward):'')+rows.map(ev=>clientStatementRowHtml(ev,c.id,true)).join('');
   document.getElementById('tab-clients').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="clientDetailId=null;showClientNoteForm=false;renderClients()">← رجوع</button>
@@ -3336,12 +3356,22 @@ function renderClientDetail(){
       ${totalRet>0?`<div class="sum-card orange"><div class="sum-num">${fmt(totalRet)}</div><div class="sum-lbl">إجمالي المرتجع</div></div>`:''}
       <div class="sum-card ${bal>0?'red':'green'}"><div class="sum-num">${fmt(Math.abs(bal))}</div><div class="sum-lbl">${balLbl}</div></div>
     </div>
-    <div class="btn-row" style="margin-bottom:10px">
-      <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printClientStatement('${c.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-body" style="padding-bottom:10px">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="cstmt_from_date" value="${clientStmtFromDate}" onchange="clientStmtFromDate=this.value;renderClientDetail()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="cstmt_to_date" value="${clientStmtToDate}" onchange="clientStmtToDate=this.value;renderClientDetail()"></div>
+        </div>
+        <div class="btn-row">
+          ${hasFilter?`<button class="btn-outline" onclick="clientStmtFromDate='';clientStmtToDate='';renderClientDetail()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printClientStatement('${c.id}',clientStmtFromDate,clientStmtToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+        </div>
+        ${hasFilter?`<div style="font-size:11px;color:#717D7E;margin-top:6px">💡 الرصيد ده لغاية ${clientStmtToDate||'النهارده'}، ومش هيبقى نفس رصيد العميل الحالي لو فيه حركات بعد التاريخ ده</div>`:''}
+      </div>
     </div>
     <div class="card">
       <div class="card-head">📋 حركات الحساب</div>
-      ${events.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th></tr></thead><tbody>${rows}</tbody></table></div>`}
+      ${(rows.length===0&&!showCarry)?'<div class="empty">لا توجد حركات</div>':`<div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table></div>`}
     </div>
 
     <div class="card" style="margin-top:14px;border-right:4px solid #F1C40F">
