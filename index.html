@@ -1087,7 +1087,7 @@ function searchableSelectHtml(fieldId, options, placeholder, selectedId, onPickE
   // بس السلكت اللي بيختار من بين أصناف ليها باركود (فواتير/مرتجعات/مشتريات/إنتاج)
   // بيظهرله زرار مسح بالكاميرا. سلكت العملاء/الموردين/البنوك ما لهاش باركود
   // أصلًا، فبتفضل بالظبط زي ما كانت — صفر تغيير عليها.
-  const hasBarcodes=options.some(o=>o.code);
+  const hasBarcodes=options.some(o=>'code' in o);
   const inner=`<div class="ssel-wrap"${hasBarcodes?' style="flex:1;min-width:0"':''}>
     <input type="text" class="ssel-input" id="${fieldId}_search" placeholder="${placeholder}" autocomplete="off"
       value="${sel?esc(sel.label):''}"
