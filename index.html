@@ -54,6 +54,18 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .home-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
 .home-shortcut-btn{background:#1A5276;border:none;border-radius:12px;padding:12px 4px;color:#fff;font-size:10.5px;font-weight:bold;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;box-shadow:0 2px 6px rgba(0,0,0,.12);text-align:center;line-height:1.25;}
 .home-shortcut-btn:active{transform:scale(.96);}
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px;}
+.kpi-card{border-radius:12px;padding:12px 10px;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12);cursor:pointer;text-align:center;}
+.kpi-card:active{transform:scale(.96);}
+.kpi-card.blue{background:#1A5276;}
+.kpi-card.green{background:#1E8449;}
+.kpi-card.orange{background:#D68910;}
+.kpi-card.red{background:#C0392B;}
+.kpi-card.teal{background:#117864;}
+.kpi-card.gray{background:#616A6B;}
+.kpi-lbl{font-size:11px;opacity:.85;margin-bottom:4px;}
+.kpi-num{font-size:17px;font-weight:bold;}
+.kpi-sub{font-size:10px;opacity:.75;margin-top:4px;}
 .sum-card{flex:1;min-width:130px;border-radius:10px;padding:12px 14px;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12);}
 .sum-card.blue{background:#1A5276;}
 .sum-card.red{background:#C0392B;}
@@ -301,6 +313,13 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   /* ===== شورتكتس الرئيسية ===== */
   .home-shortcuts{grid-template-columns:repeat(8,1fr);gap:14px;margin-bottom:20px;}
   .home-shortcut-btn{padding:18px 6px;font-size:13px;border-radius:14px;gap:8px;}
+
+  /* ===== داشبورد الأرقام الرئيسية ===== */
+  .kpi-grid{grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:20px;}
+  .kpi-card{padding:16px 10px;border-radius:14px;}
+  .kpi-lbl{font-size:12px;}
+  .kpi-num{font-size:20px;}
+  .kpi-sub{font-size:11px;}
 
   /* ===== الفورمات ===== */
   .form-row{gap:12px;margin-bottom:12px;}
@@ -1438,51 +1457,164 @@ function accountBalance(accountId){
   return {totalDebit, totalCredit, debit: net>=0?net:0, credit: net<0?-net:0};
 }
 
-// متوسط تكلفة الصنف المرجح — بيتحسب من الصفر كل مرة من الرصيد الافتتاحي + كل فواتير الشراء بترتيبها الزمني، عشان يفضل صحيح حتى لو اتعدّلت أو اتمسحت فاتورة شراء قديمة (من غير ما نحتاج نخزن أو نصحح رقم متراكم)
-function productAvgCost(productId, _visiting){
-  const visiting=_visiting||new Set();
-  if(visiting.has(productId)) return 0; // حماية من دورة تصنيع دائرية (صنف بيدخل في تصنيع نفسه بشكل غير مباشر)
+// ============================================================
+// محرك تكلفة المخزون — متوسط مرجح متحرك (Moving Weighted Average) مربوط بالتاريخ
+// ------------------------------------------------------------
+// الفكرة: كل صنف بيتبني له "تايم لاين" واحد فيه كل حركة أثرت فيه (شراء/تصنيع
+// وارد/بيع/مرتجع بيع/مرتجع مشتريات/استهلاك تصنيع) مرتبة بتاريخها الفعلي.
+// بنمشي على التايم لاين ده بالترتيب: أي "وارد" (شراء/تصنيع/مرتجع بيع) بيغيّر
+// متوسط التكلفة (بيتخلط مع الكمية والقيمة المتبقية فعليًا وقتها). أي "صادر"
+// (بيع/مرتجع مشتريات/استهلاك تصنيع) بياخد التكلفة السارية في نفس اللحظة
+// ويخصمها من الكمية والقيمة، من غير ما يغيّر متوسط الوحدة نفسه.
+// ده بيحل مشكلتين كانوا موجودين في الطريقة القديمة:
+//  1) تكلفة فاتورة قديمة كانت بتتغيّر كل ما تتسجل فاتورة شراء جديدة (لأن
+//     المتوسط كان بيتحسب "دلوقتي" ويتطبق بأثر رجعي على كل الفواتير القديمة).
+//  2) المتوسط كان بيتحسب من إجمالي كل كمية اتشترت تاريخيًا، من غير ما يخصم
+//     اللي اتباع أو اترجع فعلاً — يعني مش متوسط متحرك حقيقي.
+// كل صنف بيتحسب مرة واحدة وبتتخزن نتيجته في ledgerCache المُمررة، عشان
+// نتجنب إعادة حساب نفس الصنف أكتر من مرة في نفس العملية (أداء أفضل من
+// الطريقة القديمة اللي كانت بتعيد المسح الكامل مع كل نداء).
+// visiting بتحمي من دورة تصنيع دائرية (صنف بيدخل في تصنيع نفسه بشكل غير مباشر)
+// بنفس فكرة الحماية اللي كانت موجودة في الكود الأصلي، وبترجع تكلفة صفر في هذه الحالة تحديدًا.
+function buildProductLedger(productId, ledgerCache, visiting){
+  if(ledgerCache.has(productId)) return ledgerCache.get(productId);
+  if(visiting.has(productId)) return [];
   visiting.add(productId);
   const p=stock.find(s=>s.id===productId);
-  if(!p){ visiting.delete(productId); return 0; }
-  let qty=0, value=0;
+  if(!p){ visiting.delete(productId); ledgerCache.set(productId,[]); return []; }
+
+  const events=[];
   const openingMov=movements.find(m=>m.productId===productId && m.note==='رصيد افتتاحي');
-  if(openingMov && p.costPrice>0){ qty=openingMov.qty; value=openingMov.qty*p.costPrice; }
-  const purLines=purchases
-    .flatMap(pur=>pur.lines.filter(l=>l.productId===productId).map(l=>({kind:'purchase',line:l,purDiscount:pur.overallDiscount||0,sortKey:(pur.date||'')+'|'+(pur.createdAt||'')})));
-  const prodLines=productions
-    .filter(op=>op.outputProductId===productId)
-    .map(op=>({kind:'production',op,sortKey:(op.date||'')+'|'+(op.createdAt||'')}));
-  const merged=[...purLines,...prodLines].sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
-  merged.forEach(item=>{
-    if(item.kind==='purchase'){
-      const l=item.line;
+  if(openingMov && p.costPrice>0){
+    events.push({sortKey:'', kind:'in', qty:Number(openingMov.qty)||0, value:(Number(openingMov.qty)||0)*p.costPrice});
+  }
+  purchases.forEach(pur=>{
+    (pur.lines||[]).forEach(l=>{
+      if(l.productId!==productId) return;
       const addedQty=Number(l.qty)+(Number(l.bonus)||0);
       if(addedQty<=0) return;
-      const lineCost=Number(l.qty)*Number(l.price)*(1-(Number(l.discount)||0)/100)*(1-(Number(item.purDiscount)||0)/100);
-      value+=lineCost; qty+=addedQty;
-    } else {
-      const op=item.op;
-      const addedQty=Number(op.outputQty)||0;
-      if(addedQty<=0) return;
-      const rawCost=(op.inputs||[]).reduce((s,inp)=>s+productAvgCost(inp.productId,visiting)*(Number(inp.qty)||0),0);
-      value+=rawCost+(Number(op.extraCost)||0); qty+=addedQty;
-    }
+      const lineCost=Number(l.qty)*Number(l.price)*(1-(Number(l.discount)||0)/100)*(1-(Number(pur.overallDiscount)||0)/100);
+      events.push({sortKey:(pur.date||'')+'|'+(pur.createdAt||''), kind:'in', qty:addedQty, value:lineCost});
+    });
   });
+  productions.forEach(op=>{
+    if(op.outputProductId===productId){
+      const addedQty=Number(op.outputQty)||0;
+      if(addedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'productionIn', qty:addedQty, op});
+    }
+    (op.inputs||[]).forEach(inp=>{
+      if(inp.productId!==productId) return;
+      const usedQty=Number(inp.qty)||0;
+      if(usedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'out', qty:usedQty});
+    });
+  });
+  invoices.forEach(inv=>{
+    (inv.lines||[]).forEach(l=>{
+      if(l.productId!==productId) return;
+      const qty=lineMainQty(l)+lineMainBonus(l); // بالوحدة الأساسية دايمًا، حتى لو السطر اتباع بوحدة تجزئة
+      if(qty<=0) return;
+      events.push({sortKey:(inv.date||'')+'|'+(inv.createdAt||''), kind:'out', qty, date:inv.date, sourceType:'invoice', sourceId:inv.id, lineRef:l});
+    });
+  });
+  returns.forEach(ret=>{
+    (ret.lines||[]).forEach(l=>{
+      if(l.productId!==productId) return;
+      const qty=lineMainQty(l);
+      if(qty<=0) return;
+      events.push({sortKey:(ret.date||'')+'|'+(ret.createdAt||''), kind:'returnIn', qty, date:ret.date, sourceType:'return', sourceId:ret.id, lineRef:l});
+    });
+  });
+  purchaseReturns.forEach(ret=>{
+    (ret.lines||[]).forEach(l=>{
+      if(l.productId!==productId) return;
+      const qty=Number(l.qty)||0;
+      if(qty<=0) return;
+      events.push({sortKey:(ret.date||'')+'|'+(ret.createdAt||''), kind:'out', qty});
+    });
+  });
+
+  events.sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+
+  let qty=0, value=0;
+  const ledger=[];
+  events.forEach(ev=>{
+    const avgBefore=qty>0?value/qty:(p.costPrice||0);
+    if(ev.kind==='in'){
+      qty+=ev.qty; value+=ev.value;
+    } else if(ev.kind==='productionIn'){
+      // تكلفة التصنيع بتتحسب بمتوسط تكلفة كل خامة "وقت التصنيع" مش "دلوقتي"
+      const rawCost=(ev.op.inputs||[]).reduce((s,inp)=>s+productLedgerAvgCostAt(inp.productId,ev.sortKey,ledgerCache,visiting)*(Number(inp.qty)||0),0);
+      const totalCost=rawCost+(Number(ev.op.extraCost)||0);
+      qty+=ev.qty; value+=totalCost;
+      ev.costAmount=totalCost;
+    } else if(ev.kind==='returnIn'){
+      // مرتجع البيع بيرجع للمخزن بنفس متوسط التكلفة الساري وقت المرتجع (مفيش ربط بفاتورة بيع بعينها لنرجعه بسعرها الأصلي)
+      const addedValue=ev.qty*avgBefore;
+      qty+=ev.qty; value+=addedValue;
+      ev.costAmount=addedValue;
+    } else { // out: بيع / مرتجع مشتريات / استهلاك تصنيع
+      const outQty=Math.min(ev.qty, qty>0?qty:ev.qty);
+      const removedValue=outQty*avgBefore;
+      qty-=ev.qty; if(qty<0) qty=0; // حماية دفاعية بس لو الأرصدة فيها تضارب قديم
+      value-=removedValue; if(value<0) value=0;
+      ev.costAmount=removedValue;
+    }
+    ledger.push(Object.assign(ev,{avgBefore, qtyAfter:qty, valueAfter:value}));
+  });
+
   visiting.delete(productId);
-  return qty>0 ? value/qty : (p.costPrice||0);
+  ledgerCache.set(productId, ledger);
+  return ledger;
 }
-// إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات بأحدث متوسط تكلفة معروف لكل صنف — بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، عشان لو مندوب سجّل صنف من غير سعر تكلفة وبعدين حد صحّح السعر، القيود القديمة تتظبط تلقائيًا من غير ما حد يحتاج يرجعلها يدوي
+// متوسط تكلفة صنف "قبل" لحظة معينة بالظبط (sortKey) — بيتستخدم جوه حساب تكلفة عمليات التصنيع اللي بتاخد أصناف تانية كخامة
+function productLedgerAvgCostAt(productId, sortKey, ledgerCache, visiting){
+  const ledger=buildProductLedger(productId, ledgerCache, visiting);
+  const p=stock.find(s=>s.id===productId);
+  let cost=(p&&p.costPrice)||0;
+  for(const step of ledger){
+    if(step.sortKey>=sortKey) break;
+    cost = step.qtyAfter>0 ? step.valueAfter/step.qtyAfter : ((p&&p.costPrice)||0);
+  }
+  return cost;
+}
+// متوسط تكلفة الصنف "دلوقتي" (بعد كل الحركات المسجلة لحد النهارده) — نفس الاستخدام والاسم القديم بالظبط، فمفيش أي مكان تاني في الكود محتاج يتغيّر
+function productAvgCost(productId){
+  const cache=new Map();
+  const ledger=buildProductLedger(productId, cache, new Set());
+  const p=stock.find(s=>s.id===productId);
+  if(ledger.length===0) return (p&&p.costPrice)||0;
+  const last=ledger[ledger.length-1];
+  return last.qtyAfter>0 ? last.valueAfter/last.qtyAfter : ((p&&p.costPrice)||0);
+}
+// بيبني خرائط تكلفة تاريخية صحيحة لكل الأصناف مرة واحدة: byLine (لكل سطر فاتورة/مرتجع بعينه، عن طريق مرجع الأوبجكت نفسه)
+// وbyInvoice/byReturn (إجمالي لكل فاتورة/مرتجع) — أي تقرير أو قيد محتاج "تكلفة وقت البيع الصح" بيستخدم الخرائط دي بدل ما يعيد الحساب بنفسه
+function buildCogsMaps(){
+  const cache=new Map();
+  const byLine=new Map(), byInvoice=new Map(), byReturn=new Map();
+  stock.forEach(p=>{
+    const ledger=buildProductLedger(p.id, cache, new Set());
+    ledger.forEach(step=>{
+      if(!step.sourceType) return;
+      if(step.lineRef) byLine.set(step.lineRef, step.costAmount||0);
+      if(step.sourceType==='invoice') byInvoice.set(step.sourceId,(byInvoice.get(step.sourceId)||0)+(step.costAmount||0));
+      if(step.sourceType==='return') byReturn.set(step.sourceId,(byReturn.get(step.sourceId)||0)+(step.costAmount||0));
+    });
+  });
+  return {byLine, byInvoice, byReturn};
+}
+// إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات — كل فاتورة بمتوسط التكلفة الصحيح "وقتها هي" (مش وقت آخر مرة اتفتح فيها البرنامج)
+// بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، وكمان بعد أي حفظ فاتورة/مرتجع جديد، عشان أي تعديل أو إضافة تاريخية (زي تصحيح سعر شراء قديم) تتظبط تلقائيًا وترتّب أثرها بالتسلسل الزمني الصحيح
 function reconcileCogsJournals(){
+  const {byInvoice, byReturn}=buildCogsMaps();
   invoices.forEach(inv=>{
     removeJournalBySource('invoiceCogs',inv.id);
-    const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((Number(l.qty)+(Number(l.bonus)||0))*productAvgCost(l.productId)):s,0);
+    const cogsTotal=byInvoice.get(inv.id)||0;
     if(cogsTotal>0) postJournal('invoiceCogs',inv.id,inv.date,'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
       [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
   });
   returns.forEach(ret=>{
     removeJournalBySource('returnCogs',ret.id);
-    const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(Number(l.qty)*productAvgCost(l.productId)):s,0);
+    const cogsTotal=byReturn.get(ret.id)||0;
     if(cogsTotal>0) postJournal('returnCogs',ret.id,ret.date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
       [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
   });
@@ -2644,12 +2776,57 @@ function supplierSummaryData(from,to){
 }
 
 function renderHome(){
+  const day=today();
+  const monthPrefix=day.slice(0,7);
+  const inMonth=d=>d && d.slice(0,7)===monthPrefix;
+
+  const salesToday=invoices.filter(i=>i.date===day).reduce((s,i)=>s+i.total,0);
+  const salesMonth=invoices.filter(i=>inMonth(i.date)).reduce((s,i)=>s+i.total,0);
+  const collToday=payments.filter(p=>p.date===day).reduce((s,p)=>s+p.amount,0);
+  const collMonth=payments.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.amount,0);
+  const purchToday=purchases.filter(p=>p.date===day).reduce((s,p)=>s+p.total,0);
+  const purchMonth=purchases.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.total,0);
+
+  // نفس منطق تقرير قيمة المخزون بالظبط (الكمية الحالية × متوسط التكلفة المرجح) عشان الرقم يفضل متطابق مع تبويب التقارير
+  const stockValue=stock.reduce((s,p)=>s+stockQty(p.id)*productAvgCost(p.id),0);
+  const stockZeroCost=stock.some(p=>stockQty(p.id)>0 && productAvgCost(p.id)<=0);
+
+  // إجمالي مديونيات العملاء/مستحقات الموردين = مجموع الأرصدة الموجبة بس (نفس تعريف "المديونين" المستخدم أصلاً في تبويب التحصيل/سداد الموردين)،
+  // مش الصافي، عشان رصيد دائن لعميل/مورد واحد ميقلّلش من مديونية عميل/مورد تاني
+  const clientsDebt=clients.reduce((s,c)=>{const b=clientBalance(c.id);return s+(b>0?b:0);},0);
+  const suppliersDebt=suppliers.reduce((s,sup)=>{const b=supplierBalance(sup.id);return s+(b>0?b:0);},0);
+
+  const kpi=(cls,icon,label,num,sub,onclick)=>`
+    <div class="kpi-card ${cls}" onclick="${onclick}">
+      <div class="kpi-lbl">${icon} ${label}</div>
+      <div class="kpi-num">${fmt(num)} ج</div>
+      ${sub?`<div class="kpi-sub">${sub}</div>`:''}
+    </div>`;
+
+  const goInvoicesToday=`invFromDate='${day}';invToDate='${day}';showInvForm=false;editInvoiceId=null;switchTab('invoices')`;
+  const goPurchasesToday=`purFromDate='${day}';purToDate='${day}';showPurForm=false;editPurchaseId=null;switchTab('purchases')`;
+  const goPaymentsToday=`payFromDate='${day}';payToDate='${day}';showPayForm=false;switchTab('payments')`;
+  const goReportsStock=`switchTab('reports');document.getElementById('reportsStockValueCard')?.scrollIntoView({behavior:'smooth',block:'center'})`;
+  const goReportsClients=`switchTab('reports');document.getElementById('repClientSummaryBlock')?.scrollIntoView({behavior:'smooth',block:'center'})`;
+  const goReportsSuppliers=`switchTab('reports');document.getElementById('repSupplierSummaryBlock')?.scrollIntoView({behavior:'smooth',block:'center'})`;
+
+  const kpiGrid=`
+    <div class="kpi-grid">
+      ${kpi('blue','🧾','مبيعات اليوم',salesToday,`الشهر: ${fmt(salesMonth)} ج`,goInvoicesToday)}
+      ${kpi('green','💰','تحصيل اليوم',collToday,`الشهر: ${fmt(collMonth)} ج`,goPaymentsToday)}
+      ${kpi('orange','📥','مشتريات اليوم',purchToday,`الشهر: ${fmt(purchMonth)} ج`,goPurchasesToday)}
+      ${kpi('teal','📦','قيمة المخزون',stockValue,stockZeroCost?'⚠️ فيه أصناف من غير تكلفة':'',goReportsStock)}
+      ${kpi(clientsDebt>0?'red':'gray','👥','مديونية العملاء',clientsDebt,'',goReportsClients)}
+      ${kpi(suppliersDebt>0?'red':'gray','🏭','مستحق للموردين',suppliersDebt,'',goReportsSuppliers)}
+    </div>`;
+
   const lowStock=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p));
   let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(p.name)}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
 
   const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
 
   document.getElementById('tab-home').innerHTML=`
+    ${kpiGrid}
     <div class="home-shortcuts">
       ${shortcut('🧾','فاتورة مبيعات',"showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
       ${shortcut('📈','المبيعات',"showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
@@ -2687,7 +2864,7 @@ function renderClientSummaryReportBlock(){
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.bal)}</td>
     </tr>`;
   return `
-    <div class="card" style="margin-top:14px">
+    <div class="card" id="repClientSummaryBlock" style="margin-top:14px">
       <div class="card-head">👥 ملخص العملاء</div>
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row" style="align-items:flex-end">
@@ -2739,7 +2916,7 @@ function renderSupplierSummaryReportBlock(){
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.bal)}</td>
     </tr>`;
   return `
-    <div class="card" style="margin-top:14px">
+    <div class="card" id="repSupplierSummaryBlock" style="margin-top:14px">
       <div class="card-head">🏭 ملخص الموردين</div>
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row" style="align-items:flex-end">
@@ -3858,10 +4035,7 @@ function saveInvoice(){
   invoices.push(inv);
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
-  removeJournalBySource('invoiceCogs', inv.id);
-  const cogsTotal=inv.lines.reduce((s,l)=>l.productId?s+((lineMainQty(l)+lineMainBonus(l))*productAvgCost(l.productId)):s,0);
-  if(cogsTotal>0) postJournal('invoiceCogs', inv.id, date, 'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
-    [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
+  reconcileCogsJournals(); // بيحسب ويرحّل تكلفة البضاعة المباعة لكل الفواتير (بما فيها دي) بمتوسط التكلفة الصحيح وقت كل عملية بيع — بدل حساب مكرر هنا كان ممكن يختلف عن نتيجة إعادة التسوية
   // خصم الكمية الفعلية + البونص من المخزن — دايمًا بالوحدة الأساسية للصنف حتى لو السطر اتباع بوحدة تجزئة
   invLines.forEach(l=>{
     if(l.productId){
@@ -4379,9 +4553,7 @@ function saveReturn(){
     returns.push(ret);
     postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
       [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
-    const cogsTotal=ret.lines.reduce((s,l)=>l.productId?s+(lineMainQty(l)*productAvgCost(l.productId)):s,0);
-    if(cogsTotal>0) postJournal('returnCogs',ret.id,date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
-      [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
+    reconcileCogsJournals(); // بيحسب ويرحّل تكلفة المرتجع ده (وأي فاتورة تانية ممكن تتأثر) بمتوسط التكلفة الصحيح وقتها
     // مردود نقدي: بيترد للعميل كاش فورًا من الخزنة — قيد عكسي لتحصيل نقدي (Dr العملاء / Cr الخزنة)، بنفس منطق فاتورة الكاش بالظبط بس معكوس
     if(cashRefund && total>0){
       postJournal('returnRefund',ret.id,date,'استرداد نقدي - مردود مبيعات #'+ret.number,
@@ -4822,7 +4994,13 @@ function renderStockMovements(){
 
 // ===== التصنيع: بيحوّل خامة (أو أكتر) لصنف ناتج، بيحدّث المخزون تلقائي، وبيحسب تكلفة الصنف الناتج
 // عن طريق نفس نظام المتوسط المرجح المستخدم في تكلفة البضاعة المباعة (COGS) في باقي التطبيق
+// بيرجع نفس التكلفة اللي اتسجلت فعليًا وقت التصنيع (من سجل التكلفة)، مش تكلفة الخامات "دلوقتي" —
+// عشان الرقم المعروض في قائمة عمليات التصنيع القديمة يفضل ثابت ومطابق لقيدها المُرحّل فعلاً
 function productionOutputCost(op){
+  const cache=new Map();
+  const ledger=buildProductLedger(op.outputProductId, cache, new Set());
+  const step=ledger.find(s=>s.kind==='productionIn' && s.op && s.op.id===op.id);
+  if(step) return step.costAmount;
   const rawCost=(op.inputs||[]).reduce((s,inp)=>s+productAvgCost(inp.productId)*(Number(inp.qty)||0),0);
   return rawCost+(Number(op.extraCost)||0);
 }
@@ -6080,7 +6258,7 @@ function renderReports(){
       ${renderFinancialStatementsBlock(fromVal,toVal)}
       ${renderClientSummaryReportBlock()}
       ${renderSupplierSummaryReportBlock()}
-      <div class="card" style="margin-top:14px">
+      <div class="card" id="reportsStockValueCard" style="margin-top:14px">
         <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📦 قيمة المخزون</div>
         <div id="reportsStockValueBox"></div>
       </div>
@@ -6167,6 +6345,7 @@ function renderCashFlowHtml(fromVal,toVal){
 // المرتجعات في نفس الفترة بتتخصم تلقائيًا من نفس الصنف. صنف اتباع بكميات موجبة وبعدين اترجع بالكامل في نفس الفترة مش هيظهر في القائمة.
 function renderItemProfitabilityHtml(fromVal,toVal){
   const inRange=(date)=>date>=fromVal&&date<=toVal;
+  const {byLine}=buildCogsMaps(); // نفس مصدر التكلفة المستخدم في القيود بالظبط، عشان التقرير يفضل مطابق للمحاسبة الفعلية ومايتغيرش لوحده كل ما تشتري بضاعة جديدة
   const map={};
   const ensure=(pid)=>{
     if(!map[pid]){
@@ -6185,7 +6364,7 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       e.qty+=mainQty;
       e.bonusQty+=mainBonus;
       e.revenue+=Number(l.qty)*afterLineDiscount*overallFactor;
-      e.cost+=(mainQty+mainBonus)*productAvgCost(l.productId);
+      e.cost+=byLine.get(l)||0;
     });
   });
   returns.filter(r=>inRange(r.date)).forEach(ret=>{
@@ -6195,7 +6374,7 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       const mainQty=lineMainQty(l);
       e.qty-=mainQty;
       e.revenue-=Number(l.qty)*Number(l.price);
-      e.cost-=mainQty*productAvgCost(l.productId);
+      e.cost-=byLine.get(l)||0;
     });
   });
   let rows=Object.values(map).filter(r=>Math.abs(r.qty)>0.001||Math.abs(r.revenue)>0.001);
@@ -7651,6 +7830,85 @@ document.addEventListener('DOMContentLoaded', async function(){
   setTimeout(nudgeTabsBarHint,3100);
 });
 
+// ============================================================
+// زرار/إيماءة الرجوع في الموبايل (Android hardware back / سحب الحافة)
+// ------------------------------------------------------------
+// المشكلة: التطبيق مكانش بيسجل أي "history" في المتصفح، فزرار الرجوع
+// كان بيقفل البرنامج بالكامل بدل ما يرجع خطوة جوه الشاشة الحالية.
+// الحل: بنسجل محطة "حارس" وهمية في الـ history، ولما زرار الرجوع
+// يتضغط (حدث popstate) بندوّر على أعلى "طبقة" مفتوحة دلوقتي (مودال أو
+// شاشة تفاصيل) ونقفلها بنفس الطريقة اللي زرار "رجوع/إلغاء/إغلاق" الأصلي
+// كان هيقفلها بيها بالظبط. النطاق الحالي: مودالز + شاشات تفاصيل بس —
+// التنقل بين التابات نفسه لسه مش جزء من "الرجوع" (ممكن يتضاف لاحقًا لو
+// احتجناه). الكود ده إضافة مستقلة تمامًا — مفيش أي زرار أو دالة قفل
+// موجودة اتلمست أو اتغيرت.
+// قفل البرنامج فعليًا (لما مفيش حاجة مفتوحة) محتاج ضغطتين متتاليتين
+// خلال ثانيتين، عشان منقفلوش بالغلط.
+// ============================================================
+let _backExitArmed = false;
+let _backExitTimer = null;
+
+function _pushBackGuard(){
+  try{ history.pushState({__backGuard:true}, '', location.href); }catch(e){}
+}
+
+// بيرجع true لو لقى حاجة مفتوحة وقفلها، أو false لو إحنا فعلًا في أعلى مستوى
+function _closeTopmostBackLayer(){
+  const isOpen = id => {
+    const el = document.getElementById(id);
+    return !!el && getComputedStyle(el).display !== 'none';
+  };
+
+  // 1) المودالز (أعلى طبقة بصريًا) — بترتيب منطقي (الأحدث فتحًا عادة أهم)
+  if(isOpen('barcodeScanModal')){ closeCameraBarcodeScanner(); return true; }
+  if(isOpen('confirmModal')){ _confirmModalClose(false); return true; }
+  if(isOpen('alertModal')){ document.getElementById('alertModal').style.display='none'; return true; }
+  if(isOpen('globalSearchModal')){ closeGlobalSearch(); return true; }
+  if(isOpen('moreTabsModal')){ document.getElementById('moreTabsModal').style.display='none'; return true; }
+  if(isOpen('tabOrderModal')){ document.getElementById('tabOrderModal').style.display='none'; return true; }
+  if(isOpen('syncModal')){ document.getElementById('syncModal').style.display='none'; return true; }
+  if(isOpen('pinModal')){ document.getElementById('pinModal').style.display='none'; return true; }
+  if(isOpen('exportModal')){ document.getElementById('exportModal').style.display='none'; return true; }
+
+  // 2) شاشات تفاصيل داخل التابات — حسب التاب الحالي بس
+  if(currentTab==='clients' && clientDetailId!=null){ clientDetailId=null; showClientNoteForm=false; renderClients(); return true; }
+  if(currentTab==='invoices' && invDetailId!=null){ goBackFromInvDetail(); return true; }
+  if(currentTab==='returns' && retDetailId!=null){ goBackFromRetDetail(); return true; }
+  if(currentTab==='purchases' && purDetailId!=null){ goBackFromPurDetail(); return true; }
+  if(currentTab==='purreturns' && purRetDetailId!=null){ goBackFromPurRetDetail(); return true; }
+  if(currentTab==='payments' && payDetailId!=null){ payDetailId=null; renderPayments(); return true; }
+  if(currentTab==='suppliers' && supplierDetailId!=null){ supplierDetailId=null; renderSuppliers(); return true; }
+  if(currentTab==='suppay' && supPayTabDetailId!=null){ supPayTabDetailId=null; renderSupPayTab(); return true; }
+  if(currentTab==='stock' && stockDetailId!=null){ stockDetailId=null; renderStock(); return true; }
+  if(currentTab==='banks' && bankAccountDetailId!=null){ bankAccountDetailId=null; renderBanks(); return true; }
+
+  return false;
+}
+
+window.addEventListener('popstate', function(){
+  if(_closeTopmostBackLayer()){
+    // اتقفلت طبقة — نجهّز الحارس تاني عشان الضغطة الجاية تشتغل برضه
+    _pushBackGuard();
+    if(_backExitTimer){ clearTimeout(_backExitTimer); _backExitTimer=null; }
+    _backExitArmed = false;
+    return;
+  }
+  // مفيش حاجة مفتوحة = محاولة خروج فعلية من البرنامج
+  if(_backExitArmed){
+    // ضغطة تانية خلال المهلة — سيبها تخرج فعلًا (من غير حارس جديد)
+    _backExitArmed = false;
+    if(_backExitTimer){ clearTimeout(_backExitTimer); _backExitTimer=null; }
+    return;
+  }
+  _backExitArmed = true;
+  showToast('اضغط رجوع مرة كمان للخروج من البرنامج');
+  _pushBackGuard();
+  _backExitTimer = setTimeout(()=>{ _backExitArmed = false; }, 2000);
+});
+
+// حارس أولي عند فتح الصفحة
+_pushBackGuard();
+
 // معادلة التحقق من كود التفعيل الدائم
 // بتقبل الكود الجديد (المعقّد) أو القديم (البسيط) — القديمة اتسابت زي ما هي بالظبط عشان
 // أي عميل كان مفعّل قبل التحديث ده يفضل شغال بالظبط زي ما هو من غير أي تأثير عليه.
@@ -7770,71 +8028,6 @@ function _activate(dCode){
     msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
   }
 }
-
-// ============================================================
-// زرار/إيماءة الرجوع في الموبايل — بيقفل المودالز وشاشات التفاصيل
-// المفتوحة خطوة بخطوة (بدل ما يقفل التطبيق على طول من أول ضغطة)،
-// وبيحتاج ضغطتين متتاليتين عشان يقفل التطبيق فعليًا لما مفيش أي
-// حاجة مفتوحة. إضافة مستقلة بالكامل: مبتلمسش أي زرار أو دالة إغلاق
-// موجودة، بس بتراقب نفس متغيرات الحالة الموجودة أصلًا في التطبيق.
-// ============================================================
-let __backExitArmed=false;
-let __backExitTimer=null;
-
-function _pushBackGuard(){
-  try{ history.pushState({__navGuard:true}, '', location.href); }catch(e){}
-}
-
-// بيقفل أعلى "طبقة" مفتوحة دلوقتي: المودالز الأول (لأنها فوق كل حاجة
-// بصريًا)، وبعدين شاشات تفاصيل التابات. بيرجع true لو قفل حاجة فعلًا
-function _closeTopmostBackLayer(){
-  if(document.getElementById('barcodeScanModal')?.style.display==='flex'){ closeCameraBarcodeScanner(); return true; }
-  if(document.getElementById('confirmModal')?.style.display==='flex'){ _confirmModalClose(false); return true; }
-  if(document.getElementById('alertModal')?.style.display==='flex'){ document.getElementById('alertModal').style.display='none'; return true; }
-  if(document.getElementById('globalSearchModal')?.style.display==='flex'){ closeGlobalSearch(); return true; }
-  if(document.getElementById('moreTabsModal')?.style.display==='flex'){ document.getElementById('moreTabsModal').style.display='none'; return true; }
-  if(document.getElementById('syncModal')?.style.display==='flex'){ document.getElementById('syncModal').style.display='none'; return true; }
-  if(document.getElementById('tabOrderModal')?.style.display==='flex'){ document.getElementById('tabOrderModal').style.display='none'; return true; }
-  if(document.getElementById('pinModal')?.style.display==='flex'){ document.getElementById('pinModal').style.display='none'; return true; }
-  if(document.getElementById('exportModal')?.style.display==='flex'){ document.getElementById('exportModal').style.display='none'; return true; }
-
-  if(invDetailId){ goBackFromInvDetail(); return true; }
-  if(retDetailId){ goBackFromRetDetail(); return true; }
-  if(purDetailId){ goBackFromPurDetail(); return true; }
-  if(purRetDetailId){ goBackFromPurRetDetail(); return true; }
-  if(clientDetailId){ clientDetailId=null; renderClients(); return true; }
-  if(supplierDetailId){ supplierDetailId=null; renderSuppliers(); return true; }
-  if(payDetailId){ payDetailId=null; renderPayments(); return true; }
-  if(stockDetailId){ stockDetailId=null; renderStock(); return true; }
-  if(supPayTabDetailId){ supPayTabDetailId=null; renderSupPayTab(); return true; }
-  if(bankAccountDetailId){ bankAccountDetailId=null; renderBanks(); return true; }
-
-  return false;
-}
-
-window.addEventListener('popstate', function(){
-  // شاشة التفعيل أو قفل الـ PIN شاشات أمان — من غير تدخل من زرار الرجوع
-  if(document.getElementById('lockScreen') || document.getElementById('pinLockScreen')) return;
-
-  if(_closeTopmostBackLayer()){
-    _pushBackGuard(); // نجهّز الـ guard تاني عشان الضغطة الجاية تشتغل برضه
-    return;
-  }
-
-  // مفيش حاجة مفتوحة نقفلها = المستخدم بيحاول يخرج من التطبيق فعليًا
-  if(!__backExitArmed){
-    __backExitArmed=true;
-    showToast('اضغط رجوع مرة كمان للخروج', {type:'warn', duration:2000});
-    _pushBackGuard(); // نمسك ضغطة تانية خلال المهلة الجاية
-    __backExitTimer=setTimeout(()=>{ __backExitArmed=false; }, 2000);
-  } else {
-    // ضغطة تانية خلال المهلة: سيبها تقفل التطبيق فعليًا (من غير guard جديد)
-    clearTimeout(__backExitTimer);
-    __backExitArmed=false;
-  }
-});
-
-_pushBackGuard(); // أول guard بعد تحميل الصفحة، عشان أول ضغطة رجوع تستهلكه
 
 // تسجيل السيرفس ووركر لتفعيل تثبيت التطبيق كأيقونة مستقلة (PWA)
 if('serviceWorker' in navigator){
