@@ -1390,6 +1390,41 @@ async function loadAllData(){
 
   // المرحلة الأولى من نظام الحسابات: تجهيز دليل الحسابات + ترحيل كل الحركات القديمة لقيود يومية (مرة واحدة بس أول ما التحديث ده يشتغل)
   seedAccountingIfNeeded();
+
+  // تحديث تلقائي وذاتي الإصلاح: يملأ "آخر سعر بيع/شراء/مردود مبيعات/مردود مشتريات" لكل صنف
+  // من الفواتير والمشتريات والمرتجعات القديمة اللي كانت متسجلة بالفعل قبل إضافة ميزة تذكر آخر سعر.
+  // بيلمس بس الأصناف اللي معندهاش ذاكرة سعر متسجلة أصلاً - ومبيغيّرش أي قيمة اتسجلت بالفعل
+  // من الاستخدام العادي بعد إضافة الميزة، فآمن يشتغل في كل تحميل من غير ما يأثر على حاجة موجودة.
+  backfillPriceMemoryFromHistory();
+}
+
+function backfillPriceMemoryFromHistory(){
+  let changed=false;
+  function applyFrom(records, priceField, dateField){
+    // بس الأصناف اللي معندهاش ذاكرة سعر متسجلة أصلاً بالنوع ده - أي صنف عنده قيمة فعلاً (من الاستخدام
+    // العادي أو من مسح سابق) بيتستبعد بالكامل ومبيتلمسش
+    const idsToFill=new Set(stock.filter(p=>!p[dateField]).map(p=>p.id));
+    if(idsToFill.size===0) return;
+    records.forEach(rec=>{
+      if(!rec.date || !Array.isArray(rec.lines)) return;
+      rec.lines.forEach(l=>{
+        if(!l.productId || !idsToFill.has(l.productId) || !(Number(l.price)>0)) return;
+        const p=stock.find(s=>s.id===l.productId);
+        if(!p) return;
+        // نفس منطق الميموري وقت الحفظ بالظبط: بالتاريخ الفعلي للعملية مش بترتيب الحفظ
+        if(!p[dateField] || rec.date>=p[dateField]){
+          p[priceField]=Number(l.price);
+          p[dateField]=rec.date;
+          changed=true;
+        }
+      });
+    });
+  }
+  applyFrom(invoices,'lastSalePrice','lastSalePriceDate');
+  applyFrom(purchases,'lastPurchasePrice','lastPurchasePriceDate');
+  applyFrom(returns,'lastSaleReturnPrice','lastSaleReturnPriceDate');
+  applyFrom(purchaseReturns,'lastPurchaseReturnPrice','lastPurchaseReturnPriceDate');
+  if(changed) save();
 }
 
 
@@ -6968,7 +7003,7 @@ function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rer
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',price:p?.lastPurchasePrice?Number(p.lastPurchasePrice):l.price};}
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',price:p?.lastPurchasePrice?Number(p.lastPurchasePrice):(p?.costPrice?Number(p.costPrice):l.price)};}
     return {...l,[field]:['qty','price','discount','bonus'].includes(field)?Number(value):value};
   });
   rerenderPurchaseFormKeepFields();
