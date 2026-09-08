@@ -185,7 +185,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 .confirm-box .cbx-name-err{font-size:11px;color:#C0392B;min-height:14px;margin-bottom:8px;}
 
 /* SPLASH SCREEN */
-#splashScreen{position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;animation:fadeOut .6s ease forwards;animation-delay:2s;color:#fff;padding:20px;}
+#splashScreen{position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#2E86C1,#0E3245);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;animation:fadeOut .6s ease forwards;animation-delay:2s;color:#fff;padding:20px;}
 #splashScreen .splash-icon{font-size:60px;margin-bottom:14px;animation:popIn .5s ease;}
 #splashScreen .splash-title{font-size:20px;font-weight:bold;margin-bottom:6px;animation:slideUp .5s ease .15s both;}
 #splashScreen .splash-sub{font-size:13px;opacity:.85;margin-bottom:28px;animation:slideUp .5s ease .25s both;}
@@ -495,7 +495,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 <body>
 
 <div id="splashScreen">
-  <div class="splash-icon"><svg width="70" height="70" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg></div>
+  <div class="splash-icon"><svg width="70" height="70" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2E86C1"/><stop offset="100%" style="stop-color:#1A5276"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#FFFFFF" letter-spacing="2">AS</text></svg></div>
   <div class="splash-title">صديقك المحاسبي</div>
   <div class="splash-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
   <div class="splash-line"></div>
@@ -507,17 +507,22 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 
 <div class="header">
   <div class="header-top">
-    <div class="header-title"><svg width="24" height="24" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;flex-shrink:0"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg><span>صديقك المحاسبي</span></div>
+    <div class="header-title"><svg width="24" height="24" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;flex-shrink:0"><defs><linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2E86C1"/><stop offset="100%" style="stop-color:#1A5276"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#g2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#FFFFFF" letter-spacing="2">AS</text></svg><span>صديقك المحاسبي</span></div>
     <div class="header-date" id="todayDate"></div>
   </div>
   <div class="header-sub">إدارة العملاء والموردين والفواتير والمخزن</div>
   <div id="companyBar" class="company-bar"></div>
-  <div class="header-actions">
+  <div class="header-actions" id="ownerHeaderActions">
     <button class="hdr-btn" onclick="openGlobalSearch()">🔍 بحث</button>
     <button class="hdr-btn" onclick="exportData()">💾 تصدير</button>
     <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
     <button class="hdr-btn" onclick="openSyncModal()">🔗 ربط الأجهزة</button>
     <button class="hdr-btn" onclick="openPinModal()">🔒 قفل PIN</button>
+    <button class="hdr-btn" onclick="openWorkerPinModal()">👤 وضع العامل</button>
+    <button class="hdr-btn" id="handoverBtn" style="display:none;background:#8E44AD;color:#fff" onclick="handoverToWorker()">🔒 تسليم للعامل</button>
+  </div>
+  <div class="header-actions" id="workerModeBar" style="display:none">
+    <button class="hdr-btn" style="background:#C0392B;color:#fff" onclick="requestReturnToOwner()">🔓 رجوع للمالك</button>
   </div>
 </div>
 
@@ -588,6 +593,15 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <div id="pinModalContent"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn blue" style="width:100%" onclick="document.getElementById('pinModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
+<div id="workerPinModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div class="modal-card" style="background:#fff;border-radius:12px;width:100%">
+    <div id="workerPinModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('workerPinModal').style.display='none'">تم</button>
     </div>
   </div>
 </div>
@@ -723,6 +737,18 @@ async function _setPinHash(pin){ DB.set('_pinHash', await _sha256Hex('pin::'+pin
 async function verifyPin(pin){ const stored=DB.get('_pinHash'); if(!stored) return false; return (await _sha256Hex('pin::'+pin))===stored; }
 async function _setSecurityAnswerHash(ans){ DB.set('_pinA', await _sha256Hex('ans::'+ans.trim().toLowerCase())); }
 async function verifySecurityAnswer(ans){ const stored=DB.get('_pinA'); if(!stored) return false; return (await _sha256Hex('ans::'+ans.trim().toLowerCase()))===stored; }
+
+// ============================================================
+// نظام صلاحيات المالك/العامل — طبقة مستقلة تمامًا فوق نظام الـ PIN
+// أعلاه، ومفيش فيها أي تعديل في أي دالة PIN موجودة. لو معملتش أي
+// إعداد هنا، البرنامج شغال 100% زي ما هو من غيره (وضع افتراضي = مالك).
+// نفس تنبيه الأمان بتاع الـ PIN فوق: دي حماية من موظف عادي بيستخدم
+// الجهاز، مش حماية من هجوم تقني متقدم.
+// ============================================================
+let currentRole = DB.get('_currentRole') || 'owner';
+function hasWorkerPinSet(){ return !!DB.get('_workerPinHash'); }
+async function _setWorkerPinHash(pin){ DB.set('_workerPinHash', await _sha256Hex('wpin::'+pin)); }
+async function verifyWorkerPin(pin){ const stored=DB.get('_workerPinHash'); if(!stored) return false; return (await _sha256Hex('wpin::'+pin))===stored; }
 
 // مدة عدم الاستخدام قبل ما البرنامج يتقفل تلقائيًا لوحده
 const PIN_INACTIVITY_MS = 6*60*60*1000; // 6 ساعات
@@ -877,6 +903,7 @@ async function _resetPinAfterRecovery(){
 
 // ==== إعدادات القفل (من قايمة الإعدادات في الهيدر) ====
 function openPinModal(){
+  if(currentRole==='worker') return;
   renderPinModalContent();
   document.getElementById('pinModal').style.display='flex';
 }
@@ -969,6 +996,186 @@ async function _submitRemovePin(){
   DB.set('_pinA', null);
   msg.style.color='#27AE60'; msg.textContent='✅ اتلغى القفل';
   setTimeout(()=>renderPinModalContent(), 900);
+}
+
+// ============================================================
+// إعدادات وضع العامل — نفس أسلوب قفل الـ PIN فوق بالظبط، PIN مستقل
+// خاص بالعامل. محتاج PIN المالك يكون مفعّل الأول عشان نضمن إن في
+// طريقة ترجع بيها لوضعك تاني.
+// ============================================================
+function openWorkerPinModal(){
+  if(currentRole==='worker') return;
+  renderWorkerPinModalContent();
+  document.getElementById('workerPinModal').style.display='flex';
+}
+function renderWorkerPinModalContent(){
+  const has = hasWorkerPinSet();
+  const el=document.getElementById('workerPinModalContent');
+  if(!has){
+    el.innerHTML=`
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 تفعيل وضع العامل</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">هتقدر تسلّم الجهاز لموظف يسجل فواتير بيع بس، من غير ما يشوف المخزن أو الأسعار أو أي بيانات تانية. لازم يكون عندك قفل PIN مفعّل الأول (فوق) عشان تضمن إنك تقدر ترجع لوضعك تاني.</div>
+      ${!hasPinSet()?`<div class="pm-desc" style="color:#C0392B;margin-bottom:4px">⚠️ فعّل قفل الـ PIN بتاعك فوق الأول قبل ما تقدر تحط PIN للعامل.</div>`:`
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN العامل (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupWorkerPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN العامل</div><input type="password" inputmode="numeric" id="setupWorkerPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitSetupWorkerPin()">تفعيل وضع العامل</button>
+      <div id="workerPinSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
+      `}
+    `;
+  } else {
+    el.innerHTML=`
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 وضع العامل مفعّل</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">زرار "🔒 تسليم للعامل" ظاهر فوق دلوقتي. العامل بيدخل بالـ PIN بتاعه ويشوف شاشة تسجيل الفواتير بس. الرجوع لوضعك محتاج PIN المالك بتاعك.</div>
+      <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير PIN العامل</div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN جديد للعامل</div><input type="password" inputmode="numeric" id="newWorkerPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" id="newWorkerPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitChangeWorkerPin()">حفظ PIN العامل الجديد</button>
+      <div id="workerPinChangeMsg" class="pm-msg" style="min-height:16px;margin:8px 0 14px"></div>
+      <div style="border-top:1px solid #ECF0F1;padding-top:12px">
+        <div class="pm-sub" style="font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء وضع العامل نهائيًا</div>
+        <button class="btn red" style="width:100%" onclick="_submitRemoveWorkerPin()">إلغاء وضع العامل</button>
+        <div id="workerPinRemoveMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
+      </div>
+    `;
+  }
+}
+async function _submitSetupWorkerPin(){
+  const p1=document.getElementById('setupWorkerPin1').value.trim();
+  const p2=document.getElementById('setupWorkerPin2').value.trim();
+  const msg=document.getElementById('workerPinSetupMsg');
+  if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN مش متطابق'; return; }
+  await _setWorkerPinHash(p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل وضع العامل بنجاح';
+  _updateHandoverBtnVisibility();
+  setTimeout(()=>renderWorkerPinModalContent(), 900);
+}
+async function _submitChangeWorkerPin(){
+  const p1=document.getElementById('newWorkerPin1').value.trim();
+  const p2=document.getElementById('newWorkerPin2').value.trim();
+  const msg=document.getElementById('workerPinChangeMsg');
+  if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد مش متطابق'; return; }
+  await _setWorkerPinHash(p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر PIN العامل بنجاح';
+}
+async function _submitRemoveWorkerPin(){
+  const msg=document.getElementById('workerPinRemoveMsg');
+  DB.set('_workerPinHash', null);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى وضع العامل';
+  _updateHandoverBtnVisibility();
+  setTimeout(()=>renderWorkerPinModalContent(), 900);
+}
+function _updateHandoverBtnVisibility(){
+  const btn=document.getElementById('handoverBtn');
+  if(btn) btn.style.display = hasWorkerPinSet() ? '' : 'none';
+}
+
+// تسليم الجهاز للعامل — شاشة قفل مستقلة بتتحقق من PIN العامل بس
+function handoverToWorker(){
+  if(currentRole==='worker') return;
+  if(!hasWorkerPinSet()){ showToast('من فضلك فعّل وضع العامل الأول من ⚙️ الإعدادات'); return; }
+  showWorkerHandoverScreen();
+}
+function showWorkerHandoverScreen(){
+  if(document.getElementById('workerHandoverScreen')) return;
+  const el=document.createElement('div');
+  el.id='workerHandoverScreen';
+  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;`;
+  el.innerHTML=`
+    <div style="font-size:40px;margin-bottom:16px">👤</div>
+    <div style="font-weight:bold;margin-bottom:18px;font-size:16px">من فضلك أدخل PIN العامل</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="workerHandoverInput" maxlength="8" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px;width:180px">
+    <button onclick="_submitWorkerHandoverUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px;width:180px">دخول</button>
+    <div id="workerHandoverMsg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="document.getElementById('workerHandoverScreen').remove()" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">إلغاء</button>
+  `;
+  document.body.appendChild(el);
+  setTimeout(()=>{
+    const inp=document.getElementById('workerHandoverInput');
+    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitWorkerHandoverUnlock(); }); }
+  },50);
+}
+async function _submitWorkerHandoverUnlock(){
+  const inp=document.getElementById('workerHandoverInput');
+  const val=(inp&&inp.value||'').trim();
+  const msg=document.getElementById('workerHandoverMsg');
+  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
+  const ok = await verifyWorkerPin(val);
+  if(ok){
+    const el=document.getElementById('workerHandoverScreen'); if(el) el.remove();
+    currentRole='worker'; DB.set('_currentRole','worker');
+    _applyRoleUI();
+    switchTab('invoices');
+    showToast('👤 وضع العامل شغال دلوقتي');
+  } else {
+    msg.style.color='#FFD700'; msg.textContent='❌ الـ PIN غلط';
+    if(inp){ inp.value=''; inp.focus(); }
+  }
+}
+
+// الرجوع لوضع المالك — محتاج PIN المالك العادي (نفس _pinHash فوق)
+function requestReturnToOwner(){
+  if(currentRole!=='worker') return;
+  showOwnerReturnScreen();
+}
+function showOwnerReturnScreen(){
+  if(document.getElementById('ownerReturnScreen')) return;
+  const el=document.createElement('div');
+  el.id='ownerReturnScreen';
+  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;`;
+  el.innerHTML=`
+    <div style="font-size:40px;margin-bottom:16px">🔓</div>
+    <div style="font-weight:bold;margin-bottom:18px;font-size:16px">من فضلك أدخل PIN المالك</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="ownerReturnInput" maxlength="8" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px;width:180px">
+    <button onclick="_submitOwnerReturnUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px;width:180px">دخول</button>
+    <div id="ownerReturnMsg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="document.getElementById('ownerReturnScreen').remove()" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">إلغاء</button>
+  `;
+  document.body.appendChild(el);
+  setTimeout(()=>{
+    const inp=document.getElementById('ownerReturnInput');
+    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitOwnerReturnUnlock(); }); }
+  },50);
+}
+async function _submitOwnerReturnUnlock(){
+  const inp=document.getElementById('ownerReturnInput');
+  const val=(inp&&inp.value||'').trim();
+  const msg=document.getElementById('ownerReturnMsg');
+  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
+  const ok = await verifyPin(val);
+  if(ok){
+    const el=document.getElementById('ownerReturnScreen'); if(el) el.remove();
+    currentRole='owner'; DB.set('_currentRole','owner');
+    _applyRoleUI();
+    switchTab('home');
+  } else {
+    msg.style.color='#FFD700'; msg.textContent='❌ الـ PIN غلط';
+    if(inp){ inp.value=''; inp.focus(); }
+  }
+}
+
+// إظهار/إخفاء عناصر الواجهة حسب الدور الحالي — بتتنادى بعد أي تغيير دور وعند فتح البرنامج
+function _applyRoleUI(){
+  const ownerBar=document.getElementById('ownerHeaderActions');
+  const workerBar=document.getElementById('workerModeBar');
+  const tabsBarEl=document.getElementById('tabsBar');
+  const exportReminder=document.getElementById('exportReminder');
+  if(currentRole==='worker'){
+    if(ownerBar) ownerBar.style.display='none';
+    if(workerBar) workerBar.style.display='flex';
+    if(tabsBarEl) tabsBarEl.style.display='none';
+    if(exportReminder) exportReminder.style.display='none';
+  } else {
+    if(ownerBar) ownerBar.style.display='';
+    if(workerBar) workerBar.style.display='none';
+    if(tabsBarEl) tabsBarEl.style.display='';
+  }
+  _updateHandoverBtnVisibility();
 }
 
 // البيانات الرئيسية
@@ -2004,6 +2211,7 @@ function renderTabsBar(){
 
 // شيت "المزيد" — باقي التبويبات اللي مش في الشريط الرئيسي
 function openMoreTabsModal(){
+  if(currentRole==='worker') return;
   renderMoreTabsList();
   document.getElementById('moreTabsModal').style.display='flex';
 }
@@ -2405,6 +2613,7 @@ function receiveSyncUpdates(){
 }
 
 function openSyncModal(){
+  if(currentRole==='worker') return;
   renderSyncModal();
   document.getElementById('syncModal').style.display='flex';
 }
@@ -2523,6 +2732,7 @@ function testSyncConnection(){
 
 
 function switchTab(name){
+  if(currentRole==='worker' && name!=='invoices') return; // العامل مسموحله بتبويب الفواتير بس
   currentTab=name;
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.classList.toggle('active',btn.dataset.tab===name||(btn.dataset.tab==='_more'&&!MAIN_TAB_IDS.includes(name)));
@@ -2556,6 +2766,7 @@ function render(){
 // وفواتير المشتريات مع بعض من غير ما تحتاج تفتح كل تبويب لوحده
 // ============================================================
 function openGlobalSearch(){
+  if(currentRole==='worker') return;
   document.getElementById('globalSearchModal').style.display='flex';
   const input=document.getElementById('globalSearchInput');
   input.value='';
@@ -3140,7 +3351,7 @@ const DOC_STYLE = `
 `;
 
 function buildDocInnerHtml(title, bodyHtml, logoSvg){
-  const smallAppLogo = `<svg width="14" height="14" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><defs><linearGradient id="pgf" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pgf)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const smallAppLogo = `<svg width="14" height="14" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle"><defs><linearGradient id="pgf" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2E86C1"/><stop offset="100%" style="stop-color:#1A5276"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pgf)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#FFFFFF" letter-spacing="2">AS</text></svg>`;
   const companyBlock = companyProfile.name ? `
       <div style="text-align:right">
         <div class="doc-title">${esc(companyProfile.name)}</div>
@@ -3159,7 +3370,7 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
 
 // نافذة طباعة تقليدية — تُستخدم فقط كـ fallback لو المشاركة المباشرة مش مدعومة على الجهاز
 function printDocument(title, bodyHtml){
-  const logoSvg = `<svg width="60" height="60" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const logoSvg = `<svg width="60" height="60" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="pg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2E86C1"/><stop offset="100%" style="stop-color:#1A5276"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg1)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#FFFFFF" letter-spacing="2">AS</text></svg>`;
   const win = window.open('', '_blank');
   if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع أو تحفظ PDF'); return; }
   win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${esc(title)}</title>
@@ -3172,7 +3383,7 @@ function printDocument(title, bodyHtml){
 
 // يحوّل محتوى المستند لصورة JPEG عالية الجودة عن طريق رسمه في SVG foreignObject ثم Canvas
 async function renderDocToJpeg(title, bodyHtml){
-  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 70 70"><defs><linearGradient id="pg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#FFD700"/><stop offset="100%" style="stop-color:#F39C12"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#1A5276" letter-spacing="2">AS</text></svg>`;
+  const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 70 70"><defs><linearGradient id="pg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#2E86C1"/><stop offset="100%" style="stop-color:#1A5276"/></linearGradient></defs><circle cx="35" cy="35" r="35" fill="url(#pg2)"/><text x="35" y="46" text-anchor="middle" font-family="Georgia,serif" font-size="26" font-weight="bold" fill="#FFFFFF" letter-spacing="2">AS</text></svg>`;
   const holder=document.createElement('div');
   holder.style.cssText=`position:fixed;left:-9999px;top:0;z-index:-1;width:${A4_WIDTH_PX}px;`;
   holder.innerHTML=`<style>${DOC_STYLE}</style><div class="doc-wrap" id="_pdfDocRoot">${buildDocInnerHtml(title, bodyHtml, logoSvg)}</div>`;
@@ -3759,7 +3970,9 @@ function goBackFromRetDetail(){
 
 function renderInvoices(){
   if(invDetailId){renderInvDetail();return;}
-  const filtered=[...invoices].filter(inv=>{
+  // في وضع العامل: يشوف بس الفواتير اللي سجّلها هو (علامة createdBy)، مش كل فواتير المحل
+  const roleBase = currentRole==='worker' ? invoices.filter(inv=>inv.createdBy==='worker') : invoices;
+  const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     const matchesSearch=!invSearch||c?.name.includes(invSearch)||String(inv.number).includes(invSearch);
     const matchesDate=(!invFromDate||inv.date>=invFromDate)&&(!invToDate||inv.date<=invToDate);
@@ -3787,7 +4000,7 @@ function renderInvoices(){
     const bonusQty=Number(l.bonus)||0;
     // تنبيه هامش الربح: بيقارن سعر البيع (بعد الخصم) بمتوسط سعر التكلفة المعروف للصنف، ومش بيظهر لو مفيش سعر تكلفة معروف أصلاً
     let marginWarningHtml='';
-    if(l.productId && Number(l.qty)>0 && afterDiscount>0){
+    if(currentRole!=='worker' && l.productId && Number(l.qty)>0 && afterDiscount>0){
       const costPerSaleUnit=productAvgCost(l.productId)/lineUnitFactor(l);
       if(costPerSaleUnit>0){
         const marginPct=(afterDiscount-costPerSaleUnit)/afterDiscount*100;
@@ -3914,7 +4127,7 @@ function renderInvoices(){
         </div>
         <div class="btn-row">
           ${(invFromDate||invToDate)?`<button class="btn-outline" onclick="invFromDate='';invToDate='';renderInvoices()">✖ إلغاء الفلتر</button>`:''}
-          ${filtered.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printInvoicesSummaryPdf(invFromDate,invToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المبيعات PDF</button>`:''}
+          ${filtered.length>0&&currentRole!=='worker'?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printInvoicesSummaryPdf(invFromDate,invToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المبيعات PDF</button>`:''}
         </div>
       </div>
     </div>
@@ -3927,6 +4140,7 @@ function renderInvoices(){
 function editInvoice(id){
   const inv=invoices.find(i=>i.id===id);
   if(!inv)return;
+  if(currentRole==='worker' && inv.createdBy!=='worker')return;
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
   invOverallDiscount=Number(inv.overallDiscount)||0;
@@ -4066,7 +4280,7 @@ function saveInvoice(){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && p.isCashAuto);
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(currentRole==='worker'?'worker':undefined)};
   invoices.push(inv);
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
@@ -4092,6 +4306,8 @@ function saveInvoice(){
 }
 
 function deleteInvoice(id){
+  const invToDelete=invoices.find(i=>i.id===id);
+  if(currentRole==='worker' && (!invToDelete||invToDelete.createdBy!=='worker'))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
     // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
@@ -4162,6 +4378,7 @@ async function printInvoicesSummaryPdf(from,to){
 function renderInvDetail(){
   const inv=invoices.find(i=>i.id===invDetailId);
   if(!inv){invDetailId=null;renderInvoices();return;}
+  if(currentRole==='worker' && inv.createdBy!=='worker'){invDetailId=null;renderInvoices();return;}
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
@@ -5237,6 +5454,7 @@ function renderStockDetail(){
 
 // ===== BACKUP =====
 function exportData(){
+  if(currentRole==='worker') return;
   _renderExportModalGoogleLink();
   document.getElementById('exportModal').style.display='flex';
 }
@@ -5386,6 +5604,7 @@ function checkExportReminder(){
   }
 }
 function importData(){
+  if(currentRole==='worker') return;
   const input=document.createElement('input');
   input.type='file';input.accept='.json,.txt';
   input.onchange=(e)=>{
@@ -7692,7 +7911,8 @@ function initActivation(){
   const activated = DB.get('_ak');
   if(activated && _vk(dCode, activated)){
     const _afterPinOk = () => {
-    render();
+    _applyRoleUI();
+    if(currentRole==='worker'){ switchTab('invoices'); } else { render(); }
     if(_looksWiped()){
       _handlePossibleWipe();
     }else{
@@ -7717,7 +7937,8 @@ function initActivation(){
     if(daysPassed < 7){
       // التجربة لسه شغالة
       const _afterPinOkTrial = () => {
-        render();
+        _applyRoleUI();
+        if(currentRole==='worker'){ switchTab('invoices'); } else { render(); }
         _showTrialBanner(7 - Math.floor(daysPassed));
         if(_looksWiped()){
           _handlePossibleWipe();
