@@ -1191,7 +1191,31 @@ let lowStockDefault=10; // الحد العام لتنبيه "قارب على ا�
 let docNumberCounters={invoice:0, purchase:0, return:0, purchaseReturn:0};
 let repNotes=[];
 let clientNotes=[];
-let companyProfile={name:'',phone:''};
+let companyProfile={name:'',phone:'',businessType:''};
+
+// ===== تخصيص النشاط: نمطين تقنيين (medical/simple) تحت 4 اختيارات ظاهرة للعميل =====
+// مفيش أي اختيار محفوظ (كل العملاء الحاليين النهاردة) ⇒ currentMode() بترجع 'medical'
+// يعني بالظبط سلوك التطبيق النهاردة، بدون أي فرق. راجع خطة-تخصيص-النشاط.md.
+const BUSINESS_TYPES=[
+  {id:'store',    label:'محل تجاري', icon:'🏬', mode:'simple'},
+  {id:'pharmacy', label:'صيدلية',    icon:'💊', mode:'medical'},
+  {id:'mobile',   label:'موبايلات',  icon:'📱', mode:'simple'},
+  {id:'clinic',   label:'عيادة',     icon:'🏥', mode:'medical'},
+];
+const MODE_FIELDS={
+  medical:{expiry:true,  manufacturer:true,  activeIngredient:true,  subUnits:true,  manufacturing:true,  productLabel:'اسم الدواء / المنتج'},
+  simple: {expiry:false, manufacturer:false, activeIngredient:false, subUnits:false, manufacturing:false, productLabel:'اسم المنتج'},
+};
+function currentMode(){
+  const t=companyProfile.businessType;
+  const bt=BUSINESS_TYPES.find(b=>b.id===t);
+  return bt?bt.mode:'medical'; // مفيش اختيار = طبي = سلوك النهاردة زي ما هو بالظبط
+}
+function fieldsCfg(){ return MODE_FIELDS[currentMode()]; }
+function businessTypeLabel(){
+  const bt=BUSINESS_TYPES.find(b=>b.id===companyProfile.businessType);
+  return bt?`${bt.icon} ${bt.label}`:'غير محدد (طبي/افتراضي)';
+}
 // سجل الحذف: لكل نوع بيانات، مصفوفة الـ ids اللي اتمسحت محليًا - بيتزامن مع الأجهزة التانية
 // عشان نمسح نفس العناصر عندهم بدل ما نستنتج المسح (غير آمن) من غياب العنصر بس
 let deletedIds={};
@@ -1561,7 +1585,7 @@ async function loadAllData(){
   purchases= pur||[];
   supplierPayments=spay||[];
   purchaseReturns=pret||[];
-  companyProfile=comp||{name:'',phone:''};
+  companyProfile=comp||{name:'',phone:'',businessType:''};
   expenses=exp||[];
   treasuryOpening=Number(tOpen)||0;
   repNotes=rNotes||[];
@@ -2375,7 +2399,7 @@ async function _tryAutoRecover(key){
     purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];treasuryOpening=Number(data.treasuryOpening)||0;
     repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
     bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
-    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:''};lowStockDefault=Number(data.lowStockDefault)||10;
+    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;
     deletedIds=data.deletedIds||{};
     docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
     save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
@@ -2865,6 +2889,10 @@ function openCompanyModal(){
       <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${esc(companyProfile.name||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
       <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${esc(companyProfile.phone||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
       <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${esc(companyProfile.taxNumber||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
+      <div onclick="document.getElementById('companyModal').remove();showBusinessTypeModal(false)" style="display:flex;align-items:center;justify-content:space-between;background:#F8F9F9;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin-bottom:16px;cursor:pointer;font-size:12.5px;color:#333">
+        <span>نوع النشاط: <strong>${businessTypeLabel()}</strong></span>
+        <span style="color:#1A5276;font-weight:bold">تغيير ›</span>
+      </div>
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveCompanyProfile()" class="cm-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -2907,11 +2935,44 @@ function saveCompanyProfile(){
   const name=document.getElementById('companyNameInput').value.trim();
   const phone=document.getElementById('companyPhoneInput').value.trim();
   const taxNumber=document.getElementById('companyTaxInput').value.trim();
-  companyProfile={name, phone, taxNumber, logo:_tempLogoDataUrl||''};
+  // ملحوظة: بنعمل spread على companyProfile الحالي قبل الكتابة فوقه، عشان أي حقل
+  // إضافي (زي businessType) اتحفظ قبل كده متتمسحش لما المستخدم يحفظ اسم/تليفون/شعار بس
+  companyProfile={...companyProfile, name, phone, taxNumber, logo:_tempLogoDataUrl||''};
   idbSet(KEYS.companyProfile, companyProfile);
   document.getElementById('companyModal').remove();
   renderCompanyBar();
   syncTabsBarStickyTop();
+}
+
+// شاشة اختيار نوع النشاط — 4 اختيارات ظاهرة، بترجم لنمطين تقنيين بس (medical/simple)
+// isFirstTime=true: بتظهر تلقائيًا مرة واحدة بعد أول تفعيل ناجح لعميل جديد (فيها خيار "لاحقًا")
+// isFirstTime=false: بتتفتح يدويًا من زرار "تغيير" داخل بيانات الشركة (فيها خيار "إلغاء")
+function showBusinessTypeModal(isFirstTime){
+  const modal=document.createElement('div');
+  modal.id='businessTypeModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`
+    <div class="cm-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;max-width:420px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="cm-title" style="font-weight:bold;color:#1A5276;margin-bottom:6px;text-align:center;font-size:16px">🧭 نوع نشاطك إيه؟</div>
+      <div style="text-align:center;color:#717D7E;font-size:12px;margin-bottom:16px">بنستخدمها بس عشان نظبطلك شكل الشاشات على قد شغلك</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+        ${BUSINESS_TYPES.map(bt=>`
+          <div onclick="_selectBusinessType('${bt.id}')" style="border:2px solid ${companyProfile.businessType===bt.id?'#1A5276':'#D5D8DC'};border-radius:10px;padding:16px 8px;text-align:center;cursor:pointer;background:${companyProfile.businessType===bt.id?'#EBF5FB':'#fff'}">
+            <div style="font-size:26px;margin-bottom:6px">${bt.icon}</div>
+            <div style="font-size:13px;font-weight:bold;color:#333">${bt.label}</div>
+          </div>`).join('')}
+      </div>
+      ${isFirstTime?`<div onclick="document.getElementById('businessTypeModal').remove()" style="text-align:center;color:#717D7E;font-size:12.5px;text-decoration:underline;cursor:pointer">لاحقًا</div>`
+        :`<button onclick="document.getElementById('businessTypeModal').remove()" class="cm-btn" style="width:100%;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>`}
+    </div>`;
+  document.body.appendChild(modal);
+}
+function _selectBusinessType(id){
+  companyProfile={...companyProfile, businessType:id};
+  idbSet(KEYS.companyProfile, companyProfile);
+  const modal=document.getElementById('businessTypeModal');
+  if(modal) modal.remove();
+  showToast('✅ تم ضبط نوع النشاط');
 }
 
 function openOpeningBalanceModal(type, id){
@@ -4018,7 +4079,7 @@ function renderInvoices(){
           <div class="lbl">المنتج</div>
           ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
-        ${l.productId&&stockBatches(l.productId).length>0?`
+        ${fieldsCfg().expiry&&l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
           <div class="lbl">📅 الصلاحية</div>
           <select onchange="updateLine('${l.id}','expiry',this.value)">
@@ -4623,7 +4684,7 @@ function renderReturns(){
             ?searchableSelectHtml(`retline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateRetLine('${l.id}','productId',document.getElementById('retline_${l.id}').value);updateRetLine('${l.id}','expiry','')`)
             :`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateRetLine('${l.id}','productName',this.value)">`}
         </div>
-        ${l.productId&&stockBatches(l.productId).length>0?`
+        ${fieldsCfg().expiry&&l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
           <div class="lbl">📅 الصلاحية</div>
           <select onchange="updateRetLine('${l.id}','expiry',this.value)">
@@ -4861,11 +4922,12 @@ let prodInputLines=[{id:uid(),productId:'',qty:''}];
 
 function renderStock(){
   if(stockDetailId){renderStockDetail();return;}
+  if(stockSubTab==='production'&&!fieldsCfg().manufacturing) stockSubTab='overview'; // النمط اتغيّر والمستخدم كان واقف في تبويب مخفي
   document.getElementById('tab-stock').innerHTML=`
     <div class="sub-tabs">
       <button class="btn ${stockSubTab==='overview'?'blue':'btn-outline'}" onclick="stockSubTab='overview';renderStock()">📦 المنتجات</button>
       <button class="${stockSubTab==='movements'?'btn blue':'btn-outline'}" onclick="stockSubTab='movements';renderStock()">🔄 الحركات</button>
-      <button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>
+      ${fieldsCfg().manufacturing?`<button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>`:''}
     </div>
     <div id="stock-content"></div>`;
   if(stockSubTab==='overview')renderStockOverview();
@@ -4932,6 +4994,7 @@ async function printStockValuePdf(){
 }
 
 async function printStockSummaryPdf(){
+  const showExpiry=fieldsCfg().expiry;
   const rows=stock.map(p=>{
     const qty=stockQty(p.id);
     const batches=stockBatches(p.id);
@@ -4941,7 +5004,7 @@ async function printStockSummaryPdf(){
       <td>${p.unit}</td>
       <td style="font-weight:bold;color:${qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449'}">${fmtQty(qty)}</td>
       <td>${p.price?fmt(p.price):'—'}</td>
-      <td style="font-size:11px">${batchTxt}</td>
+      ${showExpiry?`<td style="font-size:11px">${batchTxt}</td>`:''}
     </tr>`;
   }).join('');
   const totalItems=stock.length;
@@ -4955,18 +5018,19 @@ async function printStockSummaryPdf(){
       <div class="doc-sum-box"><div class="n">${totalItems}</div><div class="l">إجمالي الأصناف</div></div>
       <div class="doc-sum-box"><div class="n">${lowCount}</div><div class="l">أصناف قاربت على النفاد</div></div>
     </div>
-    ${stock.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>السعر</th><th>الدفعات (الصلاحية: الكمية)</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+    ${stock.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>السعر</th>${showExpiry?'<th>الدفعات (الصلاحية: الكمية)</th>':''}</tr></thead><tbody>${rows}</tbody></table>`}`;
   await sendDocument('جرد المخزن', body, `جرد-المخزن-${today()}.pdf`);
 }
 
 function renderStockOverview(){
+  if(!fieldsCfg().manufacturing) stockCategoryFilter='all'; // التصنيف خام/تام مرتبط بالتصنيع، متبقاش فلتر عالق على قيمة مخفية
   const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   const filteredStock=stock.filter(p=>p.name.includes(stockListSearch)||(p.barcode||'').includes(stockListSearch))
     .filter(p=>stockCategoryFilter==='all'?true:stockCategoryFilter==='raw'?isRawCategory(p):!isRawCategory(p));
   let items=filteredStock.map(p=>{
     const qty=stockQty(p.id);
     const qtyColor=qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449';
-    const batches=stockBatches(p.id);
+    const batches=fieldsCfg().expiry?stockBatches(p.id):[];
     const batchHtml=batches.length>0
       ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${q}</b></span>`).join('')
       :'';
@@ -4974,7 +5038,7 @@ function renderStockOverview(){
       <div class="list-item-head">
         <div style="flex:1">
           <div class="list-item-name">${esc(p.name)}</div>
-          <div class="list-item-sub">وحدة: ${p.unit} &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span></div>
+          <div class="list-item-sub">وحدة: ${p.unit}${fieldsCfg().manufacturing?` &nbsp;•&nbsp; <span style="background:${isRawCategory(p)?'#FEF5E7':'#EAFAF1'};color:${isRawCategory(p)?'#B9770E':'#1E8449'};border-radius:4px;padding:1px 6px;font-size:10px">${productCategoryLabel(p.category)}</span>`:''}</div>
           ${p.lowStockThreshold>0?`<div style="margin-top:2px;font-size:10.5px;color:#2E86C1">🔔 حد تنبيه خاص: ${fmtQty(p.lowStockThreshold)} ${p.unit}</div>`:''}
           ${(p.subUnits&&p.subUnits.length>0)?`<div style="margin-top:3px;font-size:10.5px;color:#8E44AD">🧩 ${p.subUnits.map(u=>`${fmtQty(qty*u.qtyPerUnit)} ${esc(u.name)}`).join(' &nbsp;|&nbsp; ')}</div>`:''}
           ${batchHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:3px">${batchHtml}</div>`:''}
@@ -5000,11 +5064,12 @@ function renderStockOverview(){
       <button class="btn-sm blue" onclick="_scanIntoStockSearch()" title="مسح بالكاميرا">📷</button>
       ${stock.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printStockSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 جرد المخزن PDF</button>`:''}
     </div>
+    ${fieldsCfg().manufacturing?`
     <div class="btn-row" style="margin-bottom:10px">
       <button class="btn-sm ${stockCategoryFilter==='all'?'blue':'btn-outline'}" onclick="stockCategoryFilter='all';renderStock()">الكل</button>
       <button class="btn-sm ${stockCategoryFilter==='raw'?'blue':'btn-outline'}" onclick="stockCategoryFilter='raw';renderStock()">🏭 خامات وتعبئة</button>
       <button class="btn-sm ${stockCategoryFilter==='finished'?'blue':'btn-outline'}" onclick="stockCategoryFilter='finished';renderStock()">📦 منتج تام</button>
-    </div>
+    </div>`:''}
     ${showProductForm?(()=>{
       const editingP=editProductId?stock.find(p=>p.id===editProductId):null;
       const dv=(field,fallback)=>(field in productFormDraft)?productFormDraft[field]:fallback;
@@ -5013,18 +5078,19 @@ function renderStockOverview(){
       <div class="card-head ${editingP?'orange':'green'}">${editingP?'✏️ تعديل بيانات المنتج':'إضافة منتج جديد'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="اسم الدواء / المنتج" value="${esc(dv('name',editingP?editingP.name:''))}" oninput="productFormDraft.name=this.value"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">اسم المنتج *</div><input type="text" id="p_name" placeholder="${fieldsCfg().productLabel}" value="${esc(dv('name',editingP?editingP.name:''))}" oninput="productFormDraft.name=this.value"></div>
           <div class="form-group"><div class="lbl">الوحدة / الوزن</div>
             <input type="text" id="p_unit" placeholder="مثال: 100 مل، كجم، لتر..." value="${esc(dv('unit',editingP?(editingP.unit||''):''))}" oninput="productFormDraft.unit=this.value">
           </div>
         </div>
+        ${fieldsCfg().manufacturing?`
         <div class="form-row">
           <div class="form-group"><div class="lbl">تصنيف الصنف</div>
             <select id="p_category" onchange="productFormDraft.category=this.value">
               ${PRODUCT_CATEGORIES.map(c=>`<option value="${c.id}" ${dv('category',editingP?(editingP.category||'finished'):'finished')===c.id?'selected':''}>${c.label}</option>`).join('')}
             </select>
           </div>
-        </div>
+        </div>`:''}
         <div class="form-row">
           <div class="form-group"><div class="lbl">🏷️ الباركود — اختياري</div>
             <div style="display:flex;gap:6px">
@@ -5036,24 +5102,27 @@ function renderStockOverview(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">🔔 حد تنبيه "قارب على النفاذ" لهذا الصنف — اختياري</div><input type="number" id="p_low_stock_threshold" min="0" step="any" placeholder="لو فاضي هيستخدم الحد العام (${lowStockDefault})" value="${dv('lowStockThreshold',editingP?(editingP.lowStockThreshold||''):'')}" oninput="productFormDraft.lowStockThreshold=this.value"></div>
         </div>
+        ${(fieldsCfg().manufacturer||fieldsCfg().activeIngredient)?`
         <div class="form-row">
-          <div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${esc(dv('manufacturer',editingP?(editingP.manufacturer||''):''))}" oninput="productFormDraft.manufacturer=this.value"></div>
-          <div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${esc(dv('activeIngredient',editingP?(editingP.activeIngredient||''):''))}" oninput="productFormDraft.activeIngredient=this.value"></div>
-        </div>
+          ${fieldsCfg().manufacturer?`<div class="form-group"><div class="lbl">الشركة المصنعة — اختياري</div><input type="text" id="p_manufacturer" placeholder="اسم الشركة المصنعة" value="${esc(dv('manufacturer',editingP?(editingP.manufacturer||''):''))}" oninput="productFormDraft.manufacturer=this.value"></div>`:''}
+          ${fieldsCfg().activeIngredient?`<div class="form-group"><div class="lbl">المادة الفعالة — اختياري</div><input type="text" id="p_active" placeholder="المادة الفعالة" value="${esc(dv('activeIngredient',editingP?(editingP.activeIngredient||''):''))}" oninput="productFormDraft.activeIngredient=this.value"></div>`:''}
+        </div>`:''}
         ${editingP?'':`
         <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" value="${dv('openingQty','')}" oninput="productFormDraft.openingQty=this.value"></div>
           <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${dv('openingDate',today())}" onchange="productFormDraft.openingDate=this.value"></div>
         </div>
+        ${fieldsCfg().expiry?`
         <div class="form-row">
           <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية" value="${dv('openingExpiry','')}" onchange="productFormDraft.openingExpiry=this.value"></div>
-        </div>
+        </div>`:''}
         <div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لو حطيت رصيد أول (كمية)، احرص تدخل سعر الشراء/التكلفة تحت عشان قيمتها تظهر صح في تقاريرك المالية</div>`}
         <div class="form-row">
           <div class="form-group"><div class="lbl">سعر البيع — اختياري</div><input type="number" id="p_price" min="0" value="${dv('price',editingP?(editingP.price||''):'')}" oninput="productFormDraft.price=this.value"></div>
           <div class="form-group"><div class="lbl">سعر الشراء/التكلفة — اختياري</div><input type="number" id="p_cost_price" min="0" value="${dv('costPrice',editingP?(editingP.costPrice||''):'')}" oninput="productFormDraft.costPrice=this.value"></div>
         </div>
         ${editingP?'<div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لتغيير الكمية استخدم "حركة مخزن" — الكمية مش بتتعدل من هنا</div>':''}
+        ${fieldsCfg().subUnits?`
         <div class="divider"></div>
         <div class="section-title">🧩 بيع بالتجزئة (اختياري)</div>
         <div style="font-size:11px;color:#717D7E;margin-bottom:8px">لو عايز تبيع أجزاء من "${editingP?esc(editingP.unit||'الوحدة الأساسية'):'الوحدة الأساسية اللي هتكتبها فوق'}" (زي حبة من العلبة، أو مل من العبوة)، ضيف وحدات البيع دي. المخزون هيفضل متسجل بالوحدة الأساسية زي ما هو، والنظام هيحول تلقائي. من غير ما تضيف حاجة هنا، الصنف هيفضل بيتباع بالوحدة الأساسية بس زي ما هو دلوقتي.</div>
@@ -5064,7 +5133,7 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">سعرها — اختياري</div><input type="number" min="0" placeholder="نسبي لو فاضي" value="${u.price||''}" onchange="updateSubUnit('${u.id}','price',this.value)"></div>
           <button class="btn red" style="padding:6px 10px" onclick="removeSubUnit('${u.id}')">✕</button>
         </div>`).join('')}
-        <button class="btn-outline" style="margin-bottom:10px" onclick="addSubUnit()">+ إضافة وحدة بيع بالتجزئة</button>
+        <button class="btn-outline" style="margin-bottom:10px" onclick="addSubUnit()">+ إضافة وحدة بيع بالتجزئة</button>`:''}
         <div class="btn-row">
           <button class="btn ${editingP?'orange':'green'}" onclick="saveProduct()">${editingP?'✓ حفظ التعديل':'+ إضافة'}</button>
           <button class="btn-outline" onclick="editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=false;renderStock()">إلغاء</button>
@@ -5091,7 +5160,7 @@ function renderStockOverview(){
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" id="mov_qty" min="1" placeholder="0"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="mov_date" value="${today()}"></div>
         </div>
-        ${currentMovType==='in'?`<div class="form-row">
+        ${currentMovType==='in'&&fieldsCfg().expiry?`<div class="form-row">
           <div class="form-group"><div class="lbl">📅 تاريخ الصلاحية</div><input type="month" id="mov_expiry" placeholder="اختر تاريخ الصلاحية"></div>
         </div>`:''}
         <div class="form-row">
@@ -5139,9 +5208,12 @@ function saveProduct(){
     const p=stock.find(p=>p.id===editProductId);
     if(!p){editProductId=null;showProductForm=false;renderStock();return;}
     const _applyEdit=function(){
-      p.name=name; p.unit=unit; p.category=category;
-      if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer;
-      if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient;
+      p.name=name; p.unit=unit;
+      // الحقول دي بتتلمس بس لو ظاهرة فعلًا في النمط الحالي — لو مخفية، بيانات
+      // الصنف القديمة (لو موجودة من قبل) بتفضل زي ما هي بالظبط، متتمسحش ولا تتستبدل
+      if(fieldsCfg().manufacturing) p.category=category;
+      if(fieldsCfg().manufacturer){ if(manufacturer)p.manufacturer=manufacturer; else delete p.manufacturer; }
+      if(fieldsCfg().activeIngredient){ if(activeIngredient)p.activeIngredient=activeIngredient; else delete p.activeIngredient; }
       if(barcode)p.barcode=barcode; else delete p.barcode;
       if(price>0)p.price=price; else delete p.price;
       if(costPrice>0)p.costPrice=costPrice; else delete p.costPrice;
@@ -5229,20 +5301,21 @@ function saveMovement(){
 }
 
 function renderStockMovements(){
+  const showExpiry=fieldsCfg().expiry;
   const sorted=[...movements].sort((a,b)=>b.date.localeCompare(a.date));
   const rows=sorted.map(m=>{
     const p=stock.find(p=>p.id===m.productId);
     return `<tr><td>${esc(p?.name||'—')}</td><td>${m.date}</td>
       <td><span class="badge ${m.type==='in'?'green':'red'}">${m.type==='in'?'وارد':'صادر'}</span></td>
       <td style="font-weight:bold">${fmtQty(m.qty)}</td>
-      <td>${m.expiry||'—'}</td>
+      ${showExpiry?`<td>${m.expiry||'—'}</td>`:''}
       <td>${esc(m.note||'—')}</td></tr>`;
   }).join('');
   document.getElementById('stock-content').innerHTML=`
     <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
       <button class="btn green" onclick="stockSubTab='overview';showMovForm=true;renderStock()">+ حركة جديدة</button>
     </div>
-    ${sorted.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المنتج</th><th>التاريخ</th><th>النوع</th><th>الكمية</th><th>الصلاحية</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+    ${sorted.length===0?'<div class="empty">لا توجد حركات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المنتج</th><th>التاريخ</th><th>النوع</th><th>الكمية</th>${showExpiry?'<th>الصلاحية</th>':''}<th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
 }
 
 // ===== التصنيع: بيحوّل خامة (أو أكتر) لصنف ناتج، بيحدّث المخزون تلقائي، وبيحسب تكلفة الصنف الناتج
@@ -5983,11 +6056,12 @@ function updateProductField(pid, field, val){
 }
 function renderPriceList(){
   const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const showManu=fieldsCfg().manufacturer, showActive=fieldsCfg().activeIngredient;
   const rows=filtered.map(p=>`
     <div class="pl-row">
       <div class="pl-name">${esc(p.name)}${(p.subUnits&&p.subUnits.length>0)?`<div style="font-size:9.5px;color:#8E44AD;font-weight:normal">🧩 ${p.subUnits.map(u=>esc(u.name)+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</div>`:''}</div>
-      <input type="text" class="pl-manu" value="${esc(p.manufacturer||'')}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">
-      <input type="text" class="pl-active" value="${esc(p.activeIngredient||'')}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">
+      ${showManu?`<input type="text" class="pl-manu" value="${esc(p.manufacturer||'')}" placeholder="—" onchange="updateProductField('${p.id}','manufacturer',this.value)">`:''}
+      ${showActive?`<input type="text" class="pl-active" value="${esc(p.activeIngredient||'')}" placeholder="—" onchange="updateProductField('${p.id}','activeIngredient',this.value)">`:''}
       <div class="pl-unit">${p.unit}</div>
       <input type="number" class="pl-price" min="0" value="${p.price||''}" placeholder="0" onchange="updateProductPrice('${p.id}',this.value)">
     </div>`).join('');
@@ -5999,8 +6073,8 @@ function renderPriceList(){
     <div class="card">
       <div class="pl-head">
         <div class="pl-name">الصنف</div>
-        <div class="pl-manu">الشركة المصنعة</div>
-        <div class="pl-active">المادة الفعالة</div>
+        ${showManu?'<div class="pl-manu">الشركة المصنعة</div>':''}
+        ${showActive?'<div class="pl-active">المادة الفعالة</div>':''}
         <div class="pl-unit">الوحدة</div>
         <div class="pl-price">السعر</div>
       </div>
@@ -6009,13 +6083,14 @@ function renderPriceList(){
 }
 async function printPriceListPdf(){
   const sorted=[...stock].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  const rows=sorted.map(p=>`<tr><td>${esc(p.name)}${(p.subUnits&&p.subUnits.length>0)?`<br><small style="color:#8E44AD">🧩 ${p.subUnits.map(u=>esc(u.name)+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</small>`:''}</td><td>${esc(p.manufacturer||'—')}</td><td>${esc(p.activeIngredient||'—')}</td><td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
+  const showManu=fieldsCfg().manufacturer, showActive=fieldsCfg().activeIngredient;
+  const rows=sorted.map(p=>`<tr><td>${esc(p.name)}${(p.subUnits&&p.subUnits.length>0)?`<br><small style="color:#8E44AD">🧩 ${p.subUnits.map(u=>esc(u.name)+(u.price>0?` (${fmt(u.price)}ج)`:'')).join('، ')}</small>`:''}</td>${showManu?`<td>${esc(p.manufacturer||'—')}</td>`:''}${showActive?`<td>${esc(p.activeIngredient||'—')}</td>`:''}<td>${p.unit}</td><td style="font-weight:bold;color:#1A5276">${p.price?fmt(p.price)+' ج':'—'}</td></tr>`).join('');
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ القائمة:</strong> ${today()}</div>
       <div><strong>عدد الأصناف:</strong> ${sorted.length}</div>
     </div>
-    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th><th>الشركة المصنعة</th><th>المادة الفعالة</th><th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
+    ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد أصناف</div>':`<table><thead><tr><th>الصنف</th>${showManu?'<th>الشركة المصنعة</th>':''}${showActive?'<th>المادة الفعالة</th>':''}<th>الوحدة</th><th>السعر</th></tr></thead><tbody>${rows}</tbody></table>`}`;
   await sendDocument('قائمة الأسعار', body, `قائمة-الأسعار-${today()}.pdf`);
 }
 
@@ -7097,7 +7172,7 @@ function renderPurchases(){
           <div class="form-group" style="flex:2"><div class="lbl">المنتج</div>
             ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
-          <div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>
+          ${fieldsCfg().expiry?`<div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>`:''}
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" min="1" value="${l.qty}" onchange="updatePurLine('${l.id}','qty',this.value)"></div>
@@ -7309,6 +7384,7 @@ function renderPurDetail(){
   const pur=purchases.find(p=>p.id===purDetailId);
   if(!pur){purDetailId=null;renderPurchases();return;}
   const s=suppliers.find(s=>s.id===pur.supplierId);
+  const showExpiry=fieldsCfg().expiry;
   const linesRows=(pur.lines||[]).map(l=>{
     const prod=stock.find(p=>p.id===l.productId);
     const afterDiscount=l.price*(1-(l.discount||0)/100);
@@ -7316,7 +7392,7 @@ function renderPurDetail(){
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${l.discount}%`);
     if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
-    return `<tr><td>${esc(prod?.name||l.productName||'—')}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
+    return `<tr><td>${esc(prod?.name||l.productName||'—')}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
   }).join('');
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
@@ -7328,7 +7404,7 @@ function renderPurDetail(){
       <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
       <div style="margin-bottom:10px"><strong>الإجمالي:</strong> <span style="color:#1A5276;font-weight:bold">${fmt(pur.total)} ج</span></div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>المنتج</th><th>الصلاحية</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
         <tbody>${linesRows}</tbody>
       </table></div>
       ${pur.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${pur.overallDiscount}% على إجمالي الفاتورة (- ${fmt(pur.subtotal-pur.total)} ج) — الإجمالي قبل الخصم: ${fmt(pur.subtotal)} ج</div>`:''}
@@ -7578,7 +7654,7 @@ function renderPurReturns(){
           <div class="lbl">المنتج</div>
           ${stock.length>0?searchableSelectHtml(`purretline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurRetLine('${l.id}','productId',document.getElementById('purretline_${l.id}').value);updatePurRetLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurRetLine('${l.id}','productName',this.value)">`}
         </div>
-        ${l.productId&&stockBatches(l.productId).length>0?`
+        ${fieldsCfg().expiry&&l.productId&&stockBatches(l.productId).length>0?`
         <div class="form-group">
           <div class="lbl">📅 الصلاحية</div>
           <select onchange="updatePurRetLine('${l.id}','expiry',this.value)">
@@ -7711,9 +7787,10 @@ function renderPurRetDetail(){
   const ret=purchaseReturns.find(r=>r.id===purRetDetailId);
   if(!ret){purRetDetailId=null;renderPurReturns();return;}
   const s=suppliers.find(s=>s.id===ret.supplierId);
+  const showExpiry=fieldsCfg().expiry;
   const rows=(ret.lines||[]).map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
-    return `<tr><td>${pName}</td><td>${l.expiry||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    return `<tr><td>${pName}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   document.getElementById('tab-purreturns').innerHTML=`
     <div class="back-row">
@@ -7724,7 +7801,7 @@ function renderPurRetDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date}</div>
-        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الصلاحية</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#D68910">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchaseReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
@@ -8249,6 +8326,7 @@ function _activateTrial(dCode){
       render();
       _showTrialBanner(7);
       updateTabsFadeHint();
+      _maybeShowBusinessTypeFirstTime();
     },1200);
   } else {
     msg.style.color='#FF6B6B';
@@ -8279,11 +8357,23 @@ function _activate(dCode){
       if(tb) tb.remove();
       render();
       updateTabsFadeHint();
+      _maybeShowBusinessTypeFirstTime();
     },1200);
   } else {
     msg.style.color='#FF6B6B';
     msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
   }
+}
+
+// عميل جديد فعّل لأول مرة (تجربة أو دائم) ⇒ نعرض اختيار نوع النشاط مرة واحدة بس.
+// العملاء الحاليين (اللي عندهم _ak/_ta محفوظين قبل كده) بيدخلوا من initActivation() على
+// المسار التاني تمامًا (تفعيل تلقائي بدون المرور بـ _activate/_activateTrial) فمش هيوصلهم
+// الاستدعاء ده أبدًا. علم "_btAsked" محلي (localStorage) لمنع التكرار على نفس الجهاز.
+function _maybeShowBusinessTypeFirstTime(){
+  if(DB.get('_btAsked')) return;
+  DB.set('_btAsked', true);
+  if(companyProfile.businessType) return; // متزامن بالفعل من جهاز تاني
+  setTimeout(()=>{ showBusinessTypeModal(true); }, 600);
 }
 
 // تسجيل السيرفس ووركر لتفعيل تثبيت التطبيق كأيقونة مستقلة (PWA)
