@@ -69,6 +69,20 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .kpi-lbl{font-size:11px;opacity:.85;margin-bottom:4px;}
 .kpi-num{font-size:17px;font-weight:bold;}
 .kpi-sub{font-size:10px;opacity:.75;margin-top:4px;}
+/* ===== كارت "كام كسبت النهارده؟" ===== */
+.profit-hero{border-radius:14px;padding:14px 16px;margin-bottom:14px;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,.16);cursor:pointer;}
+.profit-hero:active{transform:scale(.98);}
+.profit-hero.pos{background:linear-gradient(135deg,#219150,#145A32);}
+.profit-hero.neg{background:linear-gradient(135deg,#C0392B,#7B241C);}
+.profit-hero.neutral{background:linear-gradient(135deg,#1B5A82,#154360);}
+.profit-hero-title{font-size:13px;font-weight:bold;opacity:.9;display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.profit-hero-main{font-size:27px;font-weight:bold;margin-top:6px;}
+.profit-hero-mainlbl{font-size:10.5px;opacity:.8;margin-bottom:10px;}
+.profit-hero-rows{background:rgba(255,255,255,.10);border-radius:10px;padding:8px 12px;}
+.profit-hero-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12.5px;}
+.profit-hero-row.total{border-top:1px solid rgba(255,255,255,.28);margin-top:3px;padding-top:7px;font-weight:bold;font-size:13.5px;}
+.profit-hero-note{font-size:10px;opacity:.7;margin-top:8px;line-height:1.55;}
+.profit-hero-empty{font-size:12.5px;opacity:.85;padding:6px 0;}
 .sum-card{flex:1;min-width:130px;border-radius:10px;padding:12px 14px;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.12);}
 .sum-card.blue{background:#1A5276;}
 .sum-card.red{background:#C0392B;}
@@ -323,6 +337,16 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   .kpi-lbl{font-size:12px;}
   .kpi-num{font-size:20px;}
   .kpi-sub{font-size:11px;}
+
+  /* ===== كارت "كام كسبت النهارده؟" ===== */
+  .profit-hero{padding:20px 24px;border-radius:16px;margin-bottom:20px;}
+  .profit-hero-title{font-size:15px;}
+  .profit-hero-main{font-size:34px;}
+  .profit-hero-mainlbl{font-size:12px;}
+  .profit-hero-rows{padding:12px 18px;}
+  .profit-hero-row{font-size:14px;padding:5px 0;}
+  .profit-hero-row.total{font-size:15px;}
+  .profit-hero-note{font-size:11px;}
 
   /* ===== الفورمات ===== */
   .form-row{gap:12px;margin-bottom:12px;}
@@ -2069,6 +2093,18 @@ function nextDocNumber(existingArr, counterKey){
 // تاريخ اليوم/أي تاريخ بالتوقيت المحلي للجهاز (بدل UTC)، عشان ميحصلش اختلاف يوم كامل حوالين منتصف الليل
 const toLocalDateStr=(d)=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 const today=()=>toLocalDateStr(new Date());
+// "تاريخ يوم العمل" — بيرجع تاريخ امبارح لو الساعة دلوقتي لسه قبل "ميعاد بداية يوم العمل" المحدد في بيانات الشركة
+// (افتراضيًا 0 = نص الليل = بالظبط نفس today() فوق، صفر تغيير لحد ما صاحب المحل يحدد ميعاد تاني بنفسه)
+// ده عشان المحلات اللي بتقفل بعد نص الليل (مثلاً الساعة 2 بالليل) تفضل مبيعاتها محسوبة على "يوم العمل" اللي بدأ الصبح اللي قبله، مش يوم تقويمي جديد
+// بيتستخدم بس في: (1) التاريخ الافتراضي لفاتورة مبيعات/مرتجع مبيعات/تحصيل/مشتريات/مصروف جديد، (2) كروت "اليوم" في الرئيسية
+// باقي البرنامج (كشوف حساب/تقارير/فلاتر تاريخ يدوية/تواريخ استحقاق الشيكات) بيقرأ التاريخ المسجل زي ما هو ومبيتأثرش بالإعداد ده خالص
+function businessDate(){
+  const startHour=Number(companyProfile.businessDayStartHour)||0;
+  if(!startHour) return today();
+  const now=new Date();
+  if(now.getHours()<startHour){ now.setDate(now.getDate()-1); }
+  return toLocalDateStr(now);
+}
 const fmt=(n)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 // تنسيق كميات مخزون ممكن تكون كسور (لما نبيع بالتجزئة) من غير ما تظهر أرقام عشرية غريبة بسبب حسابات الفاصلة العائمة
 const fmtQty=(n)=>{
@@ -2891,7 +2927,14 @@ function openCompanyModal(){
       ${companyProfile.logo?`<div onclick="_removeLogo()" class="cm-small" style="text-align:center;color:#C0392B;cursor:pointer;margin-bottom:10px">🗑 حذف الشعار</div>`:''}
       <input id="companyNameInput" type="text" placeholder="اسم الشركة / النشاط" value="${esc(companyProfile.name||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
       <input id="companyPhoneInput" type="text" placeholder="رقم تليفون الشركة (اختياري)" value="${esc(companyProfile.phone||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
-      <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${esc(companyProfile.taxNumber||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box;direction:ltr;text-align:right">
+      <input id="companyTaxInput" type="text" placeholder="الرقم الضريبي (اختياري)" value="${esc(companyProfile.taxNumber||'')}" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box;direction:ltr;text-align:right">
+      <div style="margin-bottom:16px">
+        <div class="lbl" style="font-size:12px;color:#717D7E;margin-bottom:4px">🕓 ميعاد بداية يوم العمل (لمحلات الشيفت المتأخر)</div>
+        <select id="companyBizDayInput" class="cm-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;box-sizing:border-box">
+          ${[0,1,2,3,4,5,6].map(h=>`<option value="${h}" ${Number(companyProfile.businessDayStartHour||0)===h?'selected':''}>${h===0?'نص الليل (الوضع العادي)':h+' صباحًا'}</option>`).join('')}
+        </select>
+        <div style="font-size:10.5px;color:#AAB7B8;margin-top:4px">لو محلك بيفضل فاتح بعد نص الليل، اختار الميعاد اللي بيقفل بيه شغلك فعليًا — أي فاتورة/تحصيل/مصروف يتسجل قبل الميعاد ده هيتحسب على يوم العمل اللي فات، مش يوم جديد.</div>
+      </div>
       <div onclick="document.getElementById('companyModal').remove();showBusinessTypeModal(false)" style="display:flex;align-items:center;justify-content:space-between;background:#F8F9F9;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin-bottom:16px;cursor:pointer;font-size:12.5px;color:#333">
         <span>نوع النشاط: <strong>${businessTypeLabel()}</strong></span>
         <span style="color:#1A5276;font-weight:bold">تغيير ›</span>
@@ -2938,9 +2981,10 @@ function saveCompanyProfile(){
   const name=document.getElementById('companyNameInput').value.trim();
   const phone=document.getElementById('companyPhoneInput').value.trim();
   const taxNumber=document.getElementById('companyTaxInput').value.trim();
+  const businessDayStartHour=Number(document.getElementById('companyBizDayInput')?.value)||0;
   // ملحوظة: بنعمل spread على companyProfile الحالي قبل الكتابة فوقه، عشان أي حقل
   // إضافي (زي businessType) اتحفظ قبل كده متتمسحش لما المستخدم يحفظ اسم/تليفون/شعار بس
-  companyProfile={...companyProfile, name, phone, taxNumber, logo:_tempLogoDataUrl||''};
+  companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, logo:_tempLogoDataUrl||''};
   idbSet(KEYS.companyProfile, companyProfile);
   document.getElementById('companyModal').remove();
   renderCompanyBar();
@@ -3085,8 +3129,63 @@ function supplierSummaryData(from,to){
   return {rows,totals};
 }
 
+// "كام كسبت النهارده؟" — ربح حقيقي (مش مجرد مبيعات) ليوم معين: نفس منطق تقرير "ربحية الأصناف" بالظبط
+// (تكلفة بمتوسط تكلفة الشراء المرجح لكل صنف عن طريق buildCogsMaps + نفس معاملة خصم السطر والخصم الإجمالي على الفاتورة)
+// عشان الرقم يفضل مطابق تمامًا لباقي أرقام البرنامج، مش حساب منفصل بيتحسب بطريقة تانية ممكن تختلف
+function dailyProfitSnapshot(day){
+  const {byLine}=buildCogsMaps();
+  let sales=0, cogs=0;
+  invoices.filter(i=>i.date===day).forEach(inv=>{
+    const overallFactor=1-((Number(inv.overallDiscount)||0)/100);
+    inv.lines.forEach(l=>{
+      if(!l.productId) return;
+      const afterLineDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      sales+=Number(l.qty)*afterLineDiscount*overallFactor;
+      cogs+=byLine.get(l)||0;
+    });
+  });
+  returns.filter(r=>r.date===day).forEach(ret=>{
+    ret.lines.forEach(l=>{
+      if(!l.productId) return;
+      sales-=Number(l.qty)*Number(l.price);
+      cogs-=byLine.get(l)||0;
+    });
+  });
+  const grossProfit=sales-cogs;
+  const expensesToday=expenses.filter(e=>e.date===day).reduce((s,e)=>s+Number(e.amount),0);
+  const netProfit=grossProfit-expensesToday;
+  const hadActivity=invoices.some(i=>i.date===day)||returns.some(r=>r.date===day)||expenses.some(e=>e.date===day);
+  return {sales,cogs,grossProfit,expensesToday,netProfit,hadActivity};
+}
+
+// كارت "كام كسبت النهارده؟" في الرئيسية — بيبني الـ HTML بتاع الكارت من غير ما يغيّر أي منطق حساب موجود
+function renderProfitHeroCard(){
+  const day=businessDate();
+  const {sales,cogs,grossProfit,expensesToday,netProfit,hadActivity}=dailyProfitSnapshot(day);
+  const cls=!hadActivity?'neutral':(netProfit>0?'pos':(netProfit<0?'neg':'neutral'));
+  const goDetail=`switchTab('reports');document.getElementById('reportsItemProfitCard')?.scrollIntoView({behavior:'smooth',block:'center'})`;
+  const row=(label,val,opts={})=>`<div class="profit-hero-row${opts.total?' total':''}"><div>${label}</div><div>${opts.sign||''}${fmt(Math.abs(val))} ج</div></div>`;
+  const body=hadActivity?`
+    <div class="profit-hero-main">${netProfit<0?'-':''}${fmt(Math.abs(netProfit))} ج</div>
+    <div class="profit-hero-mainlbl">صافي الربح التقريبي النهارده</div>
+    <div class="profit-hero-rows">
+      ${row('مبيعات النهارده',sales)}
+      ${row('(-) تكلفة البضاعة المباعة',cogs)}
+      ${row('= مجمل الربح',grossProfit,{total:true})}
+      ${row('(-) مصروفات النهارده',expensesToday)}
+      ${row('= صافي الربح التقريبي',netProfit,{total:true})}
+    </div>`:`
+    <div class="profit-hero-empty">لسه مفيش مبيعات أو مصروفات متسجلة النهارده — ابدأ بفاتورة مبيعات وهنا هيظهرلك ربحك الحقيقي أول بأول.</div>`;
+  return `
+    <div class="profit-hero ${cls}" onclick="${goDetail}">
+      <div class="profit-hero-title"><span>💰 إقفال اليوم (كسبت كام النهارده؟)</span><span style="opacity:.75;font-size:11px">التفاصيل ◀</span></div>
+      ${body}
+      <div class="profit-hero-note">💡 التكلفة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف (نفس محرك "ربحية الأصناف")، فلو صنف اتباع من غير سعر شراء مسجّل تكلفته بتتحسب صفر مؤقتًا. الرقم "تقريبي" لأنه لسه مش شامل الخصومات المسموح/المكتسبة ولا الضرائب.</div>
+    </div>`;
+}
+
 function renderHome(){
-  const day=today();
+  const day=businessDate();
   const monthPrefix=day.slice(0,7);
   const inMonth=d=>d && d.slice(0,7)===monthPrefix;
 
@@ -3136,6 +3235,7 @@ function renderHome(){
   const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
 
   document.getElementById('tab-home').innerHTML=`
+    ${renderProfitHeroCard()}
     ${kpiGrid}
     <div class="home-shortcuts">
       ${shortcut('🧾','فاتورة مبيعات',"showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
@@ -4177,7 +4277,7 @@ function renderInvoices(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||'')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة</div>
@@ -4298,7 +4398,7 @@ function updateLineTotal(id,totalValue){
 
 function saveInvoice(){
   const clientId=document.getElementById('inv_client')?.value;
-  const date=document.getElementById('inv_date')?.value||today();
+  const date=document.getElementById('inv_date')?.value||businessDate();
   const isCash=document.getElementById('inv_is_cash')?.checked||false;
   if(!clientId){showToast('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
@@ -4561,7 +4661,7 @@ function renderPayments(){
         <div id="pay_inv_row"></div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="pay_amount" placeholder="0.00" min="0"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pay_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pay_date" value="${businessDate()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">خصم مسموح به (ج) — اختياري</div><input type="number" id="pay_discount" placeholder="0.00" min="0"></div>
@@ -4666,7 +4766,7 @@ function savePayment(){
   const clientId=document.getElementById('pay_client')?.value;
   const cashAmount=Number(document.getElementById('pay_amount')?.value||0);
   const discount=Number(document.getElementById('pay_discount')?.value||0);
-  const date=document.getElementById('pay_date')?.value||today();
+  const date=document.getElementById('pay_date')?.value||businessDate();
   const note=document.getElementById('pay_note')?.value||'';
   const invoiceId=document.getElementById('pay_invoice')?.value||null;
   if(!clientId||(!cashAmount&&!discount)){showToast('اختر عميل وأدخل المبلغ');return;}
@@ -4767,7 +4867,7 @@ function renderReturns(){
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
-            <input type="date" id="ret_date" value="${today()}">
+            <input type="date" id="ret_date" value="${businessDate()}">
           </div>
         </div>
         <div class="divider"></div>
@@ -4879,7 +4979,7 @@ function updateRetLineTotal(id,totalValue){
 
 function saveReturn(){
   const clientId=document.getElementById('ret_client')?.value;
-  const date=document.getElementById('ret_date')?.value||today();
+  const date=document.getElementById('ret_date')?.value||businessDate();
   if(!clientId){showToast('اختر عميل');return;}
   if(retLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -5819,7 +5919,7 @@ function renderExpenses(){
             <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="exp_amount" min="0" placeholder="0"></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${today()}"></div>
+            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${businessDate()}"></div>
           </div>
           <div class="form-row">
             <div class="form-group"><div class="lbl">نوع المصروف (اختياري)</div>
@@ -5922,7 +6022,7 @@ function deleteRepNote(id){
 function addExpense(){
   const label=document.getElementById('exp_label')?.value?.trim();
   const amount=Number(document.getElementById('exp_amount')?.value||0);
-  const date=document.getElementById('exp_date')?.value||today();
+  const date=document.getElementById('exp_date')?.value||businessDate();
   const costType=document.getElementById('exp_cost_type')?.value||'';   // '' | 'direct' | 'indirect'
   const costNature=document.getElementById('exp_cost_nature')?.value||''; // '' | 'fixed' | 'variable'
   if(!label){showToast('اكتب بند المصروف');return;}
@@ -6633,7 +6733,7 @@ function renderFinancialStatementsBlock(fromVal,toVal){
   // مؤقتًا: باقي التقارير المالية (ميزان/دخل/ميزانية/دفتر أستاذ/تدفقات) مشالة
   // من هنا واتسابت "ربحية الأصناف" بس - راجع الملحوظة فوق في renderReports()
   return `
-  <div class="card" style="margin-top:14px">
+  <div class="card" id="reportsItemProfitCard" style="margin-top:14px">
     <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">🏆 ربحية الأصناف</div>
     <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
     ${renderItemProfitabilityHtml(fromVal,toVal)}
@@ -7242,7 +7342,7 @@ function renderPurchases(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||'')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف فاتورة المشتريات</div>
@@ -7336,7 +7436,7 @@ function updatePurLine(id,field,value){
 
 function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
-  const date=document.getElementById('pur_date')?.value||today();
+  const date=document.getElementById('pur_date')?.value||businessDate();
   const isCash=document.getElementById('pur_is_cash')?.checked||false;
   if(!supplierId){showToast('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
