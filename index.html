@@ -18,6 +18,9 @@
 body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;background:#F0F4F8;color:#1C2833;font-size:14px;min-height:100vh;font-feature-settings:"lnum";}
 input,select,td,th,.sum-num,.list-item-bal-num{font-feature-settings:"lnum";}
 input[type=date],input[type=number]{direction:ltr;text-align:right;}
+/* إخفاء أسهم الزيادة/النقصان المدمجة في خانات الأرقام - الخانة بقت للكتابة اليدوية بس */
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+input[type=number]{-moz-appearance:textfield;appearance:textfield;}
 input,select,button{font-family:inherit;font-size:14px;}
 input:focus,select:focus{outline:2px solid #2E86C1;}
 .header{background:linear-gradient(135deg,#1B5A82,#154360);color:#fff;padding:12px 14px 10px;box-shadow:0 2px 10px rgba(0,0,0,.18);position:sticky;top:0;z-index:100;}
@@ -3554,7 +3557,7 @@ async function sliceIntoA4Pages(canvas, cssWidth, cssHeightTotal, breakOffsets, 
     pctx.fillText(`صفحة ${i+1} من ${numPages}`, pageCanvas.width/2, pageCanvas.height-10*scale);
     const pageBlob=await new Promise(resolve=>pageCanvas.toBlob(resolve,'image/jpeg',0.92));
     const jpegBytes=new Uint8Array(await pageBlob.arrayBuffer());
-    pages.push({jpegBytes, pxWidth:pageCanvas.width, pxHeight:pageCanvas.height, ptWidth:cssWidth*0.75, ptHeight:(sliceH+topGap)*0.75});
+    pages.push({jpegBytes, pageBlob, pxWidth:pageCanvas.width, pxHeight:pageCanvas.height, ptWidth:cssWidth*0.75, ptHeight:(sliceH+topGap)*0.75});
   }
   return pages;
 }
@@ -3565,12 +3568,15 @@ async function generateDocumentPdfBlob(title, bodyHtml){
   if(cssHeight<=A4_HEIGHT_PX){
     // مستند صفحة واحدة (الحالة الأشهر) — نفس الحساب القديم بالظبط، من غير أي تغيير في الشكل
     const jpegBytes=new Uint8Array(await blob.arrayBuffer());
-    pages=[{jpegBytes, pxWidth, pxHeight, ptWidth:cssWidth*0.75, ptHeight:cssHeight*0.75}];
+    pages=[{jpegBytes, pageBlob:blob, pxWidth, pxHeight, ptWidth:cssWidth*0.75, ptHeight:cssHeight*0.75}];
   } else {
     pages=await sliceIntoA4Pages(canvas, cssWidth, cssHeight, breakOffsets, scale);
   }
   const pdfBlob=buildPdfFromJpegPages(pages);
-  return {pdfBlob, jpegBlob:blob};
+  // صور معاينة مطابقة تمامًا لصفحات الـ PDF الحقيقي (مش صورة واحدة طويلة للمستند كله زي الأول) —
+  // ده اللي بيتعرض في نافذة المعاينة قبل الإرسال
+  const previewPages=pages.map(p=>p.pageBlob);
+  return {pdfBlob, previewPages};
 }
 
 // نافذة معاينة المستند قبل الإرسال — بترجع Promise تتحل لما المستخدم يقفل النافذة (سواء بعت أو رجع)
@@ -3579,9 +3585,12 @@ async function generateDocumentPdfBlob(title, bodyHtml){
 // بس برضو واضحة. الحل: نستغل أقصى مساحة شاشة ممكنة (نقلل الفراغات الزيادة حوالين النافذة) والصورة
 // تتظبط بعرض 100% من غير أي حد أقصى تاني، فمفيش أي جزء بيتقص. تكبير الإصبعين لسه شغال اختياريًا
 // لو حد حاب يقرب على تفصيلة معينة، بس مش لازم للاستخدام العادي خالص.
-function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
+// pages: مصفوفة من Blob صور — صورة واحدة لكل صفحة A4 حقيقية من الملف اللي هيتبعت (مش صورة واحدة طويلة للمستند كله)
+function showPdfPreviewModal(pages, onConfirm, onPrint){
   return new Promise((resolve)=>{
-    const url=URL.createObjectURL(jpegBlob);
+    const urls=pages.map(p=>URL.createObjectURL(p));
+    let cur=0;
+    const multi=urls.length>1;
     const viewportMeta=document.querySelector('meta[name="viewport"]');
     const originalViewportContent=viewportMeta?viewportMeta.getAttribute('content'):null;
     if(viewportMeta) viewportMeta.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=5.0');
@@ -3591,8 +3600,13 @@ function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
     modal.innerHTML=`
       <div style="background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:98vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.3)">
         <div style="padding:10px 16px;border-bottom:1px solid #D5D8DC;font-weight:bold;color:#1A5276;text-align:center">👁️ معاينة قبل الإرسال</div>
+        ${multi?`<div style="display:flex;align-items:center;justify-content:center;gap:16px;padding:8px;border-bottom:1px solid #D5D8DC;background:#FAFBFC">
+          <button id="pdfPagePrev" style="background:#EAECEE;color:#1A5276;border:none;border-radius:6px;width:34px;height:34px;font-size:16px;font-weight:bold;cursor:pointer">›</button>
+          <span id="pdfPageLabel" style="font-size:13px;color:#1A5276;font-weight:bold;min-width:110px;text-align:center">صفحة 1 من ${urls.length}</span>
+          <button id="pdfPageNext" style="background:#EAECEE;color:#1A5276;border:none;border-radius:6px;width:34px;height:34px;font-size:16px;font-weight:bold;cursor:pointer">‹</button>
+        </div>`:''}
         <div style="overflow:auto;flex:1;background:#F2F3F4;padding:4px;display:flex;justify-content:center">
-          <img src="${url}" style="width:100%;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
+          <img id="pdfPreviewImg" src="${urls[0]}" style="width:100%;display:block;border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.15)">
         </div>
         <div style="display:flex;gap:8px;padding:12px 16px;border-top:1px solid #D5D8DC">
           <button id="pdfPreviewBack" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px 6px;font-size:13px;cursor:pointer">→ رجوع</button>
@@ -3601,8 +3615,24 @@ function showPdfPreviewModal(jpegBlob, onConfirm, onPrint){
         </div>
       </div>`;
     document.body.appendChild(modal);
+    // ملحوظة اتجاه: الصفحة "التالية" في مستند RTL بصريًا على يمين الشاشة، فزرار "›" (يمين) بيروح قدام و"‹" (شمال) بيرجع
+    if(multi){
+      const img=modal.querySelector('#pdfPreviewImg');
+      const label=modal.querySelector('#pdfPageLabel');
+      const prevBtn=modal.querySelector('#pdfPagePrev');
+      const nextBtn=modal.querySelector('#pdfPageNext');
+      function render(){
+        img.src=urls[cur];
+        label.textContent=`صفحة ${cur+1} من ${urls.length}`;
+        prevBtn.disabled=cur===0; prevBtn.style.opacity=prevBtn.disabled?'.4':'1';
+        nextBtn.disabled=cur===urls.length-1; nextBtn.style.opacity=nextBtn.disabled?'.4':'1';
+      }
+      prevBtn.onclick=()=>{ if(cur>0){ cur--; render(); } };
+      nextBtn.onclick=()=>{ if(cur<urls.length-1){ cur++; render(); } };
+      render();
+    }
     function cleanup(){
-      URL.revokeObjectURL(url);
+      urls.forEach(u=>URL.revokeObjectURL(u));
       modal.remove();
       if(viewportMeta && originalViewportContent!==null) viewportMeta.setAttribute('content',originalViewportContent);
     }
@@ -3646,8 +3676,8 @@ function safeFileName(str){
 async function sendDocument(title, bodyHtml, filename){
   const safeFilename=safeFileName(filename);
   try{
-    const {pdfBlob, jpegBlob}=await generateDocumentPdfBlob(title, bodyHtml);
-    await showPdfPreviewModal(jpegBlob, async ()=>{
+    const {pdfBlob, previewPages}=await generateDocumentPdfBlob(title, bodyHtml);
+    await showPdfPreviewModal(previewPages, async ()=>{
       const file=new File([pdfBlob], safeFilename, {type:'application/pdf'});
       if(navigator.canShare && navigator.canShare({files:[file]})){
         await navigator.share({files:[file], title});
@@ -8138,6 +8168,18 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
   `;
   document.body.appendChild(lockScreen);
 }
+
+// إلغاء تحكم بكرة الماوس وأسهم لوحة المفاتيح (فوق/تحت) في كل خانات الأرقام في التطبيق -
+// الخانة بقت للكتابة اليدوية بس زي أي خانة عادية. مستخدم delegation على document عشان يغطي
+// حتى الخانات اللي بتتولد ديناميكيًا بعد كده، من غير ما نلمس كل خانة لوحدها.
+document.addEventListener('wheel', function(e){
+  const t=e.target;
+  if(t && t.tagName==='INPUT' && t.type==='number' && document.activeElement===t) t.blur();
+}, {passive:true});
+document.addEventListener('keydown', function(e){
+  const t=e.target;
+  if((e.key==='ArrowUp'||e.key==='ArrowDown') && t && t.tagName==='INPUT' && t.type==='number') e.preventDefault();
+});
 
 document.addEventListener('DOMContentLoaded', async function(){
   renderTabsBar();
