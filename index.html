@@ -739,7 +739,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1596,13 +1596,14 @@ const save=()=>{
   idbSet(KEYS.journalEntries,journalEntries);
   idbSet(KEYS.productions,productions);
   idbSet(KEYS.deletedIds,deletedIds);
+  idbSet(KEYS.heldInvoices,heldInvoices);
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
   try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc,hInv]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1626,6 +1627,7 @@ async function loadAllData(){
   productions=prod||[];
   lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
   deletedIds=delIds||{};
+  heldInvoices=hInv||[];
   // أجهزة كانت شغالة قبل الإضافة دي هيبقى عندها القيمة دي فاضية أول مرة - عادي وآمن،
   // لأن nextDocNumber() تحت بتاخد أعلى رقم موجود فعلاً في الفواتير كحد أدنى أول ما تتنادى
   docNumberCounters=dnc||{invoice:0, purchase:0, return:0, purchaseReturn:0};
@@ -2462,7 +2464,7 @@ function pushSyncSnapshot(){
       suppliers, purchases, supplierPayments, purchaseReturns,
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
-      chartOfAccounts, journalEntries, productions,
+      chartOfAccounts, journalEntries, productions, heldInvoices,
       companyProfile, lowStockDefault, deletedIds, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
@@ -2562,7 +2564,7 @@ function startSyncListener(){
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
-const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes'];
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices'];
 
 const SYNC_ARRAY_LABELS={
   clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
@@ -2571,7 +2573,7 @@ const SYNC_ARRAY_LABELS={
   purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
   checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
-  clientNotes:'ملاحظات عملاء'
+  clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة'
 }; // مستخدمة لو حبينا نبني شاشة سجل مزامنة تفصيلية لاحقًا
 
 // بتسجل id عنصر اتمسح في سجل الحذف (dedup) - بتتنادى من كل فانكشن حذف
@@ -2588,7 +2590,7 @@ function recordDeletion(key,id){
 function getSyncArrayMap(){
   return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
     supplierPayments,purchaseReturns,expenses,productions,checksPayable,
-    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes};
+    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices};
 }
 
 // بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
@@ -3223,7 +3225,7 @@ function renderHome(){
       ${sub?`<div class="kpi-sub">${sub}</div>`:''}
     </div>`;
 
-  const goInvoicesToday=`invFromDate='${day}';invToDate='${day}';showInvForm=false;editInvoiceId=null;switchTab('invoices')`;
+  const goInvoicesToday=`_autoHoldInvoiceIfOpen();invFromDate='${day}';invToDate='${day}';showInvForm=false;editInvoiceId=null;switchTab('invoices')`;
   const goPurchasesToday=`purFromDate='${day}';purToDate='${day}';showPurForm=false;editPurchaseId=null;switchTab('purchases')`;
   const goPaymentsToday=`payFromDate='${day}';payToDate='${day}';showPayForm=false;switchTab('payments')`;
   const goReportsStock=`switchTab('reports');document.getElementById('reportsStockValueCard')?.scrollIntoView({behavior:'smooth',block:'center'})`;
@@ -3249,8 +3251,8 @@ function renderHome(){
     ${renderDayCloseButton()}
     ${kpiGrid}
     <div class="home-shortcuts">
-      ${shortcut('🧾','فاتورة مبيعات',"showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
-      ${shortcut('📈','المبيعات',"showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
+      ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
+      ${shortcut('📈','المبيعات',"_autoHoldInvoiceIfOpen();showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
       ${shortcut('📥','فاتورة مشتريات',"showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;switchTab('purchases')")}
       ${shortcut('🛒','المشتريات',"showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
       ${shortcut('📦','منتج جديد',"stockSubTab='overview';editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;switchTab('stock')")}
@@ -4061,6 +4063,13 @@ let showInvForm=false;
 let editInvoiceId=null;
 let invSearch='';
 let invFromDate='',invToDate='';
+// فواتير معلقة: تعليق مؤقت لفاتورة جديدة نص كتابتها (عميل + أصناف + خصم + كاش) عشان تخدم عميل تاني
+// وترجعلها بعدين بالظبط زي ما سبتها، بدون ما تفقد أي بيانات
+let heldInvoices=[];
+// مستخدمة لرندر واحد بس وقت استئناف فاتورة معلقة، عشان حقل العميل والتاريخ (اللي عايشين في الـ DOM بس مش في متغير)
+// ياخدوا قيمة الفاتورة المعلقة صح في أول رسم؛ بترجع فاضية فورًا بعد كده لأن rerenderInvoiceFormKeepFields بتحافظ عليهم من هنا
+let invResumeClientId='';
+let invResumeDate='';
 
 function openInvoiceFromClient(invId,clientId){
   invDetailFromClient=clientId;
@@ -4282,13 +4291,14 @@ function renderInvoices(){
   const invDiscAmount=subtotal*invDiscPct/100;
   const total=subtotal-invDiscAmount;
   document.getElementById('tab-invoices').innerHTML=`
+    ${renderHeldInvoicesBlock()}
     ${showInvForm?`
     <div class="card">
       <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||'')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||businessDate()}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||'')}</div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة</div>
@@ -4313,6 +4323,7 @@ function renderInvoices(){
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
           <div class="btn-row">
             <button class="btn ${editingInv?'orange':'green'}" onclick="saveInvoice()">${editingInv?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
+            ${!editingInv?`<button class="btn-outline" style="border-color:#D68910;color:#D68910" onclick="holdCurrentInvoice()">⏸️ علّق الفاتورة</button>`:''}
             <button class="btn-outline" onclick="showInvForm=false;editInvoiceId=null;renderInvoices()">إلغاء</button>
           </div>
         </div>
@@ -4344,6 +4355,7 @@ function editInvoice(id){
   const inv=invoices.find(i=>i.id===id);
   if(!inv)return;
   if(currentRole==='worker' && inv.createdBy!=='worker')return;
+  _autoHoldInvoiceIfOpen();
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
   invOverallDiscount=Number(inv.overallDiscount)||0;
@@ -4523,6 +4535,128 @@ function deleteInvoice(id){
     removeJournalBySource('invoiceCogs', id);
     save();renderInvoices();
   });
+}
+
+// ============================================================
+// تعليق الفاتورة — "Hold" فاتورة جديدة نص كتابتها عشان تخدم عميل تاني بسرعة،
+// وترجعلها بعدين بالظبط زي ما سبتها من غير ما تفقد أي بيانات
+// ============================================================
+
+// بيرجّع بيانات الفاتورة الجاري كتابتها دلوقتي لو فيه حاجة اتسجلت فعلاً (عميل أو أي صنف/كمية)،
+// أو null لو الفورم مقفول أو فاضي تمامًا أو بيعدّل فاتورة قديمة محفوظة أصلاً (التعليق للفواتير الجديدة بس)
+function _captureCurrentDraft(){
+  if(!showInvForm || editInvoiceId) return null;
+  const clientId=document.getElementById('inv_client')?.value||'';
+  const hasLine=invLines.some(l=>l.productId||(l.productName&&l.productName.trim())||Number(l.qty)>0);
+  if(!clientId && !hasLine) return null;
+  return {
+    clientId,
+    clientName:document.getElementById('inv_client_search')?.value||'',
+    date:document.getElementById('inv_date')?.value||businessDate(),
+    isCash:document.getElementById('inv_is_cash')?.checked||false,
+    lines:JSON.parse(JSON.stringify(invLines)),
+    overallDiscount:Number(invOverallDiscount)||0
+  };
+}
+
+function _resetInvoiceFormState(){
+  showInvForm=false;editInvoiceId=null;
+  invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
+  invOverallDiscount=0;invIsCash=false;
+}
+
+// شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة جديدة مفتوحة (زرار من الرئيسية،
+// فتح فاتورة تانية للتعديل...). لو فيه فورم فاتورة جديدة مفتوح دلوقتي وفيه بيانات فعلاً، بتعلّقه تلقائيًا
+// بدل ما يتمسح بصمت - فمفيش أي طريق في البرنامج تقدر تضيع بيه فاتورة من غير ما تتحفظ في مكان ما
+function _autoHoldInvoiceIfOpen(){
+  const draft=_captureCurrentDraft();
+  if(!draft) return false;
+  heldInvoices.push({id:uid(), ...draft, heldAt:new Date().toISOString()});
+  save();
+  showToast('⏸️ كانت فيه فاتورة مفتوحة فيها بيانات - اتعلّقت تلقائيًا، هتلاقيها في "فواتير معلقة"');
+  return true;
+}
+
+// زرار "⏸️ علّق الفاتورة" جوه فورم فاتورة جديدة — بتتحفظ زي ما هي بالظبط (عميل/أصناف/خصم/كاش)
+// في قايمة الفواتير المعلقة، والفورم بيتفضى فورًا عشان تبدأ فاتورة جديدة لعميل تاني
+function holdCurrentInvoice(){
+  const draft=_captureCurrentDraft();
+  if(!draft){ _resetInvoiceFormState(); renderInvoices(); return; }
+  heldInvoices.push({id:uid(), ...draft, heldAt:new Date().toISOString()});
+  save();
+  _resetInvoiceFormState();
+  showToast('⏸️ اتعلّقت الفاتورة — تقدر تكمّلها في أي وقت من "فواتير معلقة" فوق');
+  renderInvoices();
+}
+
+// استئناف فاتورة معلقة: بترجّع كل بياناتها للفورم بالظبط زي ما سابها المستخدم وتشيلها من قايمة التعليق.
+// لو فيه فاتورة جديدة تانية مفتوحة دلوقتي وفيها بيانات، بتتعلق هي تلقائيًا الأول عشان محدش يضيع
+function resumeHeldInvoice(id){
+  const held=heldInvoices.find(h=>h.id===id);
+  if(!held) return;
+  const currentDraft=_captureCurrentDraft();
+  if(currentDraft) heldInvoices.push({id:uid(), ...currentDraft, heldAt:new Date().toISOString()});
+  recordDeletion('heldInvoices',id);
+  heldInvoices=heldInvoices.filter(h=>h.id!==id);
+  invLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
+  invOverallDiscount=Number(held.overallDiscount)||0;
+  invIsCash=!!held.isCash;
+  editInvoiceId=null;
+  showInvForm=true;
+  const clientStillExists=!!(held.clientId && clients.some(c=>c.id===held.clientId));
+  invResumeClientId=clientStillExists?held.clientId:'';
+  invResumeDate=held.date||'';
+  save();
+  renderInvoices();
+  invResumeClientId='';invResumeDate=''; // كانت لازمة لرندر ده بس - اللي بعده بيحافظ عليها rerenderInvoiceFormKeepFields
+  const notes=[];
+  if(currentDraft) notes.push('الفاتورة اللي كانت مفتوحة اتعلّقت تلقائيًا كمان');
+  if(held.clientId && !clientStillExists) notes.push('⚠️ العميل المسجّل على الفاتورة دي اتشال من قايمة العملاء - اختار عميل تاني');
+  if(notes.length) showToast(notes.join(' | '));
+}
+
+// حذف فاتورة معلقة نهائيًا (لو مش محتاجها خالص)
+function deleteHeldInvoice(id){
+  showConfirm('هتحذف الفاتورة المعلقة دي نهائيًا؟ مش هينفع ترجعها بعد كده.', function(){
+    recordDeletion('heldInvoices',id);
+    heldInvoices=heldInvoices.filter(h=>h.id!==id);
+    save();
+    renderInvoices();
+  });
+}
+
+// كارت "فواتير معلقة" اللي بيظهر أعلى تبويب المبيعات (لو فيه فواتير معلقة بس)
+function renderHeldInvoicesBlock(){
+  if(!heldInvoices.length) return '';
+  const rows=[...heldInvoices].sort((a,b)=>String(b.heldAt).localeCompare(String(a.heldAt))).map(h=>{
+    const c=clients.find(c=>c.id===h.clientId);
+    const clientLabel=c?c.name:(h.clientName||'بدون عميل');
+    const lines=h.lines||[];
+    const itemCount=lines.filter(l=>l.productId||(l.productName&&l.productName.trim())).length;
+    const subtotal=lines.reduce((s,l)=>{
+      const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      return s+(Number(l.qty)*afterDiscount);
+    },0);
+    const total=subtotal-(subtotal*(Number(h.overallDiscount)||0)/100);
+    let timeLabel='';
+    try{ timeLabel=new Date(h.heldAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
+    return `<div class="list-item">
+      <div class="list-item-head">
+        <div>
+          <div class="list-item-name">${esc(clientLabel)}${h.isCash?' <span class="badge green">💵 كاش</span>':''}</div>
+          <div class="list-item-sub">${itemCount} صنف${itemCount===1?'':itemCount===2?'ين':''} • ${fmt(total)} ج${timeLabel?' • علّقت الساعة '+timeLabel:''}</div>
+        </div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn-sm green" onclick="resumeHeldInvoice('${h.id}')">▶️ استئناف</button>
+        <button class="btn-sm red" onclick="deleteHeldInvoice('${h.id}')">🗑 حذف نهائي</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-bottom:10px">
+    <div class="card-head orange">⏸️ فواتير معلقة (${heldInvoices.length})</div>
+    <div class="card-body" style="padding-top:10px;padding-bottom:4px">${rows}</div>
+  </div>`;
 }
 
 async function printInvoice(invId){
