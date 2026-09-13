@@ -687,6 +687,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   <div id="tab-treasury" style="display:none"></div>
   <div id="tab-pricelist" style="display:none"></div>
   <div id="tab-banks" style="display:none"></div>
+  <div id="tab-pos" style="display:none"></div>
 </div>
 
 <!-- زر التواصل السريع (واتساب) -->
@@ -2217,6 +2218,39 @@ const stockBatches=(pid)=>{
   return Object.entries(batches).filter(([k,v])=>v>0).sort((a,b)=>a[0].localeCompare(b[0]));
 };
 
+// بيوزّع كمية "خصم من المخزون" على تشغيلات الصلاحية الفعلية بترتيب الأقرب انتهاءً أولًا (FEFO)،
+// بدل ما يتسجل الخصم كله على "بلا تاريخ صلاحية" في حين إن الرصيد الحقيقي متسجل على تشغيلات ليها تاريخ فعلي.
+// من غير كده، رصيد كل تشغيلة وتقرير "الصلاحيات القريبة" بيتوهوا مع الوقت حتى لو إجمالي رصيد الصنف فضل صحيح.
+// الحالتين اللي فيهم السلوك القديم زي ما هو بالظبط (صفر تغيير): لما المستخدم يختار تشغيلة بنفسه،
+// ولما النشاط أصلًا مش بيتابع صلاحيات (fieldsCfg().expiry=false). بترجع مصفوفة [{expiry,qty}] ممكن
+// تبقى أكتر من عنصر لو الكمية المطلوبة عدّت تشغيلة واحدة.
+function resolveOutBatches(productId, chosenExpiry, qtyNeeded){
+  if(chosenExpiry) return [{expiry:chosenExpiry, qty:qtyNeeded}];
+  if(!fieldsCfg().expiry) return [{expiry:'', qty:qtyNeeded}];
+  // بنعيد ترتيب النتيجة هنا بدل الاعتماد على ترتيب stockBatches() الجاهز: ترتيبه بيستخدم localeCompare
+  // اللي بيحط رمز "—" (تشغيلة بلا تاريخ) قبل التواريخ الرقمية في بعض المتصفحات/الأنظمة، فيخلي الخصم
+  // ينزل من التشغيلة "بلا تاريخ" الأول بدل الأقرب انتهاءً فعليًا. هنا بنفصل التشغيلات المؤرخة (بترتيب
+  // نصي تصاعدي مضمون لأن قيمتها كلها بصيغة YYYY-MM من حقل الصلاحية) وبنحطها الأول، والتشغيلة بلا
+  // تاريخ (لو موجودة) في الآخر كاحتياطي فقط.
+  const rawBatches=stockBatches(productId);
+  const dated=rawBatches.filter(([exp])=>exp!=='—').sort((a,b)=> a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  const undated=rawBatches.filter(([exp])=>exp==='—');
+  const batches=[...dated,...undated];
+  if(batches.length===0) return [{expiry:'', qty:qtyNeeded}];
+  const out=[];
+  let remaining=qtyNeeded;
+  for(const [exp,avail] of batches){
+    if(remaining<=0) break;
+    const take=Math.min(avail, remaining);
+    if(take>0){ out.push({expiry: exp==='—'?'':exp, qty:take}); remaining-=take; }
+  }
+  if(remaining>0){ // احتياط أخير (مايفترضش يحصل - رصيد الصنف الكلي اتفحص قبل النداء على الدالة دي)
+    if(out.length>0) out[out.length-1].qty+=remaining;
+    else out.push({expiry:'', qty:remaining});
+  }
+  return out;
+}
+
 function updateHeaderDate(){
   document.getElementById('todayDate').textContent=today();
 }
@@ -2249,7 +2283,8 @@ const TAB_DEFS=[
   {id:'expenses',icon:'💸',label:'المصروفات'},
   {id:'treasury',icon:'🏦',label:'الخزنة'},
   {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
-  {id:'banks',icon:'🏛️',label:'البنوك'}
+  {id:'banks',icon:'🏛️',label:'البنوك'},
+  {id:'pos',icon:'🛒',label:'كاشير سريع'}
 ];
 // أول 5 تابات ثابتة تظهر في الشريط لكل المستخدمين (مش قابلة للتخصيص) — الباقي يظهر في "المزيد"
 const MAIN_TAB_IDS=['home','stock','clients','suppliers','payments'];
@@ -2286,7 +2321,9 @@ function openMoreTabsModal(){
 function renderMoreTabsList(){
   const wrap=document.getElementById('moreTabsList');
   if(!wrap)return;
-  wrap.innerHTML=MORE_TAB_IDS.map(id=>{
+  // تبويب "كاشير سريع" مخفي تمامًا ما لم يتم تفعيله من بيانات الشركة — صفر أثر على أي عميل حالي
+  const visibleMoreIds=MORE_TAB_IDS.filter(id=> id!=='pos' || companyProfile.posModeEnabled);
+  wrap.innerHTML=visibleMoreIds.map(id=>{
     const t=TAB_DEFS.find(d=>d.id===id);
     if(!t)return '';
     return `<button class="more-tab-item${id===currentTab?' active':''}" onclick="document.getElementById('moreTabsModal').style.display='none';switchTab('${id}')">${t.icon} ${t.label}</button>`;
@@ -2827,6 +2864,218 @@ function render(){
   else if(currentTab==='treasury')renderTreasury();
   else if(currentTab==='pricelist')renderPriceList();
   else if(currentTab==='banks')renderBanks();
+  else if(currentTab==='pos')renderPos();
+}
+
+// ===== كاشير سريع (POS) — المرحلة ٢: محرك المسح والبيع الفعلي =====
+// السلة (posCart) منفصلة تمامًا عن invLines بتاعة الفاتورة اليدوية طول وقت المسح، وبتتحوّل لها
+// بس في لحظة إتمام البيع، عشان يكون فيه محرك حفظ واحد بالظبط لكل الفواتير (يدوية أو كاشير):
+// نفس خصم المخزون، نفس القيود المحاسبية، نفس تسوية تكلفة البضاعة، نفس ترقيم الفواتير، نفس ميموري السعر.
+// خانة "امسح/دور على صنف" بتستخدم نفس مكوّن searchableSelectHtml المستخدم في فاتورة المبيعات اليدوية
+// بالظبط، ده معناه قارئ الباركود USB شغال هنا من غير أي كود إضافي (_sselKeydown أصلاً بيتعرف على
+// مطابقة باركود كاملة لما تتبعت Enter، ويختارها فورًا) - ونفس البحث بالاسم لو الصنف مالوش باركود.
+let posCart=[];
+let posCashReceived='';
+
+function _posSubtotal(){
+  return posCart.reduce((s,l)=> s+(Number(l.qty)||0)*(Number(l.price)||0), 0);
+}
+
+// بيدوّر على "عميل نقدي" ثابت خاص بمبيعات الكاشير، أو بينشئه أول مرة بس (مش هيتكرر بعد كده)
+// عشان الكاشير ميحتاجش يختار/يضيف عميل حقيقي لكل عميل عابر بيشتري من السوبر ماركت
+function getOrCreateWalkInClient(){
+  let c=clients.find(x=>x.__posWalkIn);
+  if(c) return c.id;
+  c={id:uid(),name:'عميل نقدي (كاشير)',phone:'',area:'',opening:0,openingDate:today(),transType:'cash',createdAt:today(),__posWalkIn:true};
+  clients.push(c);
+  save();
+  return c.id;
+}
+
+function _posFocusScanInput(){
+  setTimeout(()=>{
+    const inp=document.getElementById('pos_scan_search');
+    if(inp) inp.focus();
+  },50);
+}
+
+// بتتنادى لما يتم اختيار صنف من خانة المسح/البحث (سواء بمسح باركود أو دوس على اقتراح بالاسم)
+function _posOnProductPicked(){
+  const hidden=document.getElementById('pos_scan');
+  const pid=hidden?hidden.value:'';
+  if(!pid) return;
+  const p=stock.find(s=>s.id===pid);
+  if(!p) return;
+  const existing=posCart.find(l=>l.productId===pid);
+  if(existing){ existing.qty=(Number(existing.qty)||0)+1; }
+  else{
+    const price=p.lastSalePrice?Number(p.lastSalePrice):(p.price?Number(p.price):0);
+    posCart.push({id:uid(),productId:p.id,productName:p.name,qty:1,price,unit:p.unit||''});
+  }
+  renderPos();
+}
+function _posIncQty(id,delta){
+  const line=posCart.find(l=>l.id===id);
+  if(!line)return;
+  const newQty=(Number(line.qty)||0)+delta;
+  if(newQty<1){ _posRemoveLine(id); return; }
+  line.qty=newQty;
+  renderPos();
+}
+function _posUpdateLine(id,field,value){
+  posCart=posCart.map(l=> l.id===id ? {...l,[field]: Number(value)||0} : l);
+  renderPos();
+}
+function _posRemoveLine(id){
+  posCart=posCart.filter(l=>l.id!==id);
+  renderPos();
+}
+function _posSetCash(value){
+  posCashReceived=value;
+  renderPos();
+}
+
+function posCheckout(){
+  if(posCart.length===0){ showToast('السلة فاضية - امسح أول صنف'); return; }
+  // شبكة أمان: لو فيه فاتورة يدوية مفتوحة فيها بيانات في تبويب المبيعات، بتتعلّق تلقائيًا (زي أي
+  // مكان تاني في البرنامج ممكن يمسح فاتورة مفتوحة) قبل ما نستخدم نفس متغيرات الفاتورة العامة هنا
+  _autoHoldInvoiceIfOpen();
+  const clientId=getOrCreateWalkInClient();
+  const date=businessDate();
+  invLines=posCart.map(l=>({id:l.id,productId:l.productId,productName:l.productName,qty:Number(l.qty)||0,price:Number(l.price)||0,discount:0,bonus:0,expiry:'',saleUnit:''}));
+  invOverallDiscount=0;
+  invIsCash=true;
+  editInvoiceId=null;
+  const inv=_saveInvoiceCore(clientId,date,true);
+  if(!inv){
+    // فشل الحفظ (مثلاً نقص في المخزون) - التوست اتعرض بالفعل جوه _saveInvoiceCore.
+    // بنرجّع متغيرات الفاتورة العامة فاضية عشان مايفضلش فيها بيانات الكاشير القديمة لو حد فتح
+    // فاتورة يدوية بعد كده. سلة الكاشير (posCart) بتفضل زي ما هي من غير أي مسح، عشان الكاشير
+    // يصحح الكمية اللي فيها مشكلة ويحاول تاني من غير ما يضيع الصنف اللي مسحه.
+    _resetInvoiceFormState();
+    return;
+  }
+  // بنلقط قيمة "المدفوع" وقت البيع بالظبط قبل ما نصفّرها تحت، عشان تتطبع في الإيصال لو الكاشير كتبها
+  const cashReceivedAtCheckout=posCashReceived;
+  printPosReceipt(inv, cashReceivedAtCheckout);
+  posCart=[];
+  posCashReceived='';
+  renderPos();
+}
+
+// ===== كاشير سريع (POS) — المرحلة ٣: تصميم إيصال الطباعة الحراري 80مم =====
+// ستايل ودالة طباعة مستقلين تمامًا عن نظام طباعة الفواتير A4 الحالي (sendDocument/printDocument/DOC_STYLE)
+// عشان أي تعديل هنا متأثرش على شكل الفواتير العادية إطلاقًا. الإيصال هنا بيتصمم عشان يتقرا بسهولة
+// على ورق حراري 80مم: عناوين واضحة، فواصل متقطعة بدل الجداول، وحجم خط متدرج حسب أهمية كل سطر.
+// ملحوظة قصدية: من غير ما نحط رقم تليفون Ali الشخصي أو اسمه على الإيصال (زي فوتر فواتير الـA4) —
+// ده تصميم هيتطبع لعملاء نهائيين لأي محل هيستخدم البرنامج بعد الإطلاق، مش مستند داخلي لشركة Ali بس.
+const POS_RECEIPT_STYLE = `
+  *{box-sizing:border-box;margin:0;padding:0;}
+  @page{size:80mm auto;margin:2mm;}
+  body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;color:#000;background:#fff;}
+  .rcpt{width:100%;padding:4px 5px;font-size:12px;}
+  .rcpt-center{text-align:center;}
+  .rcpt-logo{width:42px;height:42px;object-fit:cover;border-radius:6px;margin:0 auto 4px;display:block;}
+  .rcpt-title{font-size:15px;font-weight:bold;margin-bottom:2px;}
+  .rcpt-sub{font-size:10.5px;color:#333;margin-bottom:1px;}
+  .rcpt-sep{border-top:1px dashed #000;margin:6px 0;}
+  .rcpt-meta-row{display:flex;justify-content:space-between;font-size:10.5px;color:#222;margin-bottom:1px;}
+  .rcpt-row{display:flex;justify-content:space-between;gap:6px;font-size:11.5px;margin-bottom:1px;}
+  .rcpt-item-name{flex:1;font-weight:bold;}
+  .rcpt-line-total{text-align:left;font-size:11.5px;color:#222;margin-bottom:5px;}
+  .rcpt-summary-row{display:flex;justify-content:space-between;font-size:11px;color:#333;margin-bottom:2px;}
+  .rcpt-total{font-size:16px;font-weight:bold;display:flex;justify-content:space-between;margin-top:4px;}
+  .rcpt-pay-row{display:flex;justify-content:space-between;font-size:11.5px;margin-top:3px;}
+  .rcpt-change{font-weight:bold;}
+  .rcpt-foot{text-align:center;font-size:10px;color:#333;margin-top:10px;}
+  .rcpt-brand{text-align:center;font-size:8.5px;color:#999;margin-top:6px;}
+`;
+
+function printPosReceipt(inv, cashReceived){
+  const itemCount=inv.lines.length;
+  const rows=inv.lines.map(l=>{
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'');
+    const lineTotal=Number(l.qty)*Number(l.price);
+    const uLabel=lineUnitLabel(l);
+    return `<div class="rcpt-row"><span class="rcpt-item-name">${pName}</span></div>
+      <div class="rcpt-row"><span>${fmtQty(l.qty)}${uLabel?' '+uLabel:''} × ${fmt(l.price)}</span><span class="rcpt-line-total">${fmt(lineTotal)}</span></div>`;
+  }).join('');
+  let timeStr='';
+  try{ timeStr=new Date(inv.createdAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
+  const cashNum=Number(cashReceived)||0;
+  const hasCash=cashReceived!==''&&cashReceived!==undefined&&cashReceived!==null&&cashNum>0;
+  const change=cashNum-inv.total;
+  const payBlock=hasCash?`
+      <div class="rcpt-pay-row"><span>المبلغ المستلم</span><span>${fmt(cashNum)} جنيه</span></div>
+      <div class="rcpt-pay-row rcpt-change" style="color:${change>=0?'#000':'#C0392B'}">
+        <span>${change>=0?'الباقي':'ناقص'}</span><span>${fmt(Math.abs(change))} جنيه</span>
+      </div>`:'';
+  const body=`
+    <div class="rcpt">
+      <div class="rcpt-center">
+        ${companyProfile.logo?`<img class="rcpt-logo" src="${companyProfile.logo}">`:''}
+        <div class="rcpt-title">${esc(companyProfile.name||'صديقك المحاسبي')}</div>
+        ${companyProfile.phone?`<div class="rcpt-sub">${esc(companyProfile.phone)}</div>`:''}
+        ${companyProfile.taxNumber?`<div class="rcpt-sub">رقم ضريبي: ${esc(companyProfile.taxNumber)}</div>`:''}
+      </div>
+      <div class="rcpt-sep"></div>
+      <div class="rcpt-meta-row"><span>فاتورة #${inv.number}</span><span>${inv.date}${timeStr?' — '+timeStr:''}</span></div>
+      <div class="rcpt-sep"></div>
+      ${rows}
+      <div class="rcpt-sep"></div>
+      <div class="rcpt-summary-row"><span>عدد الأصناف</span><span>${itemCount}</span></div>
+      <div class="rcpt-total"><span>الإجمالي</span><span>${fmt(inv.total)} جنيه</span></div>
+      <div class="rcpt-summary-row" style="margin-top:2px">طريقة الدفع: نقدي</div>
+      ${payBlock}
+      <div class="rcpt-foot">شكرًا لتعاملكم معنا</div>
+      <div class="rcpt-brand">صُنع بواسطة صديقك المحاسبي</div>
+    </div>`;
+  const win=window.open('','_blank');
+  if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع الإيصال'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>إيصال #${inv.number}</title>
+  <style>${POS_RECEIPT_STYLE}</style></head><body>${body}
+  <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+function renderPos(){
+  const el=document.getElementById('tab-pos');
+  if(!el)return;
+  const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const subtotal=_posSubtotal();
+  const cashNum=Number(posCashReceived)||0;
+  const change=cashNum-subtotal;
+  const rowsHtml=posCart.length===0? `<div style="text-align:center;color:#AAB7B8;padding:24px 0;font-size:13px">السلة فاضية — امسح أول صنف أو دوّر على اسمه</div>` :
+    posCart.map(l=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #F2F3F4">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:bold;color:#1C2833;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(l.productName)}</div>
+          <div style="font-size:11px;color:#AAB7B8">${fmt(l.price)} × ${fmtQty(l.qty)} = <strong style="color:#1A5276">${fmt(Number(l.qty)*Number(l.price))}</strong></div>
+        </div>
+        <button class="btn-sm blue" style="padding:2px 8px" onclick="_posIncQty('${l.id}',-1)">−</button>
+        <input type="number" min="1" step="any" value="${l.qty}" style="width:48px;text-align:center;padding:4px" onchange="_posUpdateLine('${l.id}','qty',this.value)">
+        <button class="btn-sm blue" style="padding:2px 8px" onclick="_posIncQty('${l.id}',1)">+</button>
+        <input type="number" min="0" value="${l.price}" style="width:64px;text-align:center;padding:4px" onchange="_posUpdateLine('${l.id}','price',this.value)">
+        <button class="btn-sm red" style="padding:2px 8px" onclick="_posRemoveLine('${l.id}')">🗑</button>
+      </div>`).join('');
+  el.innerHTML=`
+    <div style="padding:12px">
+      <div style="margin-bottom:10px">${searchableSelectHtml('pos_scan', stockOptsArr, '📷 امسح الباركود أو اكتب اسم الصنف...', '', '_posOnProductPicked()')}</div>
+      <div style="background:#fff;border:1px solid #D5D8DC;border-radius:10px;max-height:44vh;overflow:auto;margin-bottom:12px">${rowsHtml}</div>
+      <div style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:10px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;color:#1A5276;margin-bottom:10px">
+          <span>الإجمالي</span><span>${fmt(subtotal)} جنيه</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="font-size:12.5px;color:#5D6D7E;white-space:nowrap">💵 المدفوع</div>
+          <input type="number" min="0" value="${posCashReceived}" placeholder="اختياري" style="flex:1;padding:8px;border:1px solid #D5D8DC;border-radius:6px" onchange="_posSetCash(this.value)">
+        </div>
+        ${posCashReceived!==''&&cashNum>0?`<div style="margin-top:8px;font-size:13px;font-weight:bold;color:${change>=0?'#1E8449':'#C0392B'}">${change>=0?`الباقي: ${fmt(change)} جنيه`:`ناقص: ${fmt(-change)} جنيه`}</div>`:''}
+      </div>
+      <button class="btn green" style="width:100%;font-size:15px;padding:14px" onclick="posCheckout()">✓ إتمام البيع</button>
+    </div>`;
+  _posFocusScanInput();
 }
 
 // ============================================================
@@ -2946,6 +3195,13 @@ function openCompanyModal(){
         <span>نوع النشاط: <strong>${businessTypeLabel()}</strong></span>
         <span style="color:#1A5276;font-weight:bold">تغيير ›</span>
       </div>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#F8F9F9;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin-bottom:16px;cursor:pointer">
+        <span style="flex:1">
+          <span style="font-size:12.5px;color:#333">🛒 تفعيل وضع الكاشير السريع</span>
+          <span style="display:block;font-size:10.5px;color:#AAB7B8;margin-top:2px">اختياري بالكامل — بيضيف تاب "كاشير سريع" للمسح والبيع السريع بالباركود، مناسب للسوبر ماركت/الهايبر. لو سبته زي ما هو، مفيش أي تغيير في البرنامج عندك.</span>
+        </span>
+        <input type="checkbox" id="companyPosModeInput" ${companyProfile.posModeEnabled?'checked':''} style="width:auto;flex-shrink:0">
+      </label>
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveCompanyProfile()" class="cm-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -2989,13 +3245,15 @@ function saveCompanyProfile(){
   const phone=document.getElementById('companyPhoneInput').value.trim();
   const taxNumber=document.getElementById('companyTaxInput').value.trim();
   const businessDayStartHour=Number(document.getElementById('companyBizDayInput')?.value)||0;
+  const posModeEnabled=document.getElementById('companyPosModeInput')?.checked||false;
   // ملحوظة: بنعمل spread على companyProfile الحالي قبل الكتابة فوقه، عشان أي حقل
   // إضافي (زي businessType) اتحفظ قبل كده متتمسحش لما المستخدم يحفظ اسم/تليفون/شعار بس
-  companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, logo:_tempLogoDataUrl||''};
+  companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, posModeEnabled, logo:_tempLogoDataUrl||''};
   idbSet(KEYS.companyProfile, companyProfile);
   document.getElementById('companyModal').remove();
   renderCompanyBar();
   syncTabsBarStickyTop();
+  renderMoreTabsList(); // عشان تاب الكاشير يظهر/يختفي فورًا لو حد فعّل أو ألغى الخاصية من غير ما يعمل تحديث للصفحة
 }
 
 // شاشة اختيار نوع النشاط — 4 اختيارات ظاهرة، بترجم لنمطين تقنيين بس (medical/simple)
@@ -4507,6 +4765,14 @@ function saveInvoice(){
   const clientId=document.getElementById('inv_client')?.value;
   const date=document.getElementById('inv_date')?.value||businessDate();
   const isCash=document.getElementById('inv_is_cash')?.checked||false;
+  return _saveInvoiceCore(clientId, date, isCash);
+}
+
+// نفس منطق حفظ فاتورة المبيعات بالظبط (فحوصات، خصم مخزون، قيود يومية، تسوية تكلفة، ميموري سعر...)
+// اتفصل هنا عن saveInvoice() اللي فوق عشان أي طريقة تانية لإنشاء فاتورة (زي الكاشير السريع) تقدر
+// تستخدم نفس المحرك الموحّد من غير ما تعتمد على وجود عناصر فورم الفاتورة اليدوية في الصفحة.
+// بيرجّع الفاتورة المحفوظة عند النجاح، أو null/undefined عند أي فشل (نفس التوست بيتعرض زي الأول)
+function _saveInvoiceCore(clientId, date, isCash){
   if(!clientId){showToast('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -4590,7 +4856,10 @@ function saveInvoice(){
       const totalQty=lineMainQty(l)+lineMainBonus(l);
       const uLabel=lineUnitLabel(l);
       const soldNote=l.saleUnit?`${l.qty} ${uLabel}`:`${l.qty}`;
-      movements.push({id:uid(),productId:l.productId,type:'out',qty:totalQty,date,note:'ف.مبيعات #'+inv.number+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:'')),invoiceId:inv.id,expiry:l.expiry||''});
+      const noteBase='ف.مبيعات #'+inv.number+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:''));
+      resolveOutBatches(l.productId, l.expiry, totalQty).forEach(b=>{
+        movements.push({id:uid(),productId:l.productId,type:'out',qty:b.qty,date,note:noteBase,invoiceId:inv.id,expiry:b.expiry});
+      });
     }
   });
   // فاتورة كاش: بتسجل سداد فوري تلقائي بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (نقدية/عملاء)
@@ -4602,6 +4871,7 @@ function saveInvoice(){
   // ميموري آخر سعر بيع لكل صنف — بتاخد بالتاريخ الفعلي للفاتورة، مش بترتيب الحفظ، عشان تعديل فاتورة قديمة متبوظش سعر أحدث منها
   invLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSalePriceDate || date>=p.lastSalePriceDate)){ p.lastSalePrice=Number(l.price); p.lastSalePriceDate=date; } } });
   save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices();
+  return inv;
 }
 
 function deleteInvoice(id){
