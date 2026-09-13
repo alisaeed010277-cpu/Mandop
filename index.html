@@ -739,7 +739,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1597,13 +1597,14 @@ const save=()=>{
   idbSet(KEYS.productions,productions);
   idbSet(KEYS.deletedIds,deletedIds);
   idbSet(KEYS.heldInvoices,heldInvoices);
+  idbSet(KEYS.heldPurchases,heldPurchases);
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
   try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc,hInv]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc,hInv,hPur]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1628,6 +1629,7 @@ async function loadAllData(){
   lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
   deletedIds=delIds||{};
   heldInvoices=hInv||[];
+  heldPurchases=hPur||[];
   // أجهزة كانت شغالة قبل الإضافة دي هيبقى عندها القيمة دي فاضية أول مرة - عادي وآمن،
   // لأن nextDocNumber() تحت بتاخد أعلى رقم موجود فعلاً في الفواتير كحد أدنى أول ما تتنادى
   docNumberCounters=dnc||{invoice:0, purchase:0, return:0, purchaseReturn:0};
@@ -2464,7 +2466,7 @@ function pushSyncSnapshot(){
       suppliers, purchases, supplierPayments, purchaseReturns,
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
-      chartOfAccounts, journalEntries, productions, heldInvoices,
+      chartOfAccounts, journalEntries, productions, heldInvoices, heldPurchases,
       companyProfile, lowStockDefault, deletedIds, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
@@ -2564,7 +2566,7 @@ function startSyncListener(){
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
-const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices'];
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases'];
 
 const SYNC_ARRAY_LABELS={
   clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
@@ -2573,7 +2575,7 @@ const SYNC_ARRAY_LABELS={
   purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
   checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
-  clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة'
+  clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة', heldPurchases:'مشتريات معلقة'
 }; // مستخدمة لو حبينا نبني شاشة سجل مزامنة تفصيلية لاحقًا
 
 // بتسجل id عنصر اتمسح في سجل الحذف (dedup) - بتتنادى من كل فانكشن حذف
@@ -2590,7 +2592,7 @@ function recordDeletion(key,id){
 function getSyncArrayMap(){
   return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
     supplierPayments,purchaseReturns,expenses,productions,checksPayable,
-    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices};
+    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases};
 }
 
 // بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
@@ -3092,6 +3094,64 @@ function saveEditedName(type, id){
   if(type==='client') renderClients(); else renderSuppliers();
 }
 
+// نوع التعامل الافتراضي (آجل/كاش) لعميل أو مورد موجود بالفعل — بيتحكم بس في الحالة الافتراضية
+// لزرار "فاتورة كاش" في الفواتير الجديدة، وميغيّرش أي فاتورة موجودة أو سلوك حالي لمن نوعه "آجل"
+function openTransTypeModal(type, id){
+  const list = type==='client' ? clients : suppliers;
+  const item = list.find(x=>x.id===id);
+  if(!item)return;
+  const current = item.transType==='cash' ? 'cash' : 'agl';
+  const modal=document.createElement('div');
+  modal.id='transTypeModal';
+  modal.dataset.selected=current;
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`
+    <div class="mini-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div class="mini-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px;text-align:center">🔄 نوع التعامل الافتراضي</div>
+      <div class="mini-sub" style="color:#717D7E;margin-bottom:6px;text-align:center">${esc(item.name)}</div>
+      <div style="color:#717D7E;font-size:12px;margin-bottom:14px;text-align:center">بيحدد بس حالة زرار "كاش" الافتراضية في الفواتير الجديدة — تقدر دايمًا تغيّرها يدويًا في أي فاتورة</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button id="ttm_agl" onclick="_ttmPick('agl')" class="mini-btn" style="flex:1;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;background:${current==='agl'?'#1A5276':'#EAECEE'};color:${current==='agl'?'#fff':'#333'}">🕒 آجل</button>
+        <button id="ttm_cash" onclick="_ttmPick('cash')" class="mini-btn" style="flex:1;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;background:${current==='cash'?'#1E8449':'#EAECEE'};color:${current==='cash'?'#fff':'#333'}">💵 كاش</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('transTypeModal').remove()" class="mini-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
+        <button onclick="saveTransType('${type}','${id}')" class="mini-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+function _ttmPick(v){
+  const modal=document.getElementById('transTypeModal');
+  if(!modal)return;
+  modal.dataset.selected=v;
+  document.getElementById('ttm_agl').style.background = v==='agl'?'#1A5276':'#EAECEE';
+  document.getElementById('ttm_agl').style.color = v==='agl'?'#fff':'#333';
+  document.getElementById('ttm_cash').style.background = v==='cash'?'#1E8449':'#EAECEE';
+  document.getElementById('ttm_cash').style.color = v==='cash'?'#fff':'#333';
+}
+function saveTransType(type, id){
+  const list = type==='client' ? clients : suppliers;
+  const item = list.find(x=>x.id===id);
+  if(!item)return;
+  const modal=document.getElementById('transTypeModal');
+  const v = modal?.dataset.selected==='cash' ? 'cash' : 'agl';
+  item.transType = v;
+  save();
+  modal?.remove();
+  if(type==='client') renderClients(); else renderSuppliers();
+}
+// نفس فكرة الأزرار بتاعة نوع التعامل، بس جوه فورم "عميل/مورد جديد" — بيغيّر قيمة حقل مخفي
+// من غير أي rerender عشان ميمسحش باقي الحقول اللي المستخدم لسه بيكتب فيها
+function setFormTransType(prefix, val){
+  const hidden=document.getElementById(prefix+'_trans_type');
+  if(hidden) hidden.value=val;
+  const aglBtn=document.getElementById(prefix+'_trans_agl_btn');
+  const cashBtn=document.getElementById(prefix+'_trans_cash_btn');
+  if(aglBtn){aglBtn.style.background = val==='agl'?'#1A5276':'#D5D8DC';aglBtn.style.color = val==='agl'?'#fff':'#333';}
+  if(cashBtn){cashBtn.style.background = val==='cash'?'#1E8449':'#D5D8DC';cashBtn.style.color = val==='cash'?'#fff':'#333';}
+}
+
 let repClientsFromDate='',repClientsToDate='';
 function clientSummaryData(from,to){
   const rows=clients.map(c=>{
@@ -3226,7 +3286,7 @@ function renderHome(){
     </div>`;
 
   const goInvoicesToday=`_autoHoldInvoiceIfOpen();invFromDate='${day}';invToDate='${day}';showInvForm=false;editInvoiceId=null;switchTab('invoices')`;
-  const goPurchasesToday=`purFromDate='${day}';purToDate='${day}';showPurForm=false;editPurchaseId=null;switchTab('purchases')`;
+  const goPurchasesToday=`_autoHoldPurchaseIfOpen();purFromDate='${day}';purToDate='${day}';showPurForm=false;editPurchaseId=null;switchTab('purchases')`;
   const goPaymentsToday=`payFromDate='${day}';payToDate='${day}';showPayForm=false;switchTab('payments')`;
   const goReportsStock=`switchTab('reports');document.getElementById('reportsStockValueCard')?.scrollIntoView({behavior:'smooth',block:'center'})`;
   const goReportsClients=`switchTab('reports');document.getElementById('repClientSummaryBlock')?.scrollIntoView({behavior:'smooth',block:'center'})`;
@@ -3253,8 +3313,8 @@ function renderHome(){
     <div class="home-shortcuts">
       ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
       ${shortcut('📈','المبيعات',"_autoHoldInvoiceIfOpen();showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
-      ${shortcut('📥','فاتورة مشتريات',"showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;switchTab('purchases')")}
-      ${shortcut('🛒','المشتريات',"showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
+      ${shortcut('📥','فاتورة مشتريات',"_autoHoldPurchaseIfOpen();showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;switchTab('purchases')")}
+      ${shortcut('🛒','المشتريات',"_autoHoldPurchaseIfOpen();showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
       ${shortcut('📦','منتج جديد',"stockSubTab='overview';editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;switchTab('stock')")}
       ${shortcut('💸','مصروف جديد',"showExpenseForm=true;switchTab('expenses')")}
       ${shortcut('📋','قائمة الأسعار',"switchTab('pricelist')")}
@@ -3409,6 +3469,7 @@ function renderClients(){
         <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientStatement('${c.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 PDF</button>
         <button class="btn-sm" style="background:#5D6D7E;color:#fff" onclick="openEditNameModal('client','${c.id}')">✏️ الاسم</button>
         <button class="btn-sm" style="background:#D68910;color:#fff" onclick="openOpeningBalanceModal('client','${c.id}')">✏️ رصيد افتتاحي</button>
+        <button class="btn-sm" style="background:${c.transType==='cash'?'#1E8449':'#8E44AD'};color:#fff" onclick="openTransTypeModal('client','${c.id}')">${c.transType==='cash'?'💵 كاش':'🕒 آجل'}</button>
         <button class="btn-sm red" onclick="deleteClient('${c.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -3428,6 +3489,16 @@ function renderClients(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد افتتاحي (ج) — اختياري</div><input type="number" id="c_opening" placeholder="0" min="0"></div>
           <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" id="c_opening_date" value="${today()}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <div class="lbl">نوع التعامل الافتراضي</div>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="c_trans_agl_btn" class="btn-sm" style="flex:1;background:#1A5276;color:#fff" onclick="setFormTransType('c','agl')">🕒 آجل</button>
+              <button type="button" id="c_trans_cash_btn" class="btn-sm" style="flex:1;background:#D5D8DC;color:#333" onclick="setFormTransType('c','cash')">💵 كاش</button>
+            </div>
+            <input type="hidden" id="c_trans_type" value="agl">
+          </div>
         </div>
         <div class="btn-row">
           <button class="btn green" onclick="addClient()">+ إضافة عميل</button>
@@ -3461,9 +3532,10 @@ function addClient(){
   const area=document.getElementById('c_area').value.trim();
   const opening=Number(document.getElementById('c_opening')?.value||0);
   const openingDate=document.getElementById('c_opening_date')?.value||today();
+  const transType=document.getElementById('c_trans_type')?.value==='cash'?'cash':'agl';
   if(!name){showToast('أدخل اسم العميل');return;}
   if(isDuplicateName(clients,name)){showToast('في عميل بنفس الاسم ده موجود بالفعل');return;}
-  clients.push({id:uid(),name,phone,area,opening,openingDate,createdAt:today()});
+  clients.push({id:uid(),name,phone,area,opening,openingDate,transType,createdAt:today()});
   save();showClientForm=false;renderClients();
 }
 function deleteClient(id){
@@ -4297,7 +4369,7 @@ function renderInvoices(){
       <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||'')}</div>
+          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||'', editingInv?'':'applyInvClientCashDefault()')}</div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
@@ -4377,6 +4449,14 @@ function rerenderInvoiceFormKeepFields(){
   },0);
 }
 
+// بيتنفّذ لما تختار عميل في فاتورة مبيعات جديدة (مش وقت التعديل) — بيظبط حالة زرار "فاتورة كاش"
+// الافتراضية على حسب نوع التعامل المسجّل للعميل ده. المستخدم لسه قادر يغيّرها يدويًا بعد كده عادي.
+function applyInvClientCashDefault(){
+  const cid=document.getElementById('inv_client')?.value;
+  const c=clients.find(x=>x.id===cid);
+  if(c) invIsCash = c.transType==='cash';
+  rerenderInvoiceFormKeepFields();
+}
 function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''});rerenderInvoiceFormKeepFields();}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
 function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rerenderInvoiceFormKeepFields();}
@@ -5008,7 +5088,7 @@ function renderReturns(){
         <div class="form-row">
           <div class="form-group" style="flex:2">
             <div class="lbl">العميل *</div>
-            ${searchableSelectHtml('ret_client', clientOptsArr, '🔍 دور على العميل...', '')}
+            ${searchableSelectHtml('ret_client', clientOptsArr, '🔍 دور على العميل...', '', 'applyRetClientCashDefault()')}
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
@@ -5069,6 +5149,13 @@ function rerenderReturnFormKeepFields(){
   renderReturns();
   if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
   if(savedDate) document.getElementById('ret_date').value=savedDate;
+}
+// نفس فكرة applyInvClientCashDefault بس لمردود المبيعات (بيتحكم في "مردود نقدي")
+function applyRetClientCashDefault(){
+  const cid=document.getElementById('ret_client')?.value;
+  const c=clients.find(x=>x.id===cid);
+  if(c) retIsCashRefund = c.transType==='cash';
+  rerenderReturnFormKeepFields();
 }
 function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''});renderReturns();}
 function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns();}
@@ -6009,6 +6096,8 @@ let expenseQuickFilter='month';
 let financialReportView='trial'; // 'trial' | 'income' | 'balance' | 'ledger' | 'cashflow' | 'items' — أي تقرير مالي معروض دلوقتي
 let ledgerAccountId=''; // الحساب المختار حاليًا في شاشة دفتر الأستاذ العام
 let itemProfitSort='profit'; // 'profit' | 'qty' — ترتيب تقرير ربحية الأصناف
+let clientProfitSort='profit'; // 'profit' | 'revenue' — ترتيب تقرير ربحية العملاء
+let clientProfitFilterId=''; // فلتر اختياري على عميل واحد في تقرير ربحية العملاء (فاضي = كل العملاء)
 
 let showNoteForm=false;
 let showExpenseForm=false;
@@ -6882,6 +6971,11 @@ function renderFinancialStatementsBlock(fromVal,toVal){
     <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">🏆 ربحية الأصناف</div>
     <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
     ${renderItemProfitabilityHtml(fromVal,toVal)}
+  </div>
+  <div class="card" id="reportsClientProfitCard" style="margin-top:14px">
+    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">👤 ربحية العملاء</div>
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+    ${renderClientProfitabilityHtml(fromVal,toVal)}
   </div>`;
 }
 
@@ -7016,6 +7110,91 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       </tr></tfoot>
     </table></div>
     <div style="font-size:11px;color:#AAB7B8;margin-top:6px">💡 التكلفة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف (شامل تكلفة أي وحدات بونص اتديت مجانًا مع البيع)، والكمية بالوحدة الأساسية للصنف حتى لو جزء من البيع كان بالتجزئة. المرتجعات في نفس الفترة بتتخصم تلقائيًا من نفس الصنف.</div>`;
+}
+
+// تقرير ربحية العملاء: نفس منهجية "ربحية الأصناف" بالظبط بس مجمّعة حسب العميل بدل الصنف —
+// عدد الفواتير، إجمالي المبيعات، التكلفة (بمتوسط التكلفة المرجح، من نفس buildCogsMaps المستخدم في القيود والتقرير التاني)، والربح.
+// المرتجعات في نفس الفترة بتتخصم تلقائيًا من عميلها. تفاصيل ربح كل صنف لوحده موجودة في كارت "ربحية الأصناف" فوق.
+// ممكن تفلتر على عميل واحد بس من السيلكت، أو تسيبه فاضي عشان تشوف كل العملاء مرتبين.
+function setClientProfitFilter(){
+  clientProfitFilterId=document.getElementById('client_profit_filter')?.value||'';
+  renderReports();
+}
+function renderClientProfitabilityHtml(fromVal,toVal){
+  const inRange=(date)=>date>=fromVal&&date<=toVal;
+  const {byLine}=buildCogsMaps();
+  const map={};
+  const ensure=(cid)=>{
+    if(!map[cid]){
+      const c=clients.find(x=>x.id===cid);
+      map[cid]={name:c?.name||'عميل محذوف', invCount:0, revenue:0, cost:0};
+    }
+    return map[cid];
+  };
+  invoices.filter(i=>inRange(i.date)&&i.clientId).forEach(inv=>{
+    const overallFactor=1-((Number(inv.overallDiscount)||0)/100);
+    const e=ensure(inv.clientId);
+    e.invCount+=1;
+    inv.lines.forEach(l=>{
+      if(!l.productId) return;
+      const afterLineDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      e.revenue+=Number(l.qty)*afterLineDiscount*overallFactor;
+      e.cost+=byLine.get(l)||0;
+    });
+  });
+  returns.filter(r=>inRange(r.date)&&r.clientId).forEach(ret=>{
+    const e=ensure(ret.clientId);
+    ret.lines.forEach(l=>{
+      if(!l.productId) return;
+      e.revenue-=Number(l.qty)*Number(l.price);
+      e.cost-=byLine.get(l)||0;
+    });
+  });
+  let rows=Object.entries(map).map(([id,r])=>({id,...r})).filter(r=>r.invCount>0||Math.abs(r.revenue)>0.001);
+  const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
+  const filterHtml=`
+    <div class="form-row" style="align-items:flex-end;margin-bottom:10px">
+      <div class="form-group" style="flex:1">
+        <div class="lbl">فلتر على عميل معيّن (اختياري)</div>
+        ${searchableSelectHtml('client_profit_filter', clientOptsArr, '🔍 كل العملاء...', clientProfitFilterId, 'setClientProfitFilter()')}
+      </div>
+      ${clientProfitFilterId?`<button class="btn-outline" onclick="clientProfitFilterId='';renderReports()">✖ إلغاء الفلتر</button>`:''}
+    </div>`;
+  if(clientProfitFilterId) rows=rows.filter(r=>r.id===clientProfitFilterId);
+  if(rows.length===0) return filterHtml+'<div class="empty">لسه مفيش مبيعات لعملاء في الفترة دي</div>';
+  rows.forEach(r=>{ r.profit=r.revenue-r.cost; r.margin=r.revenue?(r.profit/r.revenue*100):0; });
+  rows.sort((a,b)=> clientProfitSort==='revenue' ? (b.revenue-a.revenue) : (b.profit-a.profit));
+  const totalRevenue=rows.reduce((s,r)=>s+r.revenue,0);
+  const totalCost=rows.reduce((s,r)=>s+r.cost,0);
+  const totalProfit=totalRevenue-totalCost;
+  const totalInv=rows.reduce((s,r)=>s+r.invCount,0);
+  const sortBtn=(key,label)=>`<button class="btn-sm" style="background:${clientProfitSort===key?'#1A5276':'#D5D8DC'};color:${clientProfitSort===key?'#fff':'#333'}" onclick="clientProfitSort='${key}';renderReports()">${label}</button>`;
+  const rowsHtml=rows.map(r=>`<tr>
+      <td>${esc(r.name)}</td>
+      <td style="text-align:center">${r.invCount}</td>
+      <td style="text-align:center">${fmt(r.revenue)}</td>
+      <td style="text-align:center">${fmt(r.cost)}</td>
+      <td style="text-align:center;font-weight:bold;color:${r.profit>=0?'#1E8449':'#C0392B'}">${fmt(r.profit)}</td>
+      <td style="text-align:center;color:${r.profit>=0?'#1E8449':'#C0392B'}">${r.margin.toFixed(1)}%</td>
+    </tr>`).join('');
+  return filterHtml+`
+    <div class="btn-row" style="margin-bottom:10px">
+      <span style="font-size:11px;color:#717D7E;align-self:center">ترتيب حسب:</span>
+      ${sortBtn('profit','الأعلى ربحًا')}
+      ${sortBtn('revenue','الأعلى مبيعات')}
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>العميل</th><th>عدد الفواتير</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>الهامش</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="font-weight:bold;background:#F2F3F4">
+        <td>الإجمالي (${rows.length} عميل)</td><td style="text-align:center">${totalInv}</td>
+        <td style="text-align:center">${fmt(totalRevenue)}</td>
+        <td style="text-align:center">${fmt(totalCost)}</td>
+        <td style="text-align:center;color:${totalProfit>=0?'#1E8449':'#C0392B'}">${fmt(totalProfit)}</td>
+        <td style="text-align:center;color:${totalProfit>=0?'#1E8449':'#C0392B'}">${totalRevenue?(totalProfit/totalRevenue*100).toFixed(1):'0.0'}%</td>
+      </tr></tfoot>
+    </table></div>
+    <div style="font-size:11px;color:#AAB7B8;margin-top:6px">💡 نفس منهجية "ربحية الأصناف" بالظبط (تكلفة بمتوسط الشراء المرجح). تفاصيل ربح كل صنف لوحده تلاقيها في كارت ربحية الأصناف فوق. المرتجعات في نفس الفترة بتتخصم تلقائيًا من عميلها.</div>`;
 }
 
 function renderGeneralLedgerHtml(){
@@ -7205,6 +7384,7 @@ function renderSuppliers(){
       <div class="list-item-actions">
         <button class="btn-sm blue" onclick="supplierDetailId='${s.id}';renderSuppliers()">📋 كشف حساب</button>
         <button class="btn-sm" style="background:#D68910;color:#fff" onclick="openOpeningBalanceModal('supplier','${s.id}')">✏️ رصيد افتتاحي</button>
+        <button class="btn-sm" style="background:${s.transType==='cash'?'#1E8449':'#8E44AD'};color:#fff" onclick="openTransTypeModal('supplier','${s.id}')">${s.transType==='cash'?'💵 كاش':'🕒 آجل'}</button>
         <button class="btn-sm red" onclick="deleteSupplier('${s.id}')">🗑 حذف</button>
       </div>
     </div>`;
@@ -7221,6 +7401,16 @@ function renderSuppliers(){
           <div class="form-group"><div class="lbl">رقم الهاتف</div><input type="text" id="sup_phone" placeholder="01x..."></div>
           <div class="form-group"><div class="lbl">رصيد افتتاحي</div><input type="number" id="sup_opening" placeholder="0"></div>
           <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" id="sup_opening_date" value="${today()}"></div>
+        </div>
+        <div class="form-row" style="margin-top:8px">
+          <div class="form-group">
+            <div class="lbl">نوع التعامل الافتراضي</div>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="sup_trans_agl_btn" class="btn-sm" style="flex:1;background:#1A5276;color:#fff" onclick="setFormTransType('sup','agl')">🕒 آجل</button>
+              <button type="button" id="sup_trans_cash_btn" class="btn-sm" style="flex:1;background:#D5D8DC;color:#333" onclick="setFormTransType('sup','cash')">💵 كاش</button>
+            </div>
+            <input type="hidden" id="sup_trans_type" value="agl">
+          </div>
         </div>
         <div class="btn-row" style="margin-top:8px">
           <button class="btn green" onclick="addSupplier()">+ إضافة مورد</button>
@@ -7240,7 +7430,8 @@ function addSupplier(){
   const name=document.getElementById('sup_name')?.value?.trim();
   if(!name){showToast('أدخل اسم المورد');return;}
   if(isDuplicateName(suppliers,name)){showToast('في مورد بنفس الاسم ده موجود بالفعل');return;}
-  suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),createdAt:today()});
+  const transType=document.getElementById('sup_trans_type')?.value==='cash'?'cash':'agl';
+  suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),transType,createdAt:today()});
   save();showSupplierForm=false;renderSuppliers();
 }
 
@@ -7393,6 +7584,11 @@ let editPurchaseId=null;
 let purDetailFromSupplier=null;
 let purSearch='';
 let purFromDate='',purToDate='';
+// مشتريات معلقة: نفس فكرة الفواتير المعلقة بالظبط، لكن لفاتورة مشتريات جديدة نص كتابتها
+let heldPurchases=[];
+// مستخدمة لرندر واحد بس وقت استئناف فاتورة مشتريات معلقة (نفس فكرة invResumeClientId/invResumeDate)
+let purResumeSupplierId='';
+let purResumeDate='';
 
 function openPurchaseFromSupplier(purId,supplierId){
   purDetailFromSupplier=supplierId;
@@ -7486,8 +7682,8 @@ function renderPurchases(){
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||'')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||businessDate()}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||'', editingPur?'':'applyPurSupplierCashDefault()')}</div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||purResumeDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف فاتورة المشتريات</div>
@@ -7512,6 +7708,7 @@ function renderPurchases(){
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
           <div class="btn-row">
             <button class="btn ${editingPur?'orange':'green'}" onclick="savePurchase()">${editingPur?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
+            ${!editingPur?`<button class="btn-outline" style="border-color:#D68910;color:#D68910" onclick="holdCurrentPurchase()">⏸️ علّق الفاتورة</button>`:''}
             <button class="btn-outline" onclick="showPurForm=false;editPurchaseId=null;renderPurchases()">إلغاء</button>
           </div>
         </div>
@@ -7520,6 +7717,7 @@ function renderPurchases(){
   }
 
   document.getElementById('tab-purchases').innerHTML=`
+    ${renderHeldPurchasesBlock()}
     ${formHtml}
     <div class="search-row">
       <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(purSearch)}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
@@ -7546,6 +7744,7 @@ function renderPurchases(){
 function editPurchase(id){
   const pur=purchases.find(p=>p.id===id);
   if(!pur)return;
+  _autoHoldPurchaseIfOpen();
   editPurchaseId=id;
   purchaseLines=(pur.lines||[]).map(l=>({...l}));
   purOverallDiscount=Number(pur.overallDiscount)||0;
@@ -7567,6 +7766,13 @@ function rerenderPurchaseFormKeepFields(){
   },0);
 }
 
+// نفس فكرة applyInvClientCashDefault بس للمورد في فاتورة المشتريات
+function applyPurSupplierCashDefault(){
+  const sid=document.getElementById('pur_supplier')?.value;
+  const s=suppliers.find(x=>x.id===sid);
+  if(s) purIsCash = s.transType==='cash';
+  rerenderPurchaseFormKeepFields();
+}
 function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderPurchaseFormKeepFields();}
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);rerenderPurchaseFormKeepFields();}
 function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rerenderPurchaseFormKeepFields();}
@@ -7653,6 +7859,125 @@ function deletePurchase(id){
     removeJournalBySource('purchase', id);
     save();renderPurchases();
   });
+}
+
+// ============================================================
+// تعليق فاتورة المشتريات — نفس فكرة تعليق فاتورة المبيعات بالظبط، لكن للمشتريات
+// ============================================================
+
+// بيرجّع بيانات فاتورة المشتريات الجاري كتابتها دلوقتي لو فيه حاجة اتسجلت فعلاً (مورد أو أي صنف/كمية)،
+// أو null لو الفورم مقفول أو فاضي تمامًا أو بيعدّل فاتورة قديمة محفوظة أصلاً (التعليق للفواتير الجديدة بس)
+function _capturePurchaseDraft(){
+  if(!showPurForm || editPurchaseId) return null;
+  const supplierId=document.getElementById('pur_supplier')?.value||'';
+  const hasLine=purchaseLines.some(l=>l.productId||(l.productName&&l.productName.trim())||Number(l.qty)>0);
+  if(!supplierId && !hasLine) return null;
+  return {
+    supplierId,
+    supplierName:document.getElementById('pur_supplier_search')?.value||'',
+    date:document.getElementById('pur_date')?.value||businessDate(),
+    isCash:document.getElementById('pur_is_cash')?.checked||false,
+    lines:JSON.parse(JSON.stringify(purchaseLines)),
+    overallDiscount:Number(purOverallDiscount)||0
+  };
+}
+
+function _resetPurchaseFormState(){
+  showPurForm=false;editPurchaseId=null;
+  purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
+  purOverallDiscount=0;purIsCash=false;
+}
+
+// شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة مشتريات جديدة مفتوحة
+// (زرار من الرئيسية، فتح فاتورة تانية للتعديل...) - لو فيها بيانات فعلاً بتتعلق تلقائيًا بدل ما تتمسح بصمت
+function _autoHoldPurchaseIfOpen(){
+  const draft=_capturePurchaseDraft();
+  if(!draft) return false;
+  heldPurchases.push({id:uid(), ...draft, heldAt:new Date().toISOString()});
+  save();
+  showToast('⏸️ كانت فيه فاتورة مشتريات مفتوحة فيها بيانات - اتعلّقت تلقائيًا، هتلاقيها في "فواتير مشتريات معلقة"');
+  return true;
+}
+
+// زرار "⏸️ علّق الفاتورة" جوه فورم فاتورة مشتريات جديدة
+function holdCurrentPurchase(){
+  const draft=_capturePurchaseDraft();
+  if(!draft){ _resetPurchaseFormState(); renderPurchases(); return; }
+  heldPurchases.push({id:uid(), ...draft, heldAt:new Date().toISOString()});
+  save();
+  _resetPurchaseFormState();
+  showToast('⏸️ اتعلّقت فاتورة المشتريات — تقدر تكمّلها في أي وقت من "فواتير مشتريات معلقة" فوق');
+  renderPurchases();
+}
+
+// استئناف فاتورة مشتريات معلقة: بترجّع كل بياناتها للفورم بالظبط زي ما سابها المستخدم وتشيلها من قايمة التعليق.
+// لو فيه فاتورة مشتريات جديدة تانية مفتوحة دلوقتي وفيها بيانات، بتتعلق هي تلقائيًا الأول عشان محدش يضيع
+function resumeHeldPurchase(id){
+  const held=heldPurchases.find(h=>h.id===id);
+  if(!held) return;
+  const currentDraft=_capturePurchaseDraft();
+  if(currentDraft) heldPurchases.push({id:uid(), ...currentDraft, heldAt:new Date().toISOString()});
+  recordDeletion('heldPurchases',id);
+  heldPurchases=heldPurchases.filter(h=>h.id!==id);
+  purchaseLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
+  purOverallDiscount=Number(held.overallDiscount)||0;
+  purIsCash=!!held.isCash;
+  editPurchaseId=null;
+  showPurForm=true;
+  const supplierStillExists=!!(held.supplierId && suppliers.some(s=>s.id===held.supplierId));
+  purResumeSupplierId=supplierStillExists?held.supplierId:'';
+  purResumeDate=held.date||'';
+  save();
+  renderPurchases();
+  purResumeSupplierId='';purResumeDate=''; // كانت لازمة لرندر ده بس - اللي بعده بيحافظ عليها rerenderPurchaseFormKeepFields
+  const notes=[];
+  if(currentDraft) notes.push('الفاتورة اللي كانت مفتوحة اتعلّقت تلقائيًا كمان');
+  if(held.supplierId && !supplierStillExists) notes.push('⚠️ المورد المسجّل على الفاتورة دي اتشال من قايمة الموردين - اختار مورد تاني');
+  if(notes.length) showToast(notes.join(' | '));
+}
+
+// حذف فاتورة مشتريات معلقة نهائيًا (لو مش محتاجها خالص)
+function deleteHeldPurchase(id){
+  showConfirm('هتحذف فاتورة المشتريات المعلقة دي نهائيًا؟ مش هينفع ترجعها بعد كده.', function(){
+    recordDeletion('heldPurchases',id);
+    heldPurchases=heldPurchases.filter(h=>h.id!==id);
+    save();
+    renderPurchases();
+  });
+}
+
+// كارت "فواتير مشتريات معلقة" اللي بيظهر أعلى تبويب المشتريات (لو فيه فواتير معلقة بس)
+function renderHeldPurchasesBlock(){
+  if(!heldPurchases.length) return '';
+  const rows=[...heldPurchases].sort((a,b)=>String(b.heldAt).localeCompare(String(a.heldAt))).map(h=>{
+    const s=suppliers.find(s=>s.id===h.supplierId);
+    const supplierLabel=s?s.name:(h.supplierName||'بدون مورد');
+    const lines=h.lines||[];
+    const itemCount=lines.filter(l=>l.productId||(l.productName&&l.productName.trim())).length;
+    const subtotal=lines.reduce((sum,l)=>{
+      const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
+      return sum+(Number(l.qty)*afterDiscount);
+    },0);
+    const total=subtotal-(subtotal*(Number(h.overallDiscount)||0)/100);
+    let timeLabel='';
+    try{ timeLabel=new Date(h.heldAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
+    return `<div class="list-item">
+      <div class="list-item-head">
+        <div>
+          <div class="list-item-name">${esc(supplierLabel)}${h.isCash?' <span class="badge green">💵 كاش</span>':''}</div>
+          <div class="list-item-sub">${itemCount} صنف${itemCount===1?'':itemCount===2?'ين':''} • ${fmt(total)} ج${timeLabel?' • علّقت الساعة '+timeLabel:''}</div>
+        </div>
+      </div>
+      <div class="list-item-actions">
+        <button class="btn-sm green" onclick="resumeHeldPurchase('${h.id}')">▶️ استئناف</button>
+        <button class="btn-sm red" onclick="deleteHeldPurchase('${h.id}')">🗑 حذف نهائي</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="margin-bottom:10px">
+    <div class="card-head orange">⏸️ فواتير مشتريات معلقة (${heldPurchases.length})</div>
+    <div class="card-body" style="padding-top:10px;padding-bottom:4px">${rows}</div>
+  </div>`;
 }
 
 function renderPurDetail(){
