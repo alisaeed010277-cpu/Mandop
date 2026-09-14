@@ -87,6 +87,9 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .sum-lbl{font-size:11px;opacity:.85;}
 .form-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
 .form-group{flex:1;min-width:120px;}
+/* سطر "من تاريخ / إلى تاريخ" في أي تقرير: مفروض سطر واحد دايمًا، حتى لو ضاق وطلب سحب أفقي - مش هيقف تحت بعض تاني */
+.date-row{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.date-row .form-group{min-width:90px;flex:1 1 0;}
 .lbl{font-size:12px;color:#717D7E;margin-bottom:3px;}
 input[type=text],input[type=number],input[type=date],select,input[type=tel]{border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;direction:rtl;}
 .btn{border:none;border-radius:6px;padding:9px 14px;font-size:13px;cursor:pointer;font-weight:bold;white-space:nowrap;color:#fff;}
@@ -1385,7 +1388,8 @@ function _sselFilter(fieldId){
   const q=(document.getElementById(fieldId+'_search')?.value||'').trim();
   const list=document.getElementById(fieldId+'_list');
   if(!list)return;
-  const matches=q?data.options.filter(o=>o.label.includes(q)||(o.code&&o.code.includes(q))):data.options;
+  const qNorm=normalizeAr(q);
+  const matches=q?data.options.filter(o=>normalizeAr(o.label).includes(qNorm)||(o.code&&o.code.includes(q))):data.options;
   if(matches.length===0){
     list.innerHTML=`<div class="ssel-empty">لا توجد نتائج</div>`;
   }else{
@@ -1635,6 +1639,11 @@ async function loadAllData(){
   // لأن nextDocNumber() تحت بتاخد أعلى رقم موجود فعلاً في الفواتير كحد أدنى أول ما تتنادى
   docNumberCounters=dnc||{invoice:0, purchase:0, return:0, purchaseReturn:0};
 
+  // علامة كشف المسح المفاجئ (IndexedDB) - بنحملها هنا قبل أي فحص لـ _looksWiped()، وبنسجلها
+  // لو لقينا بيانات حقيقية فعلاً دلوقتي (نفس معيار hasData المستخدم في checkAutoBackup)
+  await _loadHadDataFlag();
+  if(clients.length>0||invoices.length>0||purchases.length>0||suppliers.length>0||stock.length>0) _markHadRealData();
+
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
   movements=movements.map(mv=>{
@@ -1877,8 +1886,11 @@ function productLedgerAvgCostAt(productId, sortKey, ledgerCache, visiting){
   return cost;
 }
 // متوسط تكلفة الصنف "دلوقتي" (بعد كل الحركات المسجلة لحد النهارده) — نفس الاستخدام والاسم القديم بالظبط، فمفيش أي مكان تاني في الكود محتاج يتغيّر
-function productAvgCost(productId){
-  const cache=new Map();
+// ledgerCache اختياري: لو بتتنادى جوه لفّة على أصناف كتير مع بعض (تقرير قيمة المخزون مثلاً)،
+// مرّر Map واحدة مشتركة للّفة كلها بدل ما كل نداء يبني الـledger من الصفر لكل صنف — نفس النتيجة
+// بالظبط، وأي نداء قديم من غير الباراميتر ده هيفضل شغال زي ما هو تمامًا (بيبني Map جديدة لوحده).
+function productAvgCost(productId, ledgerCache){
+  const cache=ledgerCache||new Map();
   const ledger=buildProductLedger(productId, cache, new Set());
   const p=stock.find(s=>s.id===productId);
   if(ledger.length===0) return (p&&p.costPrice)||0;
@@ -2086,6 +2098,18 @@ const uid=()=>(++_id).toString(36);
 // آمن للاستخدام سواء جوه نص عادي أو جوه قيمة attribute بين علامات تنصيص.
 const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
+// تطبيع نص عربي لأغراض البحث فقط (مش للعرض ولا للحفظ): بيشيل التشكيل، يوحّد أشكال
+// الألف/الهمزة والياء/الألف المقصورة والتاء المربوطة/الهاء، ويتجاهل حالة الأحرف اللاتينية.
+// كده "أحمد"/"احمد"/"إحمد" و"مدرسه"/"مدرسة" بيتطابقوا في البحث، من غير ما نغيّر البيانات الأصلية
+// المخزّنة أو المعروضة في أي مكان تاني — الدالة دي بتتستخدم بس وقت المقارنة جوه البحث.
+const normalizeAr=(s)=>String(s||'')
+  .toLowerCase()
+  .replace(/[إأآا]/g,'ا')
+  .replace(/ة/g,'ه')
+  .replace(/[ىي]/g,'ي')
+  .replace(/[\u064B-\u0652]/g,'') // إزالة علامات التشكيل
+  .replace(/\s+/g,' ').trim();
+
 // بيرجع رقم المستند الجديد (فاتورة مبيعات/مشتريات) بشكل ميتكررش أبدًا حتى لو
 // اتمسحت فواتير قبل كده - بياخد الأكبر بين (أعلى رقم موجود فعليًا في المصفوفة
 // الحالية) و(آخر رقم محفوظ من قبل حتى لو الفاتورة بتاعته اتمسحت) + 1، وبيحدّث
@@ -2147,6 +2171,23 @@ const clientBalance=(cid)=>{
   const retRefunded=returns.filter(r=>r.clientId===cid&&r.cashRefund).reduce((s,r)=>s+r.total,0);
   return opening+total-paid-ret+retRefunded;
 };
+// فهرسة أرصدة كل العملاء مرة واحدة (مرور واحد على كل مصفوفة) بدل ما clientBalance(cid) يعيد
+// مسح كل الفواتير/المدفوعات/المرتجعات من الأول لكل عميل على حدة — نفس نتيجة clientBalance()
+// بالظبط، بس لما محتاجين رصيد كل العملاء مع بعض (شاشة العملاء، الرئيسية). بيتبني محليًا جوه
+// الدالة المحتاجاه بس، فمفيش خطر إنه يفضل قديم.
+function buildClientBalanceIndex(){
+  const bal={};
+  clients.forEach(c=>{ bal[c.id]=Number(c.opening||0); });
+  invoices.forEach(i=>{ if(i.clientId in bal) bal[i.clientId]+=i.total; });
+  payments.forEach(p=>{ if(p.clientId in bal) bal[p.clientId]-=p.amount; });
+  returns.forEach(r=>{
+    if(!(r.clientId in bal)) return;
+    bal[r.clientId]-=r.total;
+    if(r.cashRefund) bal[r.clientId]+=r.total;
+  });
+  return (cid)=>bal[cid]||0;
+}
+
 // أعمار الديون: يوزّع أرصدة العميل (الرصيد الافتتاحي + الفواتير) على أعمارها بالأيام
 // بطريقة FIFO (المدفوعات والمرتجعات بتقفل أقدم المستحقات الأول)
 function clientAgingBuckets(cid, asOf){
@@ -2217,6 +2258,28 @@ const stockBatches=(pid)=>{
   });
   return Object.entries(batches).filter(([k,v])=>v>0).sort((a,b)=>a[0].localeCompare(b[0]));
 };
+
+// فهرسة أرصدة/دفعات كل الأصناف مرة واحدة (مرور واحد على movements) بدل ما كل نداء
+// stockQty(pid)/stockBatches(pid) يعيد مسح كل الحركات من الأول لكل صنف على حدة — لما بنكون
+// جوه دالة بتلف على أصناف كتير مع بعض (شاشة المخزون، تقارير قيمة المخزون...) ده بيفرق جدًا مع
+// عدد الحركات الكبير. بترجع نفس القيم بالظبط اللي stockQty/stockBatches كانوا هيرجعوها -
+// مفيش أي تغيير في النتيجة، بس المرة دي بمرور واحد بدل مرور لكل صنف. الفهرس ده بيتبني محليًا
+// جوه الدالة اللي محتاجاه بس (مش متسجل في متغير عام)، فبيتبني من البيانات الحالية بالظبط في كل
+// مرة، ومفيش خطر إنه يفضل قديم لو البيانات اتغيّرت بين نداء وتاني.
+function buildStockIndexes(){
+  const qty={}, batchesByProduct={};
+  movements.forEach(m=>{
+    const delta=m.type==='in'?m.qty:-m.qty;
+    qty[m.productId]=(qty[m.productId]||0)+delta;
+    const expKey=m.expiry||'—';
+    if(!batchesByProduct[m.productId]) batchesByProduct[m.productId]={};
+    batchesByProduct[m.productId][expKey]=(batchesByProduct[m.productId][expKey]||0)+delta;
+  });
+  return {
+    qty:(pid)=>qty[pid]||0,
+    batches:(pid)=>Object.entries(batchesByProduct[pid]||{}).filter(([k,v])=>v>0).sort((a,b)=>a[0].localeCompare(b[0]))
+  };
+}
 
 // بيوزّع كمية "خصم من المخزون" على تشغيلات الصلاحية الفعلية بترتيب الأقرب انتهاءً أولًا (FEFO)،
 // بدل ما يتسجل الخصم كله على "بلا تاريخ صلاحية" في حين إن الرصيد الحقيقي متسجل على تشغيلات ليها تاريخ فعلي.
@@ -2439,8 +2502,12 @@ let __googleUser = null;
 // ده بيفضل موجود حتى لو IndexedDB (مكان البيانات الأساسي) اتمسح لوحده. لو العميل رابط
 // حسابه بجوجل، بترفع نفس النسخة كمان تحت حساب الجوجل — ده بيفضل موجود حتى لو localStorage
 // نفسه (وبالتالي معرّف الجهاز) اتمسح، وهو الحالة النادرة اللي معرّف الجهاز مبيقدرش يغطيها.
-function pushSilentBackup(){
+let _lastSilentPush=0; // آخر توقيت اتبعتت فيه نسخة احتياطية صامتة - عشان مانبعتش كتابة لـ Firestore مع كل عملية حفظ (كان بيضاعف عدد الكتابات بلا داعي مع كتر العملاء)
+// force=true بتتخطى الدباونس - مستخدمة بس في اللحظات الحرجة القليلة اللي لازم فيها نسخة فورية (ربط جوجل، فحص مسح البيانات عند فتح البرنامج)
+function pushSilentBackup(force){
   if(!__syncDB) return;
+  if(!force && Date.now()-_lastSilentPush<60000) return; // بحد أقصى مرة كل دقيقة من غير force - كافي لهدف الحماية من مسح مفاجئ، ومش هدفها مزامنة لحظية أصلاً (ده دور pushSyncSnapshot المنفصل)
+  _lastSilentPush=Date.now();
   const payload = {
     clients, invoices, payments, stock, movements, returns,
     suppliers, purchases, supplierPayments, purchaseReturns,
@@ -2838,6 +2905,7 @@ function testSyncConnection(){
 
 function switchTab(name){
   if(currentRole==='worker' && name!=='invoices') return; // العامل مسموحله بتبويب الفواتير بس
+  if(name==='reports') reportsOpenSection=null; // كل الأقسام تتقفل من الأول كل ما تدخل تبويب التقارير
   currentTab=name;
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.classList.toggle('active',btn.dataset.tab===name||(btn.dataset.tab==='_more'&&!MAIN_TAB_IDS.includes(name)));
@@ -3042,7 +3110,8 @@ function printPosReceipt(inv, cashReceived){
 function renderPos(){
   const el=document.getElementById('tab-pos');
   if(!el)return;
-  const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const _stockIdxPos=buildStockIndexes();
+  const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdxPos.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   const subtotal=_posSubtotal();
   const cashNum=Number(posCashReceived)||0;
   const change=cashNum-subtotal;
@@ -3105,7 +3174,7 @@ function renderGlobalSearchResults(q){
   q=(q||'').trim();
   const box=document.getElementById('globalSearchResults');
   if(!q){ box.innerHTML='<div class="gs-empty" style="text-align:center;color:#AAB7B8;padding:20px 0">اكتب عشان تبدأ البحث...</div>'; return; }
-  const ql=q.toLowerCase();
+  const ql=normalizeAr(q);
   const secHtml=(title,rowsHtml)=>rowsHtml?`<div style="margin-bottom:10px"><div class="gs-sec-title" style="font-weight:bold;color:#7D8B94;margin-bottom:2px">${esc(title)}</div>${rowsHtml}</div>`:'';
   const rowHtml=(icon,title,sub,onclick)=>`<div style="display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #F2F3F4;cursor:pointer" onclick="${onclick}">
       <div class="gs-icon">${icon}</div>
@@ -3115,16 +3184,16 @@ function renderGlobalSearchResults(q){
       </div>
     </div>`;
 
-  const matchedClients=clients.filter(c=>c.name.toLowerCase().includes(ql)||(c.phone||'').includes(q)||(c.area||'').toLowerCase().includes(ql)).slice(0,6);
-  const matchedSuppliers=suppliers.filter(s=>s.name.toLowerCase().includes(ql)||(s.phone||'').includes(q)).slice(0,6);
-  const matchedProducts=stock.filter(p=>p.name.toLowerCase().includes(ql)||(p.barcode||'').toLowerCase().includes(ql)).slice(0,6);
+  const matchedClients=clients.filter(c=>normalizeAr(c.name).includes(ql)||(c.phone||'').includes(q)||normalizeAr(c.area||'').includes(ql)).slice(0,6);
+  const matchedSuppliers=suppliers.filter(s=>normalizeAr(s.name).includes(ql)||(s.phone||'').includes(q)).slice(0,6);
+  const matchedProducts=stock.filter(p=>normalizeAr(p.name).includes(ql)||(p.barcode||'').toLowerCase().includes(ql)).slice(0,6);
   const matchedInvoices=invoices.filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return String(inv.number).includes(q)||(c&&c.name.toLowerCase().includes(ql));
+    return String(inv.number).includes(q)||(c&&normalizeAr(c.name).includes(ql));
   }).slice(0,6);
   const matchedPurchases=purchases.filter(pu=>{
     const s=suppliers.find(s=>s.id===pu.supplierId);
-    return String(pu.number).includes(q)||(s&&s.name.toLowerCase().includes(ql));
+    return String(pu.number).includes(q)||(s&&normalizeAr(s.name).includes(ql));
   }).slice(0,6);
 
   let html='';
@@ -3147,6 +3216,20 @@ const supplierBalance=(sid)=>{
   const retdRefunded=purchaseReturns.filter(r=>r.supplierId===sid&&r.cashRefund).reduce((s,r)=>s+r.total,0);
   return opening+purchased-paid-retd+retdRefunded;
 };
+// نفس فكرة buildClientBalanceIndex بالظبط بس للموردين — فهرسة بمرور واحد بدل مرور لكل مورد على حدة.
+function buildSupplierBalanceIndex(){
+  const bal={};
+  suppliers.forEach(s=>{ bal[s.id]=Number(s.opening||0); });
+  purchases.forEach(p=>{ if(p.supplierId in bal) bal[p.supplierId]+=p.total; });
+  supplierPayments.forEach(p=>{ if(p.supplierId in bal) bal[p.supplierId]-=p.amount; });
+  purchaseReturns.forEach(r=>{
+    if(!(r.supplierId in bal)) return;
+    bal[r.supplierId]-=r.total;
+    if(r.cashRefund) bal[r.supplierId]+=r.total;
+  });
+  return (sid)=>bal[sid]||0;
+}
+
 
 // ===== HOME =====
 function renderCompanyBar(){
@@ -3532,13 +3615,18 @@ function renderHome(){
   const purchMonth=purchases.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.total,0);
 
   // نفس منطق تقرير قيمة المخزون بالظبط (الكمية الحالية × متوسط التكلفة المرجح) عشان الرقم يفضل متطابق مع تبويب التقارير
-  const stockValue=stock.reduce((s,p)=>s+stockQty(p.id)*productAvgCost(p.id),0);
-  const stockZeroCost=stock.some(p=>stockQty(p.id)>0 && productAvgCost(p.id)<=0);
+  // (فهرسة مرة واحدة للأصناف كلها بدل ما كل صنف يعيد مسح الحركات/الفواتير من الأول - نفس النتيجة بالظبط، أسرع بكتير)
+  const _stockIdx=buildStockIndexes();
+  const _costCache=new Map();
+  const stockValue=stock.reduce((s,p)=>s+_stockIdx.qty(p.id)*productAvgCost(p.id,_costCache),0);
+  const stockZeroCost=stock.some(p=>_stockIdx.qty(p.id)>0 && productAvgCost(p.id,_costCache)<=0);
 
   // إجمالي مديونيات العملاء/مستحقات الموردين = مجموع الأرصدة الموجبة بس (نفس تعريف "المديونين" المستخدم أصلاً في تبويب التحصيل/سداد الموردين)،
   // مش الصافي، عشان رصيد دائن لعميل/مورد واحد ميقلّلش من مديونية عميل/مورد تاني
-  const clientsDebt=clients.reduce((s,c)=>{const b=clientBalance(c.id);return s+(b>0?b:0);},0);
-  const suppliersDebt=suppliers.reduce((s,sup)=>{const b=supplierBalance(sup.id);return s+(b>0?b:0);},0);
+  const _clientBal=buildClientBalanceIndex();
+  const _supplierBal=buildSupplierBalanceIndex();
+  const clientsDebt=clients.reduce((s,c)=>{const b=_clientBal(c.id);return s+(b>0?b:0);},0);
+  const suppliersDebt=suppliers.reduce((s,sup)=>{const b=_supplierBal(sup.id);return s+(b>0?b:0);},0);
 
   const kpi=(cls,icon,label,num,sub,onclick)=>`
     <div class="kpi-card ${cls}" onclick="${onclick}">
@@ -3550,9 +3638,9 @@ function renderHome(){
   const goInvoicesToday=`_autoHoldInvoiceIfOpen();invFromDate='${day}';invToDate='${day}';showInvForm=false;editInvoiceId=null;switchTab('invoices')`;
   const goPurchasesToday=`_autoHoldPurchaseIfOpen();purFromDate='${day}';purToDate='${day}';showPurForm=false;editPurchaseId=null;switchTab('purchases')`;
   const goPaymentsToday=`payFromDate='${day}';payToDate='${day}';showPayForm=false;switchTab('payments')`;
-  const goReportsStock=`switchTab('reports');document.getElementById('reportsStockValueCard')?.scrollIntoView({behavior:'smooth',block:'center'})`;
-  const goReportsClients=`switchTab('reports');document.getElementById('repClientSummaryBlock')?.scrollIntoView({behavior:'smooth',block:'center'})`;
-  const goReportsSuppliers=`switchTab('reports');document.getElementById('repSupplierSummaryBlock')?.scrollIntoView({behavior:'smooth',block:'center'})`;
+  const goReportsStock=`goToReportSection('stockValue')`;
+  const goReportsClients=`goToReportSection('clientSummary')`;
+  const goReportsSuppliers=`goToReportSection('supplierSummary')`;
 
   const kpiGrid=`
     <div class="kpi-grid">
@@ -3564,8 +3652,8 @@ function renderHome(){
       ${kpi(suppliersDebt>0?'red':'gray','🏭','مستحق للموردين',suppliersDebt,'',goReportsSuppliers)}
     </div>`;
 
-  const lowStock=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p));
-  let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(p.name)}</span><span style="color:#C0392B;font-weight:bold">${stockQty(p.id)} وحدة</span></div>`).join('');
+  const lowStock=stock.filter(p=>_stockIdx.qty(p.id)<lowStockThresholdFor(p));
+  let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(p.name)}</span><span style="color:#C0392B;font-weight:bold">${_stockIdx.qty(p.id)} وحدة</span></div>`).join('');
 
   const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
 
@@ -3588,6 +3676,9 @@ function renderHome(){
 // ملخص العملاء بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
 function renderClientSummaryReportBlock(){
   if(!clients.length) return '';
+  const open=reportsOpenSection==='clientSummary';
+  const header=accordionHeader('clientSummary','👥','ملخص العملاء');
+  if(!open) return `<div class="card" id="repsec_clientSummary" style="margin-top:14px">${header}</div>`;
   const {rows:summaryRows,totals}=clientSummaryData(repClientsFromDate,repClientsToDate);
   const clientRows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
@@ -3609,10 +3700,10 @@ function renderClientSummaryReportBlock(){
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(totals.bal)}</td>
     </tr>`;
   return `
-    <div class="card" id="repClientSummaryBlock" style="margin-top:14px">
-      <div class="card-head">👥 ملخص العملاء</div>
+    <div class="card" id="repsec_clientSummary" style="margin-top:14px">
+      ${header}
       <div class="card-body" style="padding-bottom:6px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repcl_from" value="${repClientsFromDate}" onchange="repClientsFromDate=this.value;renderReports()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repcl_to" value="${repClientsToDate}" onchange="repClientsToDate=this.value;renderReports()"></div>
         </div>
@@ -3640,6 +3731,9 @@ function renderClientSummaryReportBlock(){
 // ملخص الموردين بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
 function renderSupplierSummaryReportBlock(){
   if(!suppliers.length) return '';
+  const open=reportsOpenSection==='supplierSummary';
+  const header=accordionHeader('supplierSummary','🏭','ملخص الموردين');
+  if(!open) return `<div class="card" id="repsec_supplierSummary" style="margin-top:14px">${header}</div>`;
   const {rows:supSummaryRows,totals:supTotals}=supplierSummaryData(repSuppliersFromDate,repSuppliersToDate);
   const supplierRows=supSummaryRows.map(({supplier:sup,opening,purch,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
@@ -3661,10 +3755,10 @@ function renderSupplierSummaryReportBlock(){
       <td style="background:#D6EAF8;text-align:center;font-weight:bold;color:#1A5276">${fmt(supTotals.bal)}</td>
     </tr>`;
   return `
-    <div class="card" id="repSupplierSummaryBlock" style="margin-top:14px">
-      <div class="card-head">🏭 ملخص الموردين</div>
+    <div class="card" id="repsec_supplierSummary" style="margin-top:14px">
+      ${header}
       <div class="card-body" style="padding-bottom:6px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repsup_from" value="${repSuppliersFromDate}" onchange="repSuppliersFromDate=this.value;renderReports()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repsup_to" value="${repSuppliersToDate}" onchange="repSuppliersToDate=this.value;renderReports()"></div>
         </div>
@@ -3716,9 +3810,11 @@ let clientStmtFromDate='',clientStmtToDate='';
 
 function renderClients(){
   if(clientDetailId){renderClientDetail();return;}
-  const filtered=clients.filter(c=>c.name.includes(clientSearch)||c.area?.includes(clientSearch)||c.phone?.includes(clientSearch));
+  const clientSearchNorm=normalizeAr(clientSearch);
+  const filtered=clients.filter(c=>normalizeAr(c.name).includes(clientSearchNorm)||normalizeAr(c.area||'').includes(clientSearchNorm)||c.phone?.includes(clientSearch));
+  const _clientBal=buildClientBalanceIndex();
   let items=filtered.map(c=>{
-    const bal=clientBalance(c.id);
+    const bal=_clientBal(c.id);
     const balColor=bal>0?'#C0392B':'#1E8449';
     const balLbl=bal>0?'مستحق':bal<0?'له رصيد':'صافي';
     return `<div class="list-item">
@@ -4320,7 +4416,7 @@ function renderClientDetail(){
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="cstmt_from_date" value="${clientStmtFromDate}" onchange="clientStmtFromDate=this.value;renderClientDetail()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="cstmt_to_date" value="${clientStmtToDate}" onchange="clientStmtToDate=this.value;renderClientDetail()"></div>
         </div>
@@ -4520,7 +4616,7 @@ function renderInvoices(){
   const roleBase = currentRole==='worker' ? invoices.filter(inv=>inv.createdBy==='worker') : invoices;
   const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    const matchesSearch=!invSearch||c?.name.includes(invSearch)||String(inv.number).includes(invSearch);
+    const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch);
     const matchesDate=(!invFromDate||inv.date>=invFromDate)&&(!invToDate||inv.date<=invToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -4539,8 +4635,12 @@ function renderInvoices(){
   }).join('');
   const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
+  // stockOptsArr واحدة بتتبني قبل اللفة على سطور الفاتورة وتتستخدم لكل سطر، بدل ما تتبني
+  // من الصفر (بمسح كل الحركات لكل صنف) في كل سطر على حدة - نفس المحتوى بالظبط لكل سطر أصلًا
+  const _stockIdx4619=buildStockIndexes();
+  const stockOptsArrShared=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx4619.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   let linesHtml=invLines.map(l=>{
-    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+    const stockOptsArr=stockOptsArrShared;
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
     const bonusQty=Number(l.bonus)||0;
@@ -4669,7 +4769,7 @@ function renderInvoices(){
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="inv_from_date" value="${invFromDate}" onchange="invFromDate=this.value;renderInvoices()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="inv_to_date" value="${invToDate}" onchange="invToDate=this.value;renderInvoices()"></div>
         </div>
@@ -5179,7 +5279,7 @@ function renderPayments(){
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="pay_from_date" value="${payFromDate}" onchange="payFromDate=this.value;renderPayments()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="pay_to_date" value="${payToDate}" onchange="payToDate=this.value;renderPayments()"></div>
         </div>
@@ -5269,6 +5369,7 @@ function savePayment(){
   const note=document.getElementById('pay_note')?.value||'';
   const invoiceId=document.getElementById('pay_invoice')?.value||null;
   if(!clientId||(!cashAmount&&!discount)){showToast('اختر عميل وأدخل المبلغ');return;}
+  if(cashAmount<0||discount<0){showToast('لا يمكن إدخال مبلغ سالب');return;} // تحقق من صحة المجاميع - يمنع أي تسريب لو اتكتب رقم سالب بالغلط أو بقصد
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد العميل (نقدي + خصم)
   const pay={id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
   payments.push(pay);
@@ -5303,8 +5404,10 @@ function renderReturns(){
     </tr>`;
   }).join('');
 
+  const _stockIdx5386=buildStockIndexes();
+  const stockOptsArrShared=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx5386.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   let linesHtml=retLines.map(l=>{
-    const stockOptsArr=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+    const stockOptsArr=stockOptsArrShared;
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
@@ -5398,7 +5501,7 @@ function renderReturns(){
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="ret_from_date" value="${retFromDate}" onchange="retFromDate=this.value;renderReturns()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="ret_to_date" value="${retToDate}" onchange="retToDate=this.value;renderReturns()"></div>
         </div>
@@ -5575,9 +5678,11 @@ function renderStock(){
 // الدالة المستخدمة في حساب تكلفة البضاعة المباعة وباقي التقارير المالية
 // في التطبيق، عشان الرقم هنا يكون متسق ودقيق ومطابق لباقي الحسابات)
 function renderStockValueReport(){
+  const _stockIdx=buildStockIndexes();
+  const _costCache=new Map();
   const rows=stock.map(p=>{
-    const qty=stockQty(p.id);
-    const cost=productAvgCost(p.id);
+    const qty=_stockIdx.qty(p.id);
+    const cost=productAvgCost(p.id,_costCache);
     return {p,qty,cost,value:qty*cost};
   }).sort((a,b)=>b.value-a.value);
   const grandTotal=rows.reduce((s,r)=>s+r.value,0);
@@ -5604,9 +5709,11 @@ function renderStockValueReport(){
 }
 
 async function printStockValuePdf(){
+  const _stockIdx=buildStockIndexes();
+  const _costCache=new Map();
   const rows=stock.map(p=>{
-    const qty=stockQty(p.id);
-    const cost=productAvgCost(p.id);
+    const qty=_stockIdx.qty(p.id);
+    const cost=productAvgCost(p.id,_costCache);
     return {p,qty,cost,value:qty*cost};
   }).sort((a,b)=>b.value-a.value);
   const grandTotal=rows.reduce((s,r)=>s+r.value,0);
@@ -5631,9 +5738,10 @@ async function printStockValuePdf(){
 
 async function printStockSummaryPdf(){
   const showExpiry=fieldsCfg().expiry;
+  const _stockIdx=buildStockIndexes();
   const rows=stock.map(p=>{
-    const qty=stockQty(p.id);
-    const batches=stockBatches(p.id);
+    const qty=_stockIdx.qty(p.id);
+    const batches=_stockIdx.batches(p.id);
     const batchTxt=batches.length>0?batches.map(([exp,q])=>`${exp}: ${q}`).join(' | '):'—';
     return `<tr>
       <td>${esc(p.name)}</td>
@@ -5644,7 +5752,7 @@ async function printStockSummaryPdf(){
     </tr>`;
   }).join('');
   const totalItems=stock.length;
-  const lowCount=stock.filter(p=>stockQty(p.id)<lowStockThresholdFor(p)).length;
+  const lowCount=stock.filter(p=>_stockIdx.qty(p.id)<lowStockThresholdFor(p)).length;
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ الجرد:</strong> ${today()}</div>
@@ -5660,13 +5768,14 @@ async function printStockSummaryPdf(){
 
 function renderStockOverview(){
   if(!fieldsCfg().manufacturing) stockCategoryFilter='all'; // التصنيف خام/تام مرتبط بالتصنيع، متبقاش فلتر عالق على قيمة مخفية
-  const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
-  const filteredStock=stock.filter(p=>p.name.includes(stockListSearch)||(p.barcode||'').includes(stockListSearch))
+  const _stockIdx=buildStockIndexes();
+  const productOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx.qty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const filteredStock=stock.filter(p=>normalizeAr(p.name).includes(normalizeAr(stockListSearch))||(p.barcode||'').includes(stockListSearch))
     .filter(p=>stockCategoryFilter==='all'?true:stockCategoryFilter==='raw'?isRawCategory(p):!isRawCategory(p));
   let items=filteredStock.map(p=>{
-    const qty=stockQty(p.id);
+    const qty=_stockIdx.qty(p.id);
     const qtyColor=qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449';
-    const batches=fieldsCfg().expiry?stockBatches(p.id):[];
+    const batches=fieldsCfg().expiry?_stockIdx.batches(p.id):[];
     const batchHtml=batches.length>0
       ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${q}</b></span>`).join('')
       :'';
@@ -6043,10 +6152,12 @@ function deleteProduction(id){
 }
 function renderProduction(){
   const outputId=document.getElementById('prod_output')?.value||'';
-  const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
-  const inputOptsArr=stock.filter(p=>isRawCategory(p)&&p.id!==outputId).map(p=>({id:p.id,label:p.name,sub:`${productCategoryLabel(p.category)} — الرصيد: ${stockQty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const _stockIdxProd=buildStockIndexes();
+  const _prodCostCache=new Map();
+  const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdxProd.qty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const inputOptsArr=stock.filter(p=>isRawCategory(p)&&p.id!==outputId).map(p=>({id:p.id,label:p.name,sub:`${productCategoryLabel(p.category)} — الرصيد: ${_stockIdxProd.qty(p.id)} ${p.unit}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   const linesHtml=prodInputLines.map(l=>{
-    const cost=l.productId?productAvgCost(l.productId):0;
+    const cost=l.productId?productAvgCost(l.productId,_prodCostCache):0;
     const lineTotal=cost*(Number(l.qty)||0);
     return `<div class="line-box">
       <div class="form-row">
@@ -6225,18 +6336,18 @@ function doExportDevice(){
   const blob=buildExportBlob();
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';a.click();
+  a.href=url;a.download=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json');a.click();
   URL.revokeObjectURL(url);
   markExported();
   document.getElementById('exportModal').style.display='none';
 }
 async function doExportShare(){
   const blob=buildExportBlob();
-  const fileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json';
+  const fileName=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json');
   // متصفحات أندرويد (كروم) بترفض مشاركة ملفات JSON تحديدًا (قيد أمان معروف في المتصفح نفسه —
   // بيسمح بمشاركة نصوص/صور/صوت بس)، فبنجهز نسخة بنفس المحتوى بالظبط بامتداد .txt عشان المشاركة
   // تعدي، من غير ما يأثر على البيانات جوه الملف ولا على استيرادها لاحقًا
-  const shareFileName='نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.txt';
+  const shareFileName=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.txt');
   const file=new File([blob],shareFileName,{type:'text/plain'});
   document.getElementById('exportModal').style.display='none';
   // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
@@ -6282,7 +6393,7 @@ function checkAutoBackup(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'نسخة_احتياطية_تلقائية'+backupFileLabel()+'_'+today()+'.json';
+    a.download = safeFileName('نسخة_احتياطية_تلقائية'+backupFileLabel()+'_'+today()+'.json');
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -6462,7 +6573,7 @@ function renderExpenses(){
           ${filterBtn('custom','فترة مخصصة')}
         </div>
         ${expenseQuickFilter==='custom'?`
-        <div class="form-row" style="margin-top:10px">
+        <div class="form-row date-row" style="margin-top:10px">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="exp_from" value="${fromVal}" onchange="renderExpenses()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="exp_to" value="${toVal}" onchange="renderExpenses()"></div>
         </div>`:''}
@@ -6699,7 +6810,7 @@ function updateProductField(pid, field, val){
   save();
 }
 function renderPriceList(){
-  const filtered=stock.filter(p=>p.name.includes(pricelistSearch)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const filtered=stock.filter(p=>normalizeAr(p.name).includes(normalizeAr(pricelistSearch))).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
   const showManu=fieldsCfg().manufacturer, showActive=fieldsCfg().activeIngredient;
   const rows=filtered.map(p=>`
     <div class="pl-row">
@@ -7045,7 +7156,8 @@ function renderBanks(){
   if(banksStatusFilter!=='all') filtered=filtered.filter(c=>c.status===banksStatusFilter);
   if(banksSearch.trim()){
     const q=banksSearch.trim();
-    filtered=filtered.filter(c=>c.number.includes(q)||checkHolderDisplay(c).includes(q)||(c.bank||'').includes(q));
+    const qNorm=normalizeAr(q);
+    filtered=filtered.filter(c=>c.number.includes(q)||normalizeAr(checkHolderDisplay(c)).includes(qNorm)||normalizeAr(c.bank||'').includes(qNorm));
   }
   filtered.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
 
@@ -7203,6 +7315,32 @@ async function printChecksPdf(subview){
 }
 
 // ===== ACTIVATION SYSTEM =====
+// حالة أقسام تبويب التقارير (أكورديون): تقرير واحد بس مفتوح في المرة، وبتتقفل كلها تلقائي
+// كل ما تدخل تبويب التقارير من جديد (شوف switchTab). قيمتها null أو أحد الـ ids:
+// 'aging' | 'itemProfit' | 'clientProfit' | 'clientSummary' | 'supplierSummary' | 'stockValue'
+let reportsOpenSection=null;
+function accordionHeader(id,icon,title){
+  const open=reportsOpenSection===id;
+  return `<div class="card-head" onclick="toggleReportSection('${id}')" style="cursor:pointer">
+    <span>${icon} ${title}</span>
+    <span style="transition:transform .2s;transform:rotate(${open?'180deg':'0deg'});display:inline-block">▾</span>
+  </div>`;
+}
+function toggleReportSection(id){
+  reportsOpenSection = reportsOpenSection===id ? null : id;
+  renderReports();
+  if(reportsOpenSection===id){
+    setTimeout(()=>document.getElementById('repsec_'+id)?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+  }
+}
+// يستخدمها اختصارات الصفحة الرئيسية (قيمة المخزون/مديونية العملاء/مستحق للموردين) عشان
+// تفتح تبويب التقارير وتفتح القسم المطلوب على طول بدل ما يظهر مقفول
+function goToReportSection(id){
+  switchTab('reports');
+  reportsOpenSection=id;
+  renderReports();
+  setTimeout(()=>document.getElementById('repsec_'+id)?.scrollIntoView({behavior:'smooth',block:'center'}),50);
+}
 function renderReports(){
   // تواريخ افتراضية: أول وآخر الشهر الحالي
   const now=new Date();
@@ -7223,7 +7361,7 @@ function renderReports(){
       <div class="page-title" style="margin-bottom:14px">📊 التقارير</div>
       <div class="card" style="margin-bottom:14px">
         <div style="font-weight:bold;color:#1A5276;margin-bottom:10px;font-size:13px">📅 فترة التقرير</div>
-        <div class="form-row">
+        <div class="form-row date-row">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="rep_from" value="${fromVal}" onchange="renderReports()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="rep_to" value="${toVal}" onchange="renderReports()"></div>
         </div>
@@ -7232,12 +7370,12 @@ function renderReports(){
       ${renderFinancialStatementsBlock(fromVal,toVal)}
       ${renderClientSummaryReportBlock()}
       ${renderSupplierSummaryReportBlock()}
-      <div class="card" id="reportsStockValueCard" style="margin-top:14px">
-        <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">📦 قيمة المخزون</div>
-        <div id="reportsStockValueBox"></div>
+      <div class="card" id="repsec_stockValue" style="margin-top:14px">
+        ${accordionHeader('stockValue','📦','قيمة المخزون')}
+        ${reportsOpenSection==='stockValue'?'<div class="card-body" id="reportsStockValueBox"></div>':''}
       </div>
     </div>`;
-  renderStockValueReport();
+  if(reportsOpenSection==='stockValue') renderStockValueReport();
 }
 
 // ====================================================================
@@ -7246,16 +7384,22 @@ function renderReports(){
 function renderFinancialStatementsBlock(fromVal,toVal){
   // مؤقتًا: باقي التقارير المالية (ميزان/دخل/ميزانية/دفتر أستاذ/تدفقات) مشالة
   // من هنا واتسابت "ربحية الأصناف" بس - راجع الملحوظة فوق في renderReports()
+  const openItem=reportsOpenSection==='itemProfit';
+  const openClient=reportsOpenSection==='clientProfit';
   return `
-  <div class="card" id="reportsItemProfitCard" style="margin-top:14px">
-    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">🏆 ربحية الأصناف</div>
-    <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
-    ${renderItemProfitabilityHtml(fromVal,toVal)}
+  <div class="card" id="repsec_itemProfit" style="margin-top:14px">
+    ${accordionHeader('itemProfit','🏆','ربحية الأصناف')}
+    ${openItem?`<div class="card-body">
+      <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+      ${renderItemProfitabilityHtml(fromVal,toVal)}
+    </div>`:''}
   </div>
-  <div class="card" id="reportsClientProfitCard" style="margin-top:14px">
-    <div style="font-weight:bold;color:#1A5276;font-size:13px;margin-bottom:10px">👤 ربحية العملاء</div>
-    <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
-    ${renderClientProfitabilityHtml(fromVal,toVal)}
+  <div class="card" id="repsec_clientProfit" style="margin-top:14px">
+    ${accordionHeader('clientProfit','👤','ربحية العملاء')}
+    ${openClient?`<div class="card-body">
+      <div style="font-size:11px;color:#AAB7B8;margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+      ${renderClientProfitabilityHtml(fromVal,toVal)}
+    </div>`:''}
   </div>`;
 }
 
@@ -7404,9 +7548,9 @@ function openClientProfitPicker(){
   modal.dataset.selected=JSON.stringify(clientProfitFilterIds);
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:0';
   const renderList=(q)=>{
-    q=(q||'').trim().toLowerCase();
+    q=normalizeAr((q||'').trim());
     const sel=JSON.parse(modal.dataset.selected);
-    const list=clients.filter(c=>!q||c.name.toLowerCase().includes(q));
+    const list=clients.filter(c=>!q||normalizeAr(c.name).includes(q));
     if(!list.length) return '<div class="empty">مفيش عملاء بالاسم ده</div>';
     return list.map(c=>`<label style="display:flex;align-items:center;gap:8px;padding:11px 4px;border-bottom:1px solid #EEE;cursor:pointer">
         <input type="checkbox" ${sel.includes(c.id)?'checked':''} onchange="_cppToggle('${c.id}',this.checked)" style="width:auto">
@@ -7644,6 +7788,9 @@ function renderBalanceSheetHtml(){
 }
 // ====================================================================
 function renderAgingReportBlock(){
+  const open=reportsOpenSection==='aging';
+  const header=accordionHeader('aging','📅','تقرير أعمار الديون');
+  if(!open) return `<div class="card" id="repsec_aging" style="margin-top:14px">${header}</div>`;
   const rows=agingReportRows(today());
   const headers=['اسم العميل','0-30','31-60','61-90','91-120','121-150','151-180','أكثر من 180','رصيد مدين'];
   const bodyRows=rows.map(r=>`<tr>
@@ -7655,22 +7802,22 @@ function renderAgingReportBlock(){
   rows.forEach(r=>r.buckets.forEach((b,i)=>totals[i]+=b));
   const grandTotal=totals.reduce((s,t)=>s+t,0);
   return `
-  <div class="card" style="margin-top:14px">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-      <div style="font-weight:bold;color:#1A5276;font-size:13px">📅 تقرير أعمار الديون</div>
-      ${rows.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printAgingReportPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>`:''}
+  <div class="card" id="repsec_aging" style="margin-top:14px">
+    ${header}
+    <div class="card-body">
+      ${rows.length>0?`<div class="btn-row" style="margin-bottom:10px"><button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printAgingReportPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button></div>`:''}
+      ${rows.length===0?'<div class="empty">لا توجد ديون مستحقة على العملاء حاليًا</div>':`
+      <div class="tbl-wrap"><table>
+        <thead><tr>${headers.map(h=>`<th style="white-space:nowrap">${h}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}
+          <tr style="background:#F2F3F4;font-weight:bold">
+            <td>الإجمالي</td>
+            ${totals.map(t=>`<td style="text-align:center">${t>0?fmt(t):'—'}</td>`).join('')}
+            <td style="text-align:center;color:#1A5276">${fmt(grandTotal)}</td>
+          </tr>
+        </tbody>
+      </table></div>`}
     </div>
-    ${rows.length===0?'<div class="empty">لا توجد ديون مستحقة على العملاء حاليًا</div>':`
-    <div class="tbl-wrap"><table>
-      <thead><tr>${headers.map(h=>`<th style="white-space:nowrap">${h}</th>`).join('')}</tr></thead>
-      <tbody>${bodyRows}
-        <tr style="background:#F2F3F4;font-weight:bold">
-          <td>الإجمالي</td>
-          ${totals.map(t=>`<td style="text-align:center">${t>0?fmt(t):'—'}</td>`).join('')}
-          <td style="text-align:center;color:#1A5276">${fmt(grandTotal)}</td>
-        </tr>
-      </tbody>
-    </table></div>`}
   </div>`;
 }
 async function printAgingReportPdf(){
@@ -7700,9 +7847,11 @@ let supplierDetailId=null;
 
 function renderSuppliers(){
   if(supplierDetailId){renderSupplierDetail();return;}
-  const filtered=suppliers.filter(s=>s.name.includes(supplierSearch)||s.phone?.includes(supplierSearch));
+  const supplierSearchNorm=normalizeAr(supplierSearch);
+  const filtered=suppliers.filter(s=>normalizeAr(s.name).includes(supplierSearchNorm)||s.phone?.includes(supplierSearch));
+  const _supplierBal=buildSupplierBalanceIndex();
   let items=filtered.map(s=>{
-    const bal=supplierBalance(s.id);
+    const bal=_supplierBal(s.id);
     const balColor=bal>0?'#C0392B':'#1E8449';
     const balLbl=bal>0?'مستحق له':'له رصيد';
     return `<div class="list-item">
@@ -7943,7 +8092,7 @@ function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
   const filtered=[...purchases].filter(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    const matchesSearch=!purSearch||s?.name.includes(purSearch)||String(p.number).includes(purSearch);
+    const matchesSearch=!purSearch||normalizeAr(s?.name).includes(normalizeAr(purSearch))||String(p.number).includes(purSearch);
     const matchesDate=(!purFromDate||p.date>=purFromDate)&&(!purToDate||p.date<=purToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -8057,7 +8206,7 @@ function renderPurchases(){
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
-        <div class="form-row" style="align-items:flex-end">
+        <div class="form-row date-row" style="align-items:flex-end">
           <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="pur_from_date" value="${purFromDate}" onchange="purFromDate=this.value;renderPurchases()"></div>
           <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="pur_to_date" value="${purToDate}" onchange="purToDate=this.value;renderPurchases()"></div>
         </div>
@@ -8476,6 +8625,7 @@ function saveSupplierPaymentTab(){
   const date=document.getElementById('sp2_date')?.value||today();
   const note=document.getElementById('sp2_note')?.value||'';
   if(!supplierId||(!cashAmount&&!discount)){showToast('اختر مورد وأدخل المبلغ');return;}
+  if(cashAmount<0||discount<0){showToast('لا يمكن إدخال مبلغ سالب');return;} // تحقق من صحة المجاميع - يمنع أي تسريب لو اتكتب رقم سالب بالغلط أو بقصد
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد المورد (نقدي + خصم)
   const sp={id:uid(),supplierId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
   supplierPayments.push(sp);
@@ -8579,8 +8729,10 @@ function renderPurReturns(){
     </tr>`;
   }).join('');
 
+  const _stockIdx8673=buildStockIndexes();
+  const stockOptsArrShared=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   let linesHtml=purRetLines.map(l=>{
-    const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${stockQty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+    const stockOptsArr=stockOptsArrShared;
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
@@ -8804,12 +8956,29 @@ async function printPurchaseReturn(retId){
   await sendDocument(`مردود مشتريات #${ret.number}`, body, `مردود-مشتريات-${ret.number}.pdf`);
 }
 
+// إشارة إضافية مستقلة عن _lastExport/_lastAutoExport (اللي متخزنة في localStorage بس):
+// علامة "كان فيه بيانات حقيقية على الجهاز ده قبل كده"، متخزنة في IndexedDB. الهدف إنها
+// تفضل موجودة حتى لو localStorage اتمسح بمفرده (أو بأي سيناريو تاني بيمسح مصدر إشارة واحد
+// من غيره) - بكده بقى عندنا مصدرين مستقلين للإشارة دي بدل ما نعتمد على واحد بس. بتتحمّل
+// مرة في بداية كل جلسة (جوه loadAllData) قبل أي فحص لـ _looksWiped()، وبتتسجل تلقائيًا أول
+// ما نلاقي بيانات حقيقية فعلاً، من غير ما ننتظر أول تصدير يدوي أو تلقائي.
+let __hadRealDataIDB = false;
+async function _loadHadDataFlag(){
+  try{ __hadRealDataIDB = !!(await idbGet('_hadRealDataFlag')); }catch(e){ __hadRealDataIDB = false; }
+}
+function _markHadRealData(){
+  if(__hadRealDataIDB) return; // متسجلة بالفعل - مفيش داعي نكتب تاني
+  __hadRealDataIDB = true;
+  try{ idbSet('_hadRealDataFlag', true); }catch(e){}
+}
+
 // كشف "المسح المفاجئ": لو الجهاز ده عليه علامة إنه اشتغل بداتا حقيقية قبل كده (عمل نسخة
-// احتياطية تلقائية أو يدوية قبل كده)، لكن دلوقتي كل البيانات الأساسية طالعة فاضية بالكامل،
-// ده مؤشر قوي إن حصل مسح غير طبيعي للتخزين (مش إن العميل جديد لسه ملوش بيانات).
-// العلامة دي (_lastExport/_lastAutoExport) مستحيل تتسجل غير بعد ما يكون فيه بيانات حقيقية فعلاً.
+// احتياطية تلقائية أو يدوية قبل كده، أو علامة IndexedDB إنه شاف بيانات حقيقية قبل كده)،
+// لكن دلوقتي كل البيانات الأساسية طالعة فاضية بالكامل، ده مؤشر قوي إن حصل مسح غير طبيعي
+// للتخزين (مش إن العميل جديد لسه ملوش بيانات). العلامات دي مستحيل تتسجل غير بعد ما يكون
+// فيه بيانات حقيقية فعلاً.
 function _looksWiped(){
-  const hasHistorySignal = !!(DB.get('_lastExport') || DB.get('_lastAutoExport'));
+  const hasHistorySignal = !!(DB.get('_lastExport') || DB.get('_lastAutoExport') || __hadRealDataIDB);
   const dataIsEmpty = clients.length===0 && invoices.length===0 && stock.length===0 &&
                        movements.length===0 && suppliers.length===0 && purchases.length===0;
   return hasHistorySignal && dataIsEmpty;
@@ -8889,7 +9058,7 @@ function _linkGoogleAccount(){
     }catch(e){ console.warn('conflict check failed (continuing):', e); }
     DB.set('_googleLinkPrompted',1);
     if(banner) banner.remove();
-    pushSilentBackup(); // نرفع نسخة تحت الحساب فورًا لحظة الربط
+    pushSilentBackup(true); // نرفع نسخة تحت الحساب فورًا لحظة الربط (force عشان الدباونس الجديد ميأجلش اللحظة دي)
     if(typeof _renderExportModalGoogleLink==='function') _renderExportModalGoogleLink();
   }).catch(err=>{
     if(err && (err.code==='auth/popup-blocked' || err.code==='auth/operation-not-supported-in-this-environment')){
@@ -8972,7 +9141,7 @@ function initActivation(){
       // مفيش شك في مسح — نرفع نسخة احتياطية صامتة فورًا من هنا، من غير ما ننتظر
       // أول حفظة جديدة. ده بالذات اللي بيحمي بيانات العملاء الحاليين اللي عندهم
       // بيانات قديمة قبل التحديث ده، حتى لو فتحوا يتفرجوا بس من غير أي حفظ جديد
-      try{ pushSilentBackup(); }catch(e){}
+      try{ pushSilentBackup(true); }catch(e){}
       setTimeout(()=>{ try{ _maybeOfferGoogleLink(); }catch(e){} }, 6000);
     }
     _startPinInactivityWatch();
@@ -8996,7 +9165,7 @@ function initActivation(){
         if(_looksWiped()){
           _handlePossibleWipe();
         }else{
-          try{ pushSilentBackup(); }catch(e){}
+          try{ pushSilentBackup(true); }catch(e){}
         }
         _startPinInactivityWatch();
       };
