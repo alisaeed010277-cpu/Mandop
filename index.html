@@ -134,6 +134,8 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .section-title{font-weight:bold;margin-bottom:8px;font-size:13px;}
 .line-box{background:#F0F4F8;border-radius:8px;padding:10px;margin-bottom:8px;}
 .warn-box{border:1px solid #D68910;}
+.home-alerts-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;}
+.home-alerts-row>.card{flex:1 1 280px;margin-bottom:0;}
 .search-row{display:flex;gap:8px;margin-bottom:10px;}
 .ssel-wrap{position:relative;}
 .ssel-input{width:100%;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;box-sizing:border-box;font-size:14px;}
@@ -318,6 +320,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   .card{border-radius:12px;margin-bottom:16px;}
   .card-head{padding:14px 20px;font-size:16px;}
   .card-body{padding:20px;}
+  .home-alerts-row{gap:16px;margin-bottom:16px;}
 
   /* ===== كروت الملخص ===== */
   .summary{gap:14px;margin-bottom:16px;}
@@ -637,6 +640,17 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   </div>
 </div>
 
+<div id="onboardingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div class="modal-card" style="background:#fff;border-radius:12px;width:100%">
+    <div class="modal-title" style="margin-bottom:4px">🚀 ابدأ منين؟</div>
+    <div class="modal-hint" style="margin-bottom:10px">اتبع الخطوات بالترتيب ده عشان تقاريرك تبقى مظبوطة من أول يوم. دوس على أي خطوة عشان تروح لشاشتها على طول.</div>
+    <div id="onboardingModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('onboardingModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
 <div id="toastContainer"></div>
 
 <div id="confirmModal">
@@ -743,7 +757,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1218,6 +1232,7 @@ let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأول�
 let journalEntries=[]; // القيود اليومية (دفتر الأستاذ الخفي وراء كل حركة)
 let treasuryOpening=0;
 let lowStockDefault=10; // الحد العام لتنبيه "قارب على النفاذ" — أي صنف مالوش حد خاص بيه بيستخدم الرقم ده
+let expiryAlertMonths=2; // عدد الشهور قبل تاريخ الصلاحية اللي يبدأ من عندها تنبيه "قاربت على الانتهاء" يظهر في الرئيسية (للأنشطة اللي بتتابع صلاحيات بس)
 // آخر رقم اتاستخدم فعليًا لكل نوع مستند (فاتورة مبيعات / فاتورة مشتريات) - بيتحدّث لفوق بس
 // (مبيرجعش لورا أبدًا حتى لو اتمسحت الفاتورة)، عشان رقم فاتورة متتاداش استخدامه تاني بعد الحذف
 let docNumberCounters={invoice:0, purchase:0, return:0, purchaseReturn:0};
@@ -1591,6 +1606,7 @@ const save=()=>{
   idbSet(KEYS.expenses,expenses);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.lowStockDefault,lowStockDefault);
+  idbSet(KEYS.expiryAlertMonths,expiryAlertMonths);
   idbSet(KEYS.docNumberCounters,docNumberCounters);
   idbSet(KEYS.repNotes,repNotes);
   idbSet(KEYS.clientNotes,clientNotes);
@@ -1608,8 +1624,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,delIds,dnc,hInv,hPur]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1632,6 +1648,7 @@ async function loadAllData(){
   journalEntries=jrnl||[];
   productions=prod||[];
   lowStockDefault=(lsd!==undefined&&lsd!==null&&!isNaN(Number(lsd)))?Number(lsd):10;
+  expiryAlertMonths=(eam!==undefined&&eam!==null&&!isNaN(Number(eam)))?Number(eam):2;
   deletedIds=delIds||{};
   heldInvoices=hInv||[];
   heldPurchases=hPur||[];
@@ -2227,6 +2244,15 @@ function lowStockThresholdFor(p){
   const custom=Number(p?.lowStockThreshold);
   return custom>0?custom:(Number(lowStockDefault)||10);
 }
+// بيضيف عدد شهور على شهر بصيغة YYYY-MM ويرجع الناتج بنفس الصيغة — مستخدمة لحساب سقف تنبيه "قاربت على الانتهاء"
+function addMonthsToYYYYMM(ym,months){
+  const parts=(ym||'').split('-');
+  const y=Number(parts[0]), m=Number(parts[1]);
+  if(!y||!m) return ym;
+  const total=(y*12+(m-1))+(Number(months)||0);
+  const ny=Math.floor(total/12), nm=(total%12)+1;
+  return `${ny}-${String(nm).padStart(2,'0')}`;
+}
 // ===== وحدات البيع بالتجزئة (اختياري لكل صنف) =====
 // كل صنف ممكن يكون له وحدات بيع فرعية اختيارية (زي حبة/شريط من علبة، أو مل من عبوة).
 // المخزون فعليًا بيفضل متسجل بالوحدة الأساسية (p.unit) زي ما هو دايمًا — من غير أي هجرة أو تعديل على البيانات القديمة.
@@ -2514,7 +2540,7 @@ function pushSilentBackup(force){
     expenses, treasuryOpening, repNotes, clientNotes,
     checksPayable, checksReceivable, bankAccounts,
     chartOfAccounts, journalEntries, productions,
-    companyProfile, lowStockDefault, deletedIds, docNumberCounters,
+    companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
     _deviceId: __deviceId,
     _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
       ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
@@ -2547,7 +2573,7 @@ async function _tryAutoRecover(key){
     purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];treasuryOpening=Number(data.treasuryOpening)||0;
     repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
     bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
-    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;
+    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
     deletedIds=data.deletedIds||{};
     docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
     save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
@@ -2571,7 +2597,7 @@ function pushSyncSnapshot(){
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
       chartOfAccounts, journalEntries, productions, heldInvoices, heldPurchases,
-      companyProfile, lowStockDefault, deletedIds, docNumberCounters,
+      companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
         ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
@@ -2889,7 +2915,7 @@ function testSyncConnection(){
       expenses, treasuryOpening, repNotes, clientNotes,
       checksPayable, checksReceivable, bankAccounts,
       chartOfAccounts, journalEntries, productions,
-      companyProfile, lowStockDefault, docNumberCounters,
+      companyProfile, lowStockDefault, expiryAlertMonths, docNumberCounters,
       _updatedBy: __deviceId,
       _updatedAt: Date.now()
     }).then(()=>{
@@ -2949,15 +2975,16 @@ function _posSubtotal(){
   return posCart.reduce((s,l)=> s+(Number(l.qty)||0)*(Number(l.price)||0), 0);
 }
 
-// بيدوّر على "عميل نقدي" ثابت خاص بمبيعات الكاشير، أو بينشئه أول مرة بس (مش هيتكرر بعد كده)
-// عشان الكاشير ميحتاجش يختار/يضيف عميل حقيقي لكل عميل عابر بيشتري من السوبر ماركت
-function getOrCreateWalkInClient(){
-  let c=clients.find(x=>x.__posWalkIn);
-  if(c) return c.id;
-  c={id:uid(),name:'عميل نقدي (كاشير)',phone:'',area:'',opening:0,openingDate:today(),transType:'cash',createdAt:today(),__posWalkIn:true};
-  clients.push(c);
-  save();
-  return c.id;
+// اسم عميل الكاش الموحّد — بيتكوّد يدويًا من التاجر نفسه (من شاشة العملاء، أو من خطوة "ابدأ منين؟")
+// وليس بشكل تلقائي، عشان يبقى فاهم هو مين وليه محتاجه. نفس العميل ده بالظبط بيتستخدم في كل
+// عمليات البيع الكاش، سواء من الفاتورة اليدوية أو من شاشة الكاشير، عشان التقارير متتقسمش على عميلين
+// "كاش" مختلفين.
+const CASH_CLIENT_NAME='نقدي';
+
+// بيدوّر على عميل اسمه "نقدي" بالظبط ورجّع الـ id بتاعه، أو null لو لسه متكودش
+function _findCashClientId(){
+  const c=clients.find(x=>(x.name||'').trim()===CASH_CLIENT_NAME);
+  return c?c.id:null;
 }
 
 function _posFocusScanInput(){
@@ -3008,7 +3035,12 @@ function posCheckout(){
   // شبكة أمان: لو فيه فاتورة يدوية مفتوحة فيها بيانات في تبويب المبيعات، بتتعلّق تلقائيًا (زي أي
   // مكان تاني في البرنامج ممكن يمسح فاتورة مفتوحة) قبل ما نستخدم نفس متغيرات الفاتورة العامة هنا
   _autoHoldInvoiceIfOpen();
-  const clientId=getOrCreateWalkInClient();
+  const clientId=_findCashClientId();
+  if(!clientId){
+    showToast(`لازم تكوّد عميل اسمه "${CASH_CLIENT_NAME}" الأول من شاشة العملاء عشان تقدر تبيع كاش`);
+    switchTab('clients');
+    return;
+  }
   const date=businessDate();
   invLines=posCart.map(l=>({id:l.id,productId:l.productId,productName:l.productName,qty:Number(l.qty)||0,price:Number(l.price)||0,discount:0,bonus:0,expiry:'',saleUnit:''}));
   invOverallDiscount=0;
@@ -3567,6 +3599,48 @@ function dailyProfitSnapshot(day){
 }
 
 // زرار "إقفال اليوم" في الرئيسية — زرار عادي بسيط بس، بيفتح مودال منفصل خالص عن أي حاجة تانية
+// ===== تشيك ليست "ابدأ منين؟" — بتتبع تكويد الأصناف/الموردين/العملاء/الخزنة وتوديك لشاشة كل واحدة =====
+// كل خطوة بتتحدد كـ"تمت" لما يكون فيها بيانات فعلية متسجلة (مش مجرد زيارة للشاشة)
+function _onboardingSteps(){
+  return [
+    {done:stock.length>0, icon:'📦', title:'كوّد أصنافك', tab:'stock',
+     desc:'الرصيد الفعلي، تاريخ الصلاحية، سعر الشراء، وحدة التجزئة لو بتبيع تجزئة، والباركود لو موجود — وكل بيانات زيادة بتخلي تقاريرك أدق'},
+    {done:suppliers.length>0, icon:'🏭', title:'كوّد الموردين', tab:'suppliers',
+     desc:'كل مورد بيتعامل معاك بالآجل برصيده أول المدة، وكمان كوّد مورد اسمه "نقدي" للمشتريات الكاش'},
+    {done:clients.length>0, icon:'👥', title:'كوّد العملاء', tab:'clients',
+     desc:`كل عميل بيتعامل معاك بالآجل برصيده أول المدة، وكمان كوّد عميل اسمه "${CASH_CLIENT_NAME}" بالظبط — هو نفسه اللي هيتستخدم في كل بيع كاش، يدوي أو من الكاشير`},
+    {done:(treasuryOpening>0||expenses.length>0), icon:'💰', title:'الخزنة والمصاريف (اختياري)', tab:'treasury',
+     desc:'مش إجباري، بس لو سجّلتها هتلاقي تقارير الأرباح أدق'},
+  ];
+}
+
+function renderOnboardingButton(){
+  const steps=_onboardingSteps();
+  const requiredDone=steps.slice(0,3).every(s=>s.done);
+  const doneCount=steps.filter(s=>s.done).length;
+  return `<button class="day-close-btn" style="color:#8E44AD" onclick="openOnboardingModal()">${requiredDone?'✅':'🚀'} ابدأ منين؟ (${doneCount}/${steps.length})</button>`;
+}
+
+function openOnboardingModal(){
+  document.getElementById('onboardingModal').style.display='flex';
+  renderOnboardingModalContent();
+}
+
+function renderOnboardingModalContent(){
+  const row=(s)=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #ECF0F1;cursor:pointer" onclick="document.getElementById('onboardingModal').style.display='none';switchTab('${s.tab}')">
+      <div style="font-size:22px;flex-shrink:0">${s.done?'✅':s.icon}</div>
+      <div style="flex:1">
+        <div style="font-weight:bold;color:${s.done?'#1E8449':'#212F3C'}">${esc(s.title)}</div>
+        <div style="font-size:12px;color:#909497;margin-top:2px;line-height:1.5">${esc(s.desc)}</div>
+      </div>
+      <div style="color:#B2BABB;font-size:18px">‹</div>
+    </div>`;
+  document.getElementById('onboardingModalContent').innerHTML=`
+    ${_onboardingSteps().map(row).join('')}
+    <a href="https://wa.me/201552623744" target="_blank" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:12px;font-weight:bold;text-align:center;margin-top:14px">📞 واقف عند حاجة؟ كلّمنا واتساب</a>`;
+}
+
 function renderDayCloseButton(){
   return `<button class="day-close-btn" onclick="openDayCloseModal()">💰 إقفال اليوم (كسبت كام النهارده؟)</button>`;
 }
@@ -3655,9 +3729,25 @@ function renderHome(){
   const lowStock=stock.filter(p=>_stockIdx.qty(p.id)<lowStockThresholdFor(p));
   let lowRows=lowStock.map(p=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(p.name)}</span><span style="color:#C0392B;font-weight:bold">${_stockIdx.qty(p.id)} وحدة</span></div>`).join('');
 
+  // منتجات قاربت على انتهاء الصلاحية (بس للأنشطة اللي بتتابع صلاحيات - مود "طبي")، حسب عدد شهور التنبيه المحدد في إعدادات المخزن
+  const expiryThresholdMonth=fieldsCfg().expiry?addMonthsToYYYYMM(monthPrefix,expiryAlertMonths):null;
+  const nearExpiry=[];
+  if(expiryThresholdMonth){
+    stock.forEach(p=>{
+      _stockIdx.batches(p.id).forEach(([exp,q])=>{
+        if(exp!=='—' && exp<=expiryThresholdMonth){
+          nearExpiry.push({product:p, expiry:exp, qty:q, expired: exp<monthPrefix});
+        }
+      });
+    });
+    nearExpiry.sort((a,b)=>a.expiry.localeCompare(b.expiry));
+  }
+  let expiryRows=nearExpiry.map(r=>`<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #D5D8DC;"><span>${esc(r.product.name)}</span><span style="color:${r.expired?'#C0392B':'#D68910'};font-weight:bold">${fmtQty(r.qty)} وحدة — ${r.expiry}${r.expired?' (منتهي)':''}</span></div>`).join('');
+
   const shortcut=(icon,label,onclick)=>`<button class="home-shortcut-btn" onclick="${onclick}"><span style="font-size:20px">${icon}</span><span>${label}</span></button>`;
 
   document.getElementById('tab-home').innerHTML=`
+    ${renderOnboardingButton()}
     ${renderDayCloseButton()}
     ${kpiGrid}
     <div class="home-shortcuts">
@@ -3670,7 +3760,10 @@ function renderHome(){
       ${shortcut('📋','قائمة الأسعار',"switchTab('pricelist')")}
       ${shortcut('📊','تقارير',"switchTab('reports')")}
     </div>
-    ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}`;
+    ${(lowStock.length>0||nearExpiry.length>0)?`<div class="home-alerts-row">
+      ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}
+      ${nearExpiry.length>0?`<div class="card warn-box"><div class="card-head orange">⏳ منتجات قاربت على انتهاء الصلاحية</div><div class="card-body">${expiryRows}</div></div>`:''}
+    </div>`:''}`;
 }
 
 // ملخص العملاء بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
@@ -5799,9 +5892,15 @@ function renderStockOverview(){
   }).join('');
   document.getElementById('stock-content').innerHTML=`
     <div class="card" style="margin-bottom:10px;border-right:4px solid #2E86C1">
-      <div class="card-body" style="padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-size:12px;color:#717D7E;flex:1;min-width:180px">⚙️ الحد العام لتنبيه "قارب على النفاذ" — لأي صنف مالوش حد خاص بيه</div>
-        <input type="number" id="low_stock_default_input" min="0" step="any" value="${lowStockDefault}" style="width:90px;padding:6px 8px;border:1px solid #D5D8DC;border-radius:6px" onchange="saveLowStockDefault(this.value)">
+      <div class="card-body" style="padding:10px 14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:12px;color:#717D7E;flex:1;min-width:180px">⚙️ الحد العام لتنبيه "قارب على النفاذ" — لأي صنف مالوش حد خاص بيه</div>
+          <input type="number" id="low_stock_default_input" min="0" step="any" value="${lowStockDefault}" style="width:90px;padding:6px 8px;border:1px solid #D5D8DC;border-radius:6px" onchange="saveLowStockDefault(this.value)">
+        </div>
+        ${fieldsCfg().expiry?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:12px;color:#717D7E;flex:1;min-width:180px">⏳ تنبيه "قاربت على الانتهاء" قبل تاريخ الصلاحية بعدد الشهور</div>
+          <input type="number" id="expiry_alert_months_input" min="0" step="1" value="${expiryAlertMonths}" style="width:90px;padding:6px 8px;border:1px solid #D5D8DC;border-radius:6px" onchange="saveExpiryAlertMonths(this.value)">
+        </div>`:''}
       </div>
     </div>
     <div class="search-row" style="align-items:center">
@@ -6030,6 +6129,12 @@ function deleteProduct(id){
 function saveLowStockDefault(val){
   const n=Number(val);
   lowStockDefault=(n>=0)?n:10;
+  save();
+  renderStock();
+}
+function saveExpiryAlertMonths(val){
+  const n=Number(val);
+  expiryAlertMonths=(n>=0)?n:2;
   save();
   renderStock();
 }
@@ -6306,7 +6411,7 @@ function _signOutGoogleAccount(){
           expenses, treasuryOpening, repNotes, clientNotes,
           checksPayable, checksReceivable, bankAccounts,
           chartOfAccounts, journalEntries, productions,
-          companyProfile, lowStockDefault, deletedIds, docNumberCounters,
+          companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
           _deviceId: __deviceId,
           _savedAt: Date.now()
         });
@@ -6324,7 +6429,7 @@ function buildExportBlob(){
   // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
   // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
-    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,deletedIds,docNumberCounters,
+    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -6452,6 +6557,7 @@ function importData(){
           if(data.deletedIds&&typeof data.deletedIds==='object'){deletedIds=data.deletedIds;}
           if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
           if(typeof data.lowStockDefault!=='undefined'){lowStockDefault=Number(data.lowStockDefault)||10;}
+          if(typeof data.expiryAlertMonths!=='undefined'){expiryAlertMonths=Number(data.expiryAlertMonths)||2;}
           if(data.docNumberCounters&&typeof data.docNumberCounters==='object'){docNumberCounters=data.docNumberCounters;}
           if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
           if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
@@ -9359,6 +9465,7 @@ function _closeTopmostBackLayer(){
   if(isOpen('syncModal')){ document.getElementById('syncModal').style.display='none'; return true; }
   if(isOpen('pinModal')){ document.getElementById('pinModal').style.display='none'; return true; }
   if(isOpen('exportModal')){ document.getElementById('exportModal').style.display='none'; return true; }
+  if(isOpen('onboardingModal')){ document.getElementById('onboardingModal').style.display='none'; return true; }
 
   // 2) شاشات تفاصيل داخل التابات — حسب التاب الحالي بس
   if(currentTab==='clients' && clientDetailId!=null){ clientDetailId=null; showClientNoteForm=false; renderClients(); return true; }
