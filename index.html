@@ -2513,6 +2513,19 @@ function resetTabOrder(){
 // ============================================================
 let syncEnabled = DB.get('_syncEnabled') || false;
 let syncCode = DB.get('_syncCode') || '';
+// ===== حالة نظام المزامنة الجديد (مستند مستقل لكل سجل بدل مستند واحد ضخم) =====
+// __syncPushReady: هيبقى true بس بعد ما نخلص أول تحميل من السيرفر لكل الكولكشنز - قبل
+// كده أي محاولة رفع بترجع فورًا من غير ما تكتب حاجة، عشان منبعتش نسخة ناقصة أو نستبدل
+// حاجة السيرفر بالغلط قبل ما نشوفها الأول.
+let __syncPushReady = false;
+// __syncPushedSnapshot[key]: Map من id السجل لآخر نسخة (JSON) اتبعتت/اتستلمت بنجاح -
+// بنقارن بيها عشان نعرف السجلات اللي "اتغيّرت فعليًا" بس، ومنعيدش نبعت اللي متغيرش.
+let __syncPushedSnapshot = {};
+// __syncPushedDeletions[key]: Set من الـ ids اللي اتمسح مستندها على السيرفر بالفعل -
+// عشان منعيدش نبعت أمر حذف لنفس السجل تاني في كل مرة (كان هيفضل موجود في deletedIds المحلي للأبد).
+let __syncPushedDeletions = {};
+let __syncPushedMeta = null; // آخر نسخة (JSON) من بيانات المستند الأساسي (بروفايل الشركة والإعدادات) اتبعتت بنجاح
+let __syncSubListeners = []; // مراجع إلغاء الاشتراك (unsubscribe) لكل الاستماعات الحالية - عشان نقدر نقفلها لو الربط اتقفل
 let __deviceId = DB.get('_deviceId');
 if(!__deviceId){
   __deviceId = 'dev_' + Math.random().toString(36).slice(2,10);
@@ -2584,24 +2597,69 @@ async function _tryAutoRecover(key){
   }
 }
 
-// بيبعت "صورة" كاملة من البيانات الحالية للسيرفر في الخلفية، من غير ما ينتظر
-// أي رد أو يوقف حاجة لو فشل. المرحلة دي إرسال بس (push) - التطبيق لسه مش
-// بيقرا أو يستقبل حاجة من السيرفر، فمفيش أي احتمال إن بيانات جهاز تاني
-// "ترجع" وتغيّر حاجة عندك دلوقتي.
+// بينفذ مجموعة عمليات كتابة/حذف على Firestore على دفعات (batches) بحد أقصى
+// 450 عملية للدفعة الواحدة (الحد الفعلي لفايرستور 500 - سايبين هامش أمان)،
+// عشان لو عدد السجلات المتغيرة كبير (أول مزامنة لجهاز عنده بيانات قديمة كتير
+// مثلاً) الكتابة تعدي عادي من غير ما تتكسر بسبب تخطي الحد الأقصى للدفعة.
+function _commitSyncOps(ops){
+  if(!ops.length) return Promise.resolve();
+  const chunks=[];
+  for(let i=0;i<ops.length;i+=450) chunks.push(ops.slice(i,i+450));
+  let p=Promise.resolve();
+  chunks.forEach(chunk=>{
+    p=p.then(()=>{
+      const batch=__syncDB.batch();
+      chunk.forEach(op=>{ if(op.type==='delete') batch.delete(op.ref); else batch.set(op.ref, op.data); });
+      return batch.commit();
+    });
+  });
+  return p;
+}
+
+// بيبعت السجلات اللي اتغيّرت فعليًا بس (إضافة/تعديل) من آخر مرة اتزامنت بنجاح،
+// وبيمسح على السيرفر أي سجل اتسجل حذفه محليًا (عن طريق recordDeletion) ولسه
+// معملوش حذفه هناك. كل سجل بيتكتب في مستنده المستقل جوه الكولكشن الفرعي بتاعه
+// (workspaces/{syncCode}/{النوع}/{id}) - مش في مستند واحد ضخم فيه كل حاجة زي
+// قبل كده. الفايدة: جهازين يحفظوا سجلين مختلفين في نفس اللحظة تقريبًا من غير
+// ما أي واحد فيهم يمسح تعديل التاني بالغلط (كل سجل مستقل تمامًا عن الباقي).
 function pushSyncSnapshot(){
-  if(!syncEnabled || !syncCode || !__syncDB) return;
+  if(!syncEnabled || !syncCode || !__syncDB || !__syncPushReady) return;
   try{
-    __syncDB.collection('workspaces').doc(syncCode).set({
-      clients, invoices, payments, stock, movements, returns,
-      suppliers, purchases, supplierPayments, purchaseReturns,
-      expenses, treasuryOpening, repNotes, clientNotes,
-      checksPayable, checksReceivable, bankAccounts,
-      chartOfAccounts, journalEntries, productions, heldInvoices, heldPurchases,
-      companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
-      _updatedBy: __deviceId,
-      _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
-        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
-    }).catch(e=>{ console.warn('sync push failed (ignored):', e); });
+    const ops=[];
+    const map=getSyncArrayMap();
+    const wsRef=__syncDB.collection('workspaces').doc(syncCode);
+    SYNC_ARRAY_KEYS.forEach(key=>{
+      const arr=map[key]||[];
+      const cache=__syncPushedSnapshot[key] || (__syncPushedSnapshot[key]=new Map());
+      arr.forEach(item=>{
+        if(!item || !item.id) return;
+        const json=JSON.stringify(item);
+        if(cache.get(item.id)===json) return; // زي ما هو على السيرفر بالظبط - مفيش داعي نكتبه تاني
+        ops.push({ref:wsRef.collection(key).doc(String(item.id)), type:'set', data:item});
+        cache.set(item.id, json);
+      });
+      const delSet=__syncPushedDeletions[key] || (__syncPushedDeletions[key]=new Set());
+      (deletedIds[key]||[]).forEach(id=>{
+        if(delSet.has(id)) return;
+        ops.push({ref:wsRef.collection(key).doc(String(id)), type:'delete'});
+        delSet.add(id);
+        cache.delete(id);
+      });
+    });
+    // بيانات صغيرة (بروفايل الشركة والإعدادات العامة) بتتحدث في المستند الأساسي نفسه
+    const metaJson=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+    if(__syncPushedMeta!==metaJson){
+      ops.push({ref:wsRef, type:'set', data:{
+        companyProfile, lowStockDefault, expiryAlertMonths, docNumberCounters,
+        _updatedBy: __deviceId,
+        _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+          ? firebase.firestore.FieldValue.serverTimestamp() : Date.now(),
+        _schemaVersion: 2
+      }});
+      __syncPushedMeta=metaJson;
+    }
+    if(!ops.length) return;
+    _commitSyncOps(ops).catch(e=>{ console.warn('sync push failed (ignored):', e); });
   }catch(e){ console.warn('sync push error (ignored):', e); }
 }
 
@@ -2660,19 +2718,141 @@ function applyRemoteSnapshot(remoteData){
 }
 
 let __syncListenerActive = false;
+// بيبدأ استماع لحظي مستقل لكل نوع سجل (كولكشن فرعي) على حدة، بدل استماع واحد
+// لمستند ضخم. أول "لقطة" (snapshot) من كل كولكشن هي نفسها بتمثل التحميل الأولي
+// (بديل القراءة اليدوية المنفصلة اللي كانت موجودة قبل كده) - بنستخدمها عشان
+// ندمج أي بيانات موجودة على السيرفر من جهاز تاني، ونجهز بيها كاش المقارنة اللي
+// pushSyncSnapshot محتاجه. أي "لقطة" بعد كده = تحديث حقيقي جديد وصل من جهاز تاني.
 function startSyncListener(){
   if(!syncEnabled || !syncCode || !__syncDB || __syncListenerActive) return;
   __syncListenerActive = true;
-  let firstSnapshot = true;
+  const wsRef = __syncDB.collection('workspaces').doc(syncCode);
+  const pendingKeys = new Set(SYNC_ARRAY_KEYS); // مفاتيح لسه مستنيين أول لقطة منها
+  const _finishInitialLoadIfReady = ()=>{
+    if(pendingKeys.size>0 || __syncPushReady) return;
+    __syncPushReady = true;
+    save();
+    if(!isUserActivelyTyping() && !isFormInProgress()) render();
+    pushSyncSnapshot(); // سجلات محلية مكانتش على السيرفر (جهاز بيدخل بربط لأول مرة) تتبعت دلوقتي
+  };
   try{
-    __syncDB.collection('workspaces').doc(syncCode).onSnapshot(doc=>{
-      if(!doc.exists) return;
-      const data = doc.data();
-      if(firstSnapshot){ firstSnapshot=false; return; } // أول قراءة = الحالة الحالية، مش "تحديث جديد"
-      if(data._updatedBy === __deviceId) return; // ده تحديث إحنا اللي بعتناه، مش من جهاز تاني
-      try{ applyRemoteSnapshot(data); }catch(e){ console.warn('auto-apply sync failed (ignored):', e); }
-    }, err=>{ console.warn('sync listen error (ignored):', err); });
-  }catch(e){ console.warn('sync listener setup failed (ignored):', e); }
+    SYNC_ARRAY_KEYS.forEach(key=>{
+      let firstSnapshotForKey = true;
+      const unsub = wsRef.collection(key).onSnapshot(snapshot=>{
+        const map = getSyncArrayMap();
+        const localById = new Map((map[key]||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+        const cache = __syncPushedSnapshot[key] || (__syncPushedSnapshot[key]=new Map());
+        const additions=[], updates=[], removedIds=[];
+        snapshot.docChanges().forEach(change=>{
+          if(!firstSnapshotForKey && change.doc.metadata.hasPendingWrites) return; // كتابتنا إحنا لسه معلقة، مش تحديث حقيقي من برا
+          if(change.type==='removed'){
+            cache.delete(change.doc.id);
+            if(!firstSnapshotForKey) removedIds.push(change.doc.id);
+            return;
+          }
+          const r = change.doc.data();
+          cache.set(change.doc.id, JSON.stringify(r));
+          const l = localById.get(r.id);
+          if(!l) additions.push(r);
+          else if(JSON.stringify(l)!==JSON.stringify(r)) updates.push(r);
+        });
+        if(additions.length||updates.length){
+          const add={}, upd={};
+          if(additions.length) add[key]=additions;
+          if(updates.length) upd[key]=updates;
+          applyIncomingChanges(add, upd);
+        }
+        removedIds.forEach(id=>{
+          const arr=getSyncArrayMap()[key];
+          const idx=(arr||[]).findIndex(x=>x&&x.id===id);
+          if(idx>-1) arr.splice(idx,1);
+        });
+        if(firstSnapshotForKey){
+          firstSnapshotForKey=false;
+          pendingKeys.delete(key);
+          _finishInitialLoadIfReady();
+        }else if(additions.length||updates.length||removedIds.length){
+          save();
+          if(!isUserActivelyTyping() && !isFormInProgress()) render();
+        }
+      }, err=>{
+        console.warn('sync listen error ('+key+', ignored):', err);
+        pendingKeys.delete(key);
+        _finishInitialLoadIfReady();
+      });
+      __syncSubListeners.push(unsub);
+    });
+    // استماع لتحديثات بروفايل الشركة والإعدادات العامة (المستند الأساسي الصغير)
+    let rootFirstSnapshot = true;
+    const unsubRoot = wsRef.onSnapshot(doc=>{
+      if(rootFirstSnapshot){
+        rootFirstSnapshot=false;
+        if(doc.exists){
+          const rd=doc.data();
+          if(rd.companyProfile) companyProfile=rd.companyProfile;
+          if(typeof rd.lowStockDefault!=='undefined') lowStockDefault=rd.lowStockDefault;
+          if(typeof rd.expiryAlertMonths!=='undefined') expiryAlertMonths=rd.expiryAlertMonths;
+          if(rd.docNumberCounters) docNumberCounters=rd.docNumberCounters;
+          __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+        }
+        return;
+      }
+      if(!doc.exists || doc.metadata.hasPendingWrites) return;
+      const rd=doc.data();
+      let changed=false;
+      if(rd.companyProfile && JSON.stringify(rd.companyProfile)!==JSON.stringify(companyProfile)){ companyProfile=rd.companyProfile; changed=true; }
+      if(typeof rd.lowStockDefault!=='undefined' && rd.lowStockDefault!==lowStockDefault){ lowStockDefault=rd.lowStockDefault; changed=true; }
+      if(typeof rd.expiryAlertMonths!=='undefined' && rd.expiryAlertMonths!==expiryAlertMonths){ expiryAlertMonths=rd.expiryAlertMonths; changed=true; }
+      if(rd.docNumberCounters && JSON.stringify(rd.docNumberCounters)!==JSON.stringify(docNumberCounters)){ docNumberCounters=rd.docNumberCounters; changed=true; }
+      if(changed){
+        __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+        save();
+        if(!isUserActivelyTyping() && !isFormInProgress()) render();
+      }
+    }, err=>{ console.warn('sync root listen error (ignored):', err); });
+    __syncSubListeners.push(unsubRoot);
+  }catch(e){
+    console.warn('sync listener setup failed (ignored):', e);
+    __syncListenerActive = false; // نسمح بمحاولة تانية لاحقًا (مثلاً لما النت يرجع)
+  }
+}
+
+// مزامنة يدوية كاملة (زرار الطوارئ): بتقرا كل كولكشن فرعي بالكامل مرة واحدة
+// وتدمج أي حاجة جديدة/متغيّرة مش وصلت لسه عن طريق الاستماع اللحظي (مثلاً لو
+// الاستماع كان متقطع بسبب نت ضعيف). ما بتلمسش أي سجل مش موجود أصلاً في الرد -
+// الحذف بيتم بس عن طريق أحداث 'removed' من الاستماع اللحظي نفسه.
+async function _pullAllSyncData(){
+  const wsRef = __syncDB.collection('workspaces').doc(syncCode);
+  const additions={}, updates={};
+  let addCount=0, updCount=0;
+  for(const key of SYNC_ARRAY_KEYS){
+    const snap = await wsRef.collection(key).get();
+    const map = getSyncArrayMap();
+    const localById = new Map((map[key]||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+    const cache = __syncPushedSnapshot[key] || (__syncPushedSnapshot[key]=new Map());
+    const newItems=[], changedItems=[];
+    snap.forEach(doc=>{
+      const r = doc.data();
+      cache.set(doc.id, JSON.stringify(r));
+      const l = localById.get(r.id);
+      if(!l){ newItems.push(r); }
+      else if(JSON.stringify(l)!==JSON.stringify(r)){ changedItems.push(r); }
+    });
+    if(newItems.length){ additions[key]=newItems; addCount+=newItems.length; }
+    if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
+  }
+  if(addCount||updCount) applyIncomingChanges(additions,updates);
+  const rootDoc = await wsRef.get();
+  if(rootDoc.exists){
+    const rd=rootDoc.data();
+    if(rd.companyProfile) companyProfile=rd.companyProfile;
+    if(typeof rd.lowStockDefault!=='undefined') lowStockDefault=rd.lowStockDefault;
+    if(typeof rd.expiryAlertMonths!=='undefined') expiryAlertMonths=rd.expiryAlertMonths;
+    if(rd.docNumberCounters) docNumberCounters=rd.docNumberCounters;
+    __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+  }
+  if(addCount||updCount) save();
+  return {addCount,updCount,total:addCount+updCount};
 }
 
 // ============================================================
@@ -2800,11 +2980,11 @@ function receiveSyncUpdates(){
     showToast('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
     return;
   }
-  __syncDB.collection('workspaces').doc(syncCode).get().then(doc=>{
-    if(!doc.exists){ showToast('⚠️ مفيش بيانات متسجلة بالرمز ده لسه على السيرفر.'); return; }
-    const {addCount,updCount,total}=applyRemoteSnapshot(doc.data());
+  _pullAllSyncData().then(({addCount,updCount,total})=>{
     if(total===0){ showToast('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
     showToast('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
+    if(!isUserActivelyTyping() && !isFormInProgress()) render();
+    if(__syncPushReady) pushSyncSnapshot(); // لو عندنا محليًا حاجة جديدة لسه ما وصلتش السيرفر، ابعتها كمان
   }).catch(err=>{
     showToast('❌ حصلت مشكلة في استلام التحديثات:\n'+(err&&err.message?err.message:err));
   });
@@ -2856,6 +3036,15 @@ function disableSync(){
     syncCode='';
     DB.set('_syncEnabled',false);
     DB.set('_syncCode','');
+    // بنقفل كل الاستماعات الشغالة فعليًا (مكانت قبل كده بتفضل شغالة في الخلفية
+    // حتى بعد "إيقاف الربط" - إصلاح إضافي لازم مع التصميم الجديد)
+    __syncSubListeners.forEach(unsub=>{ try{ unsub(); }catch(e){} });
+    __syncSubListeners = [];
+    __syncListenerActive = false;
+    __syncPushReady = false;
+    __syncPushedSnapshot = {};
+    __syncPushedDeletions = {};
+    __syncPushedMeta = null;
     renderSyncModal();
   });
 }
@@ -2892,9 +3081,10 @@ function renderSyncModal(){
   }
 }
 
-// زرار تشخيص مباشر: بيبعت بياناتك الحقيقية فعليًا (نفس اللي pushSyncSnapshot
-// بيبعته) ويورّي النتيجة فورًا في رسالة، عشان نمسك أي مشكلة في شكل البيانات
-// نفسها (مش بس مشكلة اتصال عامة) من غير الحاجة لأدوات مطورين
+// زرار تشخيص مباشر: بيكتب قيمة صغيرة خفيفة على المستند الأساسي بس (مش كل
+// البيانات زي قبل كده - كتابة كل البيانات هنا كانت نفس مشكلة "المستند الضخم"
+// اللي بنصلحها في pushSyncSnapshot، ومكانتش داخلة في نظام مقارنة/تتبع التغيير
+// الجديد) - الهدف بس نتأكد إن الاتصال والصلاحيات شغالين، مش نرفع بيانات حقيقية.
 function testSyncConnection(){
   if(typeof firebase === 'undefined'){
     showToast('❌ مكتبة المزامنة معرفتش تتحمل من الإنترنت.\nتأكد إن عندك نت وجرب افتح التطبيق تاني.');
@@ -2910,15 +3100,9 @@ function testSyncConnection(){
   }
   try{
     __syncDB.collection('workspaces').doc(syncCode).set({
-      clients, invoices, payments, stock, movements, returns,
-      suppliers, purchases, supplierPayments, purchaseReturns,
-      expenses, treasuryOpening, repNotes, clientNotes,
-      checksPayable, checksReceivable, bankAccounts,
-      chartOfAccounts, journalEntries, productions,
-      companyProfile, lowStockDefault, expiryAlertMonths, docNumberCounters,
-      _updatedBy: __deviceId,
-      _updatedAt: Date.now()
-    }).then(()=>{
+      _connectionTestBy: __deviceId,
+      _connectionTestAt: Date.now()
+    }, {merge:true}).then(()=>{
       showToast('✅ الاتصال شغال تمام دلوقتي');
     }).catch(err=>{
       showToast('❌ فيه مشكلة في إرسال بياناتك الحقيقية:\n'+(err&&err.message?err.message:err));
