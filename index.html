@@ -52,6 +52,7 @@ input:focus,select:focus{outline:2px solid #2E86C1;}
 .card-head{background:#1A5276;color:#fff;padding:10px 14px;font-size:14px;font-weight:bold;display:flex;justify-content:space-between;align-items:center;}
 .card-head.green{background:#1E8449;}
 .card-head.orange{background:#D68910;}
+.card-head.purple{background:#7D3C98;}
 .card-body{padding:14px;}
 .summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
 .home-shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
@@ -1037,6 +1038,7 @@ async function _submitRemovePin(){
   const msg=document.getElementById('pinRemoveMsg');
   const ok = await verifyPin(cur);
   if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
+  if(hasWorkerPinSet()){ msg.style.color='#E74C3C'; msg.textContent='⚠️ متقدرش تلغي قفل الـ PIN دلوقتي — "وضع العامل" لسه مفعّل، ولو لغيت القفل الرئيسي هتتقفل برا وضع المالك أول ما تدخل وضع العامل تاني. الغي وضع العامل الأول من زرار 👤، وبعدين ارجع الغي قفل الـ PIN.'; return; }
   DB.set('_pinHash', null);
   DB.set('_pinQ', null);
   DB.set('_pinA', null);
@@ -1167,6 +1169,15 @@ async function _submitWorkerHandoverUnlock(){
 // الرجوع لوضع المالك — محتاج PIN المالك العادي (نفس _pinHash فوق)
 function requestReturnToOwner(){
   if(currentRole!=='worker') return;
+  if(!hasPinSet()){
+    // مفيش قفل PIN رئيسي مفعّل حاليًا (اتلغى بعد ما وضع العامل كان اتفعّل) —
+    // مفيش داعي نطلب PIN مش موجود أصلاً، ده كان بيسبب قفل تام بلا أي حل.
+    currentRole='owner'; DB.set('_currentRole','owner');
+    _applyRoleUI();
+    switchTab('home');
+    showToast('🔓 رجعت لوضع المالك (مفيش قفل PIN رئيسي مفعّل حاليًا)');
+    return;
+  }
   showOwnerReturnScreen();
 }
 function showOwnerReturnScreen(){
@@ -1825,7 +1836,7 @@ function buildProductLedger(productId, ledgerCache, visiting){
   productions.forEach(op=>{
     if(op.outputProductId===productId){
       const addedQty=Number(op.outputQty)||0;
-      if(addedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'productionIn', qty:addedQty, op});
+      if(addedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'productionIn', qty:addedQty, op, sourceType:'production', sourceId:op.id});
     }
     (op.inputs||[]).forEach(inp=>{
       if(inp.productId!==productId) return;
@@ -1854,7 +1865,7 @@ function buildProductLedger(productId, ledgerCache, visiting){
       if(l.productId!==productId) return;
       const qty=Number(l.qty)||0;
       if(qty<=0) return;
-      events.push({sortKey:(ret.date||'')+'|'+(ret.createdAt||''), kind:'out', qty});
+      events.push({sortKey:(ret.date||'')+'|'+(ret.createdAt||''), kind:'out', qty, date:ret.date, sourceType:'purReturn', sourceId:ret.id, lineRef:l});
     });
   });
 
@@ -1918,7 +1929,7 @@ function productAvgCost(productId, ledgerCache){
 // وbyInvoice/byReturn (إجمالي لكل فاتورة/مرتجع) — أي تقرير أو قيد محتاج "تكلفة وقت البيع الصح" بيستخدم الخرائط دي بدل ما يعيد الحساب بنفسه
 function buildCogsMaps(){
   const cache=new Map();
-  const byLine=new Map(), byInvoice=new Map(), byReturn=new Map();
+  const byLine=new Map(), byInvoice=new Map(), byReturn=new Map(), byPurReturn=new Map(), byProduction=new Map();
   stock.forEach(p=>{
     const ledger=buildProductLedger(p.id, cache, new Set());
     ledger.forEach(step=>{
@@ -1926,14 +1937,16 @@ function buildCogsMaps(){
       if(step.lineRef) byLine.set(step.lineRef, step.costAmount||0);
       if(step.sourceType==='invoice') byInvoice.set(step.sourceId,(byInvoice.get(step.sourceId)||0)+(step.costAmount||0));
       if(step.sourceType==='return') byReturn.set(step.sourceId,(byReturn.get(step.sourceId)||0)+(step.costAmount||0));
+      if(step.sourceType==='purReturn') byPurReturn.set(step.sourceId,(byPurReturn.get(step.sourceId)||0)+(step.costAmount||0));
+      if(step.sourceType==='production') byProduction.set(step.sourceId, step.costAmount||0);
     });
   });
-  return {byLine, byInvoice, byReturn};
+  return {byLine, byInvoice, byReturn, byPurReturn, byProduction};
 }
 // إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات — كل فاتورة بمتوسط التكلفة الصحيح "وقتها هي" (مش وقت آخر مرة اتفتح فيها البرنامج)
 // بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، وكمان بعد أي حفظ فاتورة/مرتجع جديد، عشان أي تعديل أو إضافة تاريخية (زي تصحيح سعر شراء قديم) تتظبط تلقائيًا وترتّب أثرها بالتسلسل الزمني الصحيح
 function reconcileCogsJournals(){
-  const {byInvoice, byReturn}=buildCogsMaps();
+  const {byInvoice, byReturn, byPurReturn, byProduction}=buildCogsMaps();
   invoices.forEach(inv=>{
     removeJournalBySource('invoiceCogs',inv.id);
     const cogsTotal=byInvoice.get(inv.id)||0;
@@ -1945,6 +1958,31 @@ function reconcileCogsJournals(){
     const cogsTotal=byReturn.get(ret.id)||0;
     if(cogsTotal>0) postJournal('returnCogs',ret.id,ret.date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
       [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
+  });
+  // تسوية تكلفة مردود المشتريات: القيد الأصلي (purReturn) بيقفل "المخزون" بسعر المرتجع نفسه (عشان يفضل متطابق مع
+  // رصيد "الموردون")، فلو سعر المرتجع مختلف عن متوسط تكلفة الصنف الحقيقي وقتها، الفرق ده بيتسوّى هنا عشان "المخزون"
+  // في ميزان المراجعة يفضل مطابق لتقرير "قيمة المخزون" (نفس فكرة تكلفة البضاعة المباعة فوق، بس للمردود العكسي)
+  purchaseReturns.forEach(ret=>{
+    removeJournalBySource('purReturnCogsAdj',ret.id);
+    const avgCostTotal=byPurReturn.get(ret.id)||0;
+    const diff=avgCostTotal-(Number(ret.total)||0); // فرق بين القيمة بمتوسط التكلفة الحقيقي واللي اتقفل بيه فعلاً
+    if(Math.abs(diff)<0.01) return;
+    if(diff>0) postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+ret.number,
+      [{accountId:'cogs',debit:diff,credit:0},{accountId:'inventory',debit:0,credit:diff}]);
+    else postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+ret.number,
+      [{accountId:'inventory',debit:-diff,credit:0},{accountId:'cogs',debit:0,credit:-diff}]);
+  });
+  // تكلفة عمليات التصنيع: بتتحسب بمتوسط تكلفة كل خامة "وقت التصنيع نفسه" (مش دلوقتي) — لو اتسجلت عملية تصنيع بتاريخ
+  // قديم، أو اتصحّح سعر شراء خامة بعد التصنيع، القيد هنا بيتصحح تلقائيًا كل مرة زي بالظبط تكلفة البضاعة المباعة فوق
+  productions.forEach(op=>{
+    removeJournalBySource('production',op.id);
+    const totalCost=byProduction.get(op.id)||0;
+    if(totalCost<=0) return;
+    const extraCost=Number(op.extraCost)||0;
+    const rawCost=totalCost-extraCost;
+    const lines=[{accountId:'inventory',debit:totalCost,credit:0},{accountId:'inventory',debit:0,credit:rawCost}];
+    if(extraCost>0) lines.push({accountId:'opex',debit:0,credit:extraCost});
+    postJournal('production',op.id,op.date,'عملية تصنيع - '+(stock.find(s=>s.id===op.outputProductId)?.name||''),lines);
   });
 }
 // ترحيل قيود المرتجعات (مبيعات/مشتريات) الناقصة — بيشتغل كل مرة بس بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يأثر على القيود التاريخية الموجودة
@@ -1985,6 +2023,55 @@ function backfillCheckJournals(){
   checksReceivable.forEach(c=>postIfMissing(c,false));
   return changed;
 }
+// ترحيل/تصحيح قيد الرصيد الافتتاحي لعميل أو مورد — بيمسح القيد القديم (لو موجود) وبيسجله من جديد بالقيمة الحالية،
+// عشان يفضل مطابق تمامًا لرصيد افتتاحي العميل/المورد ده أي وقت يتضاف لأول مرة أو يتعدّل بعدين (نفس أسلوب رصيد افتتاحي المخزون بالظبط)
+function postOpeningBalanceJournal(kind,item){
+  const isClient=kind==='client';
+  const sourceId=(isClient?'client-opening-':'supplier-opening-')+item.id;
+  removeJournalBySource('opening',sourceId);
+  const amt=Number(item.opening)||0;
+  if(!amt) return;
+  const date=item.openingDate||today();
+  const desc='رصيد افتتاحي - '+item.name;
+  if(isClient){
+    postJournal('opening',sourceId,date,desc,
+      amt>=0 ? [{accountId:'ar',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+             : [{accountId:'equity',debit:-amt,credit:0},{accountId:'ar',debit:0,credit:-amt}]);
+  } else {
+    postJournal('opening',sourceId,date,desc,
+      amt>=0 ? [{accountId:'equity',debit:amt,credit:0},{accountId:'ap',debit:0,credit:amt}]
+             : [{accountId:'ap',debit:-amt,credit:0},{accountId:'equity',debit:0,credit:-amt}]);
+  }
+}
+// نفس الفكرة بالظبط لرصيد افتتاحي الخزنة
+function postTreasuryOpeningJournal(){
+  removeJournalBySource('opening','treasury-opening');
+  const amt=Number(treasuryOpening)||0;
+  if(!amt) return;
+  postJournal('opening','treasury-opening',today(),'رصيد افتتاحي - الخزنة',
+    amt>=0 ? [{accountId:'cash',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+           : [{accountId:'equity',debit:-amt,credit:0},{accountId:'cash',debit:0,credit:-amt}]);
+}
+// إصلاح رجعي لعملاء شغالين بالبرنامج بالفعل: عميل/مورد اتضاف برصيد افتتاحي أو اتعدّل رصيده الافتتاحي من قبل ما الترحيل
+// ده يتضاف (سهو كان موجود في addClient/addSupplier/saveOpeningBalance/saveTreasuryOpening) هيبقى قيده ناقص —
+// بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يلمس قيود صحيحة أصلاً (نفس أسلوب backfillReturnJournals بالظبط)
+function backfillOpeningBalanceJournals(){
+  let changed=false;
+  clients.forEach(c=>{
+    if(!journalEntries.some(j=>j.sourceType==='opening'&&j.sourceId==='client-opening-'+c.id)){
+      postOpeningBalanceJournal('client',c); changed=true;
+    }
+  });
+  suppliers.forEach(s=>{
+    if(!journalEntries.some(j=>j.sourceType==='opening'&&j.sourceId==='supplier-opening-'+s.id)){
+      postOpeningBalanceJournal('supplier',s); changed=true;
+    }
+  });
+  if(Number(treasuryOpening) && !journalEntries.some(j=>j.sourceType==='opening'&&j.sourceId==='treasury-opening')){
+    postTreasuryOpeningJournal(); changed=true;
+  }
+  return changed;
+}
 // بيشتغل مرة واحدة بس (أول ما التحديث ده يوصل لأي جهاز فيه بيانات قديمة): بيجهز دليل الحسابات، وبيرحّل كل الأرصدة الافتتاحية وكل الفواتير/المشتريات/التحصيلات/السدادات/المصاريف الموجودة أصلاً لقيود يومية، عشان ميزان المراجعة يبقى صحيح من أول لحظة
 // ============================================================
 // تنظيف القيود اليومية "اليتيمة" القديمة — إصلاح رجعي (retroactive)
@@ -2019,7 +2106,7 @@ function cleanupOrphanJournals(){
       case 'payment': return paymentIds.has(j.sourceId);
       case 'return': case 'returnCogs': case 'returnRefund': return returnIds.has(j.sourceId);
       case 'purchase': return purchaseIds.has(j.sourceId);
-      case 'purReturn': case 'purReturnRefund': return purReturnIds.has(j.sourceId);
+      case 'purReturn': case 'purReturnRefund': case 'purReturnCogsAdj': return purReturnIds.has(j.sourceId);
       case 'supplierPayment': return supplierPaymentIds.has(j.sourceId);
       case 'check': return checkIds.has(j.sourceId);
       case 'stockOpening': return stockIds.has(j.sourceId);
@@ -2054,6 +2141,7 @@ function seedAccountingIfNeeded(){
     backfillReturnJournals();
     reconcileCogsJournals();
     backfillCheckJournals();
+    backfillOpeningBalanceJournals(); // إصلاح رجعي: عملاء/موردين/خزنة برصيد افتتاحي اتسجل قبل ما ترحيله للقيود يتضاف
     cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
     save();
     return;
@@ -3615,6 +3703,7 @@ function saveOpeningBalance(type, id){
   if(!item)return;
   item.opening = Number(document.getElementById('openingAmountInput').value||0);
   item.openingDate = document.getElementById('openingDateInput').value||today();
+  postOpeningBalanceJournal(type,item);
   save();
   document.getElementById('openingModal').remove();
   if(type==='client') renderClients(); else renderSuppliers();
@@ -4170,7 +4259,9 @@ function addClient(){
   const transType=document.getElementById('c_trans_type')?.value==='cash'?'cash':'agl';
   if(!name){showToast('أدخل اسم العميل');return;}
   if(isDuplicateName(clients,name)){showToast('في عميل بنفس الاسم ده موجود بالفعل');return;}
-  clients.push({id:uid(),name,phone,area,opening,openingDate,transType,createdAt:today()});
+  const newClient={id:uid(),name,phone,area,opening,openingDate,transType,createdAt:today()};
+  clients.push(newClient);
+  postOpeningBalanceJournal('client',newClient);
   save();showClientForm=false;renderClients();
 }
 function deleteClient(id){
@@ -6412,11 +6503,7 @@ function saveProduction(){
     movements.push({id:uid(),productId:inp.productId,type:'out',qty:inp.qty,date,note:'مستهلك في تصنيع',productionId:op.id});
   });
   movements.push({id:uid(),productId:outputId,type:'in',qty:outputQty,date,note:'ناتج تصنيع',productionId:op.id,expiry});
-  const rawCost=inputs.reduce((s,inp)=>s+productAvgCost(inp.productId)*inp.qty,0);
-  const totalCost=rawCost+extraCost;
-  const lines=[{accountId:'inventory',debit:totalCost,credit:0},{accountId:'inventory',debit:0,credit:rawCost}];
-  if(extraCost>0) lines.push({accountId:'opex',debit:0,credit:extraCost}); // بيحوّل جزء من التكلفة المسجّلة كمصروف فترة (زي أجور التصنيع) لتكلفة داخل قيمة المنتج الناتج
-  postJournal('production', op.id, date, 'عملية تصنيع - '+(stock.find(s=>s.id===outputId)?.name||''), lines);
+  reconcileCogsJournals(); // بيرحّل قيد التصنيع ده بمتوسط تكلفة كل خامة "وقت التصنيع" الصحيح، بدل حساب تقريبي هنا كان ممكن يختلف عن التسوية
   save();
   showProductionForm=false;
   prodInputLines=[{id:uid(),productId:'',qty:''}];
@@ -7001,6 +7088,7 @@ function treasuryData(day){
 function saveTreasuryOpening(){
   const val=Number(document.getElementById('treasury_opening_input')?.value||0);
   treasuryOpening=val;
+  postTreasuryOpeningJournal();
   save();
   renderTreasury();
 }
@@ -7609,9 +7697,18 @@ async function printChecksPdf(subview){
 // كل ما تدخل تبويب التقارير من جديد (شوف switchTab). قيمتها null أو أحد الـ ids:
 // 'aging' | 'itemProfit' | 'clientProfit' | 'clientSummary' | 'supplierSummary' | 'stockValue'
 let reportsOpenSection=null;
-function accordionHeader(id,icon,title){
+// بوابة "التقارير المتقدمة": مقفولة افتراضيًا ومش متسجلة في أي تخزين، فبترجع مقفولة تلقائيًا في كل فتح جديد
+// للبرنامج — المفروض تفضل بعيدة عن عين أي حد عادي، ولو حد (صاحب المحل أو المحاسب) عايز يشوفها يدوس على زرار الإظهار
+let advReportsUnlocked=false;
+function toggleAdvReportsUnlocked(){
+  advReportsUnlocked=!advReportsUnlocked;
+  if(!advReportsUnlocked && ['trial','income','balance','ledger','cashflow'].includes(reportsOpenSection)) reportsOpenSection=null;
+  renderReports();
+  if(advReportsUnlocked) setTimeout(()=>document.getElementById('advReportsGate')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+}
+function accordionHeader(id,icon,title,colorClass){
   const open=reportsOpenSection===id;
-  return `<div class="card-head" onclick="toggleReportSection('${id}')" style="cursor:pointer">
+  return `<div class="card-head${colorClass?' '+colorClass:''}" onclick="toggleReportSection('${id}')" style="cursor:pointer">
     <span>${icon} ${title}</span>
     <span style="transition:transform .2s;transform:rotate(${open?'180deg':'0deg'});display:inline-block">▾</span>
   </div>`;
@@ -7640,12 +7737,6 @@ function renderReports(){
   const fromVal=document.getElementById('rep_from')?.value||defFrom;
   const toVal=document.getElementById('rep_to')?.value||defTo;
 
-  // ملحوظة: ملخص الأرقام العام (إجمالي/صافي المبيعات...إلخ) والتقارير المالية
-  // التانية (ميزان مراجعة/قائمة دخل/ميزانية عمومية/دفتر أستاذ/تدفقات نقدية)
-  // اتشالوا مؤقتًا من واجهة تبويب التقارير بناء على طلب، لحد ما يتم ضبطهم.
-  // الفانكشنز والحسابات بتاعتهم لسه موجودة كاملة في الكود تحت زي ما هي
-  // (renderTrialBalanceHtml, renderIncomeStatementHtml, renderBalanceSheetHtml,
-  // renderGeneralLedgerHtml, renderCashFlowHtml) وسهل ترجيعهم تاني في أي وقت.
   document.getElementById('tab-reports').innerHTML=`
     <div style="padding:14px">
       <div class="page-title" style="margin-bottom:14px">📊 التقارير</div>
@@ -7664,6 +7755,7 @@ function renderReports(){
         ${accordionHeader('stockValue','📦','قيمة المخزون')}
         ${reportsOpenSection==='stockValue'?'<div class="card-body" id="reportsStockValueBox"></div>':''}
       </div>
+      ${renderAdvancedReportsBlock(fromVal,toVal)}
     </div>`;
   if(reportsOpenSection==='stockValue') renderStockValueReport();
 }
@@ -8076,6 +8168,38 @@ function renderBalanceSheetHtml(){
       ${Math.abs(totalAssets-totalLiabEquity)<0.01?'✓ الميزانية متوازنة (الأصول = الخصوم + حقوق الملكية)':'⚠ في فرق — يُرجى المراجعة'}
     </div>`;
 }
+
+// مجموعة "التقارير المتقدمة" — نفس التقارير المالية الحقيقية اللي فوق (ميزان مراجعة/قائمة دخل/
+// ميزانية عمومية/دفتر أستاذ/تدفقات نقدية)، بس متجمعين في الآخر تحت عنوان خاص ولون هيدر مختلف (بنفسجي)
+// عشان يتفرقوا بصريًا عن باقي تقارير النشاط اللي فوقهم. نفس نظام الأكورديون بالظبط (toggleReportSection).
+function renderAdvancedReportsBlock(fromVal,toVal){
+  if(!advReportsUnlocked){
+    return `
+    <div class="card" id="advReportsGate" style="margin-top:14px;text-align:center;padding:16px 14px">
+      <div style="font-size:13px;color:#7D3C98;font-weight:bold;margin-bottom:4px">📊 تقارير محاسبية متقدمة</div>
+      <div style="font-size:11px;color:#909497;margin-bottom:12px">ميزان المراجعة، قائمة الدخل، الميزانية العمومية، دفتر الأستاذ، التدفقات النقدية — للمحاسب أو لو حابب تراجع حساباتك بالتفصيل</div>
+      <button class="btn-sm purple" onclick="toggleAdvReportsUnlocked()">👁️ إظهار التقارير المتقدمة</button>
+    </div>`;
+  }
+  const items=[
+    {id:'trial',icon:'⚖️',title:'ميزان المراجعة',render:()=>renderTrialBalanceHtml()},
+    {id:'income',icon:'📈',title:'قائمة الدخل',render:()=>renderIncomeStatementHtml()},
+    {id:'balance',icon:'🏛️',title:'الميزانية العمومية',render:()=>renderBalanceSheetHtml()},
+    {id:'ledger',icon:'📖',title:'دفتر الأستاذ العام',render:()=>renderGeneralLedgerHtml()},
+    {id:'cashflow',icon:'💧',title:'التدفقات النقدية',render:()=>renderCashFlowHtml(fromVal,toVal)},
+  ];
+  const cards=items.map(it=>`
+  <div class="card" id="repsec_${it.id}" style="margin-top:14px">
+    ${accordionHeader(it.id,it.icon,it.title,'purple')}
+    ${reportsOpenSection===it.id?`<div class="card-body">${it.render()}</div>`:''}
+  </div>`).join('');
+  return `
+  <div id="advReportsGate" class="page-title" style="margin:22px 0 4px;font-size:14px;color:#7D3C98;display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <span>📊 التقارير المتقدمة</span>
+    <span style="font-size:11px;color:#909497;cursor:pointer;font-weight:normal" onclick="toggleAdvReportsUnlocked()">🔽 إخفاء</span>
+  </div>
+  ${cards}`;
+}
 // ====================================================================
 function renderAgingReportBlock(){
   const open=reportsOpenSection==='aging';
@@ -8199,7 +8323,9 @@ function addSupplier(){
   if(!name){showToast('أدخل اسم المورد');return;}
   if(isDuplicateName(suppliers,name)){showToast('في مورد بنفس الاسم ده موجود بالفعل');return;}
   const transType=document.getElementById('sup_trans_type')?.value==='cash'?'cash':'agl';
-  suppliers.push({id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),transType,createdAt:today()});
+  const newSupplier={id:uid(),name,phone:document.getElementById('sup_phone')?.value||'',area:'',opening:Number(document.getElementById('sup_opening')?.value||0),openingDate:document.getElementById('sup_opening_date')?.value||today(),transType,createdAt:today()};
+  suppliers.push(newSupplier);
+  postOpeningBalanceJournal('supplier',newSupplier);
   save();showSupplierForm=false;renderSuppliers();
 }
 
@@ -8215,7 +8341,7 @@ function deleteSupplier(id){
     // نفس إصلاح حذف العميل: نمسح القيود اليومية المرتبطة بمشتريات/مردودات/مدفوعات المورد ده
     // قبل ما نمسح العناصر نفسها، عشان ميفضلش قيد يتيم يبوّظ ميزان المراجعة
     purIds.forEach(purId=>{ removeJournalBySource('purchase', purId); });
-    purRetIds.forEach(retId=>{ removeJournalBySource('purReturn', retId); removeJournalBySource('purReturnRefund', retId); });
+    purRetIds.forEach(retId=>{ removeJournalBySource('purReturn', retId); removeJournalBySource('purReturnRefund', retId); removeJournalBySource('purReturnCogsAdj', retId); });
     supPaymentIds.forEach(payId=>{ removeJournalBySource('supplierPayment', payId); });
     removeJournalBySource('opening', 'supplier-opening-'+id); // قيد الرصيد الافتتاحي بتاع المورد نفسه (لو كان له رصيد افتتاحي)
     purchases.filter(p=>p.supplierId===id).forEach(p=>recordDeletion('purchases',p.id));
@@ -9178,6 +9304,7 @@ function savePurRet(){
   purRetLines.forEach(l=>{
     if(l.productId) movements.push({id:uid(),productId:l.productId,type:'out',qty:Number(l.qty),date,note:'مردود مشتريات #'+retNum,purchaseReturnId:ret.id,expiry:l.expiry||''});
   });
+  reconcileCogsJournals(); // بيسوّي فرق تكلفة المردود ده (لو سعره اختلف عن متوسط تكلفة الصنف وقتها) عشان "المخزون" يفضل مطابق لتقرير "قيمة المخزون"
   // ميموري آخر سعر مردود مشتريات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
   purRetLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchaseReturnPriceDate || date>=p.lastPurchaseReturnPriceDate)){ p.lastPurchaseReturnPrice=Number(l.price); p.lastPurchaseReturnPriceDate=date; } } });
   save();
@@ -9195,6 +9322,7 @@ function deletePurRet(id){
     movements=movements.filter(m=>m.purchaseReturnId!==id);
     removeJournalBySource('purReturn',id);
     removeJournalBySource('purReturnRefund',id);
+    removeJournalBySource('purReturnCogsAdj',id);
     save();renderPurReturns();
   });
 }
