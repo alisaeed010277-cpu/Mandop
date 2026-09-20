@@ -921,7 +921,7 @@ function _checkPinInactivity(){
   const hiddenElapsed = __pinHiddenAt ? (now - __pinHiddenAt) : 0;
   if(idleElapsed >= PIN_INACTIVITY_MS || hiddenElapsed >= PIN_INACTIVITY_MS){
     __pinHiddenAt = null;
-    showPinLockScreen(()=>{});
+    showAppLockScreen(()=>{});
   }
 }
 
@@ -985,6 +985,82 @@ async function _submitPinUnlock(){
     msg.style.color='#FF6B6B'; msg.textContent='❌ الـ PIN غلط';
     if(inp){ inp.value=''; inp.focus(); }
   }
+}
+
+// ============================================================
+// قفل فتح البرنامج في الأوضاع المقيّدة (مندوب / عامل / الشخص 1)
+// المشكلة اللي كانت موجودة: لما الجهاز يكون متسلَّم في وضع مقيّد، أي فتح للبرنامج
+// (بعد القفل أو بعد ٦ ساعات) كان بيطلب PIN المالك — يعني المندوب لازم يعرف PIN المالك
+// عشان يشتغل. دلوقتي: في الوضع المقيّد شاشة الفتح بتطلب PIN الوضع نفسه (اللي المالك
+// حطه من زرار 👤 الصلاحيات)، وPIN المالك بيفضل للرجوع لوضع المالك بس.
+// المالك نفسه (currentRole = owner): مفيش أي تغيير خالص، نفس شاشة القفل القديمة.
+// ============================================================
+const ROLE_OPEN_REQUIRES_OWN_PIN = true; // true = المقيّد بيفتح بـ PIN وضعه هو | false = بيفتح من غير أي PIN
+function showAppLockScreen(onUnlock){
+  if(!isRestrictedRole()){ showPinLockScreen(onUnlock); return; }
+  if(ROLE_OPEN_REQUIRES_OWN_PIN && _roleHasPin(currentRole)){ showRoleLockScreen(onUnlock); return; }
+  _resetPinInactivity();
+  if(onUnlock) onUnlock();
+}
+
+function showRoleLockScreen(onUnlock){
+  if(document.getElementById('pinLockScreen')) return;
+  const header=document.querySelector('.header');
+  const tabs=document.querySelector('.tabs');
+  const body=document.querySelector('.body');
+  const wm=document.querySelector('.watermark');
+  if(header) header.style.display='none';
+  if(tabs) tabs.style.display='none';
+  if(body) body.style.display='none';
+  if(wm) wm.style.display='none';
+
+  const el=document.createElement('div');
+  el.id='pinLockScreen'; // نفس id شاشة القفل العادية عشان كل حراسة الخمول الموجودة تفضل شغالة
+  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;-webkit-overflow-scrolling:touch;overflow-y:auto;`;
+  el.innerHTML=`
+    <div class="pls-icon" style="margin-bottom:16px;">🔒</div>
+    <div class="pls-title" style="font-weight:bold;margin-bottom:18px;">من فضلك أدخل PIN ${esc(roleLabel(currentRole))}</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="roleLockInput" maxlength="8" class="pls-input" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
+    <button onclick="_submitRoleUnlock()" class="pls-btn" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
+    <div id="roleLockMsg" class="pls-msg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="_roleLockToOwner()" class="pls-link" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">🔓 دخول المالك</button>
+  `;
+  document.body.appendChild(el);
+  __pinUnlockCallback = onUnlock || null;
+  setTimeout(()=>{
+    const inp=document.getElementById('roleLockInput');
+    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitRoleUnlock(); }); }
+  },50);
+}
+
+async function _submitRoleUnlock(){
+  const inp=document.getElementById('roleLockInput');
+  const val=(inp&&inp.value||'').trim();
+  const msg=document.getElementById('roleLockMsg');
+  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
+  const ok = await _roleVerifyPin(currentRole, val);
+  if(ok){
+    const el=document.getElementById('pinLockScreen'); if(el) el.remove();
+    _restorePinScreenChrome();
+    _resetPinInactivity();
+    const cb=__pinUnlockCallback; __pinUnlockCallback=null;
+    if(cb) cb();
+  } else {
+    msg.style.color='#FF6B6B'; msg.textContent='❌ الـ PIN غلط';
+    if(inp){ inp.value=''; inp.focus(); }
+  }
+}
+
+// مخرج الطوارئ: لو المندوب نسي PIN وضعه، المالك يدخل بـ PIN المالك ويرجع لوضعه (ومن هناك يغيّر PIN المندوب)
+function _roleLockToOwner(){
+  const cb=__pinUnlockCallback; __pinUnlockCallback=null;
+  const el=document.getElementById('pinLockScreen'); if(el) el.remove();
+  showPinLockScreen(()=>{
+    currentRole='owner'; DB.set('_currentRole','owner');
+    _applyRoleUI();
+    switchTab('home');
+    if(cb) cb();
+  });
 }
 
 function _openForgotPin(){
@@ -9787,7 +9863,7 @@ function initActivation(){
     }
     _startPinInactivityWatch();
     };
-    if(hasPinSet()){ showPinLockScreen(_afterPinOk); } else { _afterPinOk();
+    if(hasPinSet()){ showAppLockScreen(_afterPinOk); } else { _afterPinOk();
     }
     return;
   }
@@ -9810,7 +9886,7 @@ function initActivation(){
         }
         _startPinInactivityWatch();
       };
-      if(hasPinSet()){ showPinLockScreen(_afterPinOkTrial); } else { _afterPinOkTrial(); }
+      if(hasPinSet()){ showAppLockScreen(_afterPinOkTrial); } else { _afterPinOkTrial(); }
       return;
     }
     // التجربة خلصت
