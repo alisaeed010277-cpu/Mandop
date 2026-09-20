@@ -805,8 +805,59 @@ async function _setP1PinHash(pin){ DB.set('_p1PinHash', await _sha256Hex('p1pin:
 async function verifyP1Pin(pin){ const stored=DB.get('_p1PinHash'); if(!stored) return false; return (await _sha256Hex('p1pin::'+pin))===stored; }
 function isRestrictedRole(){ return currentRole==='worker' || currentRole==='p1'; }
 // التبويبات المسموحة لكل دور مقيّد (العامل: الفواتير بس زي ما كان بالظبط)
-const ROLE_TABS={ worker:['invoices'], p1:['invoices','payments','returns','expenses'] };
-function roleAllowedTabs(){ return ROLE_TABS[currentRole]||[]; }
+// ===== صلاحيات كل شخص — صاحب النشاط بيظبطها بنفسه من زرار 👤 الصلاحيات =====
+// بتتخزن في companyProfile.rolePerms (حقل اختياري). لو مفيش إعداد محفوظ بترجع الافتراضي، واللي هو نفس السلوك
+// الحالي بالظبط (العامل: المبيعات بس • الشخص 1: 4 شاشات) — فمفيش عميل قديم بيتأثر.
+//   tabs  : الشاشات المسموحة
+//   scope : own = يشوف اللي سجّله هو بس | all = كل السجلات
+//   del   : own = يعدّل/يحذف اللي سجّله هو بس | all = أي سجل يشوفه | none = ممنوع
+const ROLE_PERM_DEFAULTS={
+  worker:{tabs:['invoices'], scope:'own', del:'own'},
+  p1:{tabs:['invoices','payments','returns','expenses'], scope:'own', del:'own'}
+};
+// [id في الإعدادات, التبويب الفعلي، أيقونة، اسم] — "ملخص العملاء" بيفتح شاشة التقارير بس في نسخة مقيّدة (الجدول فقط)
+const ROLE_TAB_OPTIONS=[
+  ['invoices','invoices','🧾','المبيعات'],
+  ['payments','payments','💰','التحصيل من العملاء'],
+  ['returns','returns','↩️','مردود مبيعات'],
+  ['expenses','expenses','💸','المصروفات'],
+  ['clientSummary','reports','👥','ملخص العملاء']
+];
+function rolePerms(role){
+  const d=ROLE_PERM_DEFAULTS[role]; if(!d) return null;
+  let saved=null;
+  try{ saved=companyProfile&&companyProfile.rolePerms&&companyProfile.rolePerms[role]; }catch(e){}
+  let tabs=d.tabs;
+  if(saved && Array.isArray(saved.tabs)){
+    const valid=ROLE_TAB_OPTIONS.map(o=>o[0]).filter(id=>saved.tabs.includes(id)); // ترتيب ثابت
+    if(valid.length) tabs=valid;
+  }
+  return { tabs, scope:(saved&&saved.scope==='all')?'all':'own', del:(saved&&(saved.del==='all'||saved.del==='none'))?saved.del:'own' };
+}
+function roleAllowedTabs(){
+  if(!isRestrictedRole()) return [];
+  const p=rolePerms(currentRole);
+  return ROLE_TAB_OPTIONS.filter(o=>p.tabs.includes(o[0])).map(o=>o[1]);
+}
+// هل الدور الحالي يقدر يشوف السجل ده؟ (المالك دايمًا آه)
+function _rolePermField(f){ // قراءة سريعة لحقل واحد (بتتنادى على كل سجل في القوائم)
+  try{ return companyProfile.rolePerms[currentRole][f]; }catch(e){ return undefined; }
+}
+function roleCanSee(rec){
+  if(!isRestrictedRole()) return true;
+  if(_rolePermField('scope')==='all') return true;
+  return !!rec && rec.createdBy===currentRole;
+}
+// هل الدور الحالي يقدر يعدّل/يحذف السجل ده؟
+function roleCanModify(rec){
+  if(!isRestrictedRole()) return true;
+  const _d=_rolePermField('del');
+  const d=(_d==='all'||_d==='none')?_d:'own';
+  if(d==='none') return false;
+  if(!roleCanSee(rec)) return false;
+  if(d==='all') return true;
+  return !!rec && rec.createdBy===currentRole;
+}
 
 // الاسم الظاهر لكل دور — بيتخزن في companyProfile.roleLabels (حقل اختياري، مفيش أي حاجة قديمة بتتأثر بغيابه).
 // الأجهزة اللي كان وضع العامل مفعّل عليها قبل التحديث ده بيفضل اسمه "العامل" لحد ما صاحب النشاط يغيّره بنفسه،
@@ -1099,14 +1150,56 @@ async function _pinConflictMsg(role,pin){
   return '';
 }
 
+function _rolePermsSummary(role){
+  const p=rolePerms(role);
+  const names=ROLE_TAB_OPTIONS.filter(o=>p.tabs.includes(o[0])).map(o=>o[3]).join(' • ');
+  const sc=p.scope==='all'?'كل السجلات':'اللي سجّله هو بس';
+  const dl=p.del==='none'?'ممنوع':(p.del==='all'?'أي سجل يشوفه':'اللي سجّله هو بس');
+  return names+' — يشوف: '+sc+' — التعديل والحذف: '+dl;
+}
+function _rolePermsHtml(role){
+  const p=rolePerms(role);
+  const fld='border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;';
+  const boxes=ROLE_TAB_OPTIONS.map(o=>`<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;cursor:pointer"><input type="checkbox" id="rolePermTab_${role}_${o[0]}" ${p.tabs.includes(o[0])?'checked':''} style="width:18px;height:18px;margin-top:2px;flex-shrink:0"><span>${o[2]} ${o[3]}${o[0]==='clientSummary'?`<div style="color:#C0392B;font-size:11.5px">جدول للقراءة بس، وبيعرض أرقام المحل كله مش اللي سجّله الشخص بس</div>`:''}</span></label>`).join('');
+  return `<div style="background:#F8F9F9;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin:8px 0 12px">
+    <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:6px">الشاشات المسموحة</div>
+    ${boxes}
+    <div class="lbl" style="margin-top:10px">يشوف أي سجلات؟ (مبيعات / تحصيل / مردود / مصروفات)</div>
+    <select id="rolePermScope_${role}" style="${fld}">
+      <option value="own"${p.scope==='own'?' selected':''}>اللي سجّله هو بس</option>
+      <option value="all"${p.scope==='all'?' selected':''}>كل السجلات (حتى اللي سجلتها إنت)</option>
+    </select>
+    <div class="lbl" style="margin-top:10px">التعديل والحذف</div>
+    <select id="rolePermDel_${role}" style="${fld}">
+      <option value="own"${p.del==='own'?' selected':''}>اللي سجّله هو بس</option>
+      <option value="all"${p.del==='all'?' selected':''}>أي سجل يشوفه (حتى سجلاتك إنت)</option>
+      <option value="none"${p.del==='none'?' selected':''}>ممنوع خالص</option>
+    </select>
+    <button class="btn blue" style="width:100%;margin-top:12px" onclick="_saveRolePerms('${role}')">حفظ الصلاحيات</button>
+    <div id="rolePermMsg_${role}" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
+  </div>`;
+}
+function _saveRolePerms(role){
+  const msg=document.getElementById('rolePermMsg_'+role);
+  if(!msg) return;
+  const tabs=ROLE_TAB_OPTIONS.map(o=>o[0]).filter(id=>{ const c=document.getElementById('rolePermTab_'+role+'_'+id); return c && c.checked; });
+  if(!tabs.length){ msg.style.color='#E74C3C'; msg.textContent='لازم تختار شاشة واحدة على الأقل'; return; }
+  const scope=((document.getElementById('rolePermScope_'+role)||{}).value==='all')?'all':'own';
+  const dv=(document.getElementById('rolePermDel_'+role)||{}).value;
+  const del=(dv==='all'||dv==='none')?dv:'own';
+  const rp={...((companyProfile&&companyProfile.rolePerms)||{})};
+  rp[role]={tabs,scope,del};
+  companyProfile={...companyProfile, rolePerms:rp};
+  idbSet(KEYS.companyProfile, companyProfile);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتحفظت صلاحيات '+roleLabel(role);
+  setTimeout(()=>renderWorkerPinModalContent(), 700);
+}
 function _roleBlockHtml(role){
   const has=_roleHasPin(role);
   const label=roleLabel(role);
   const fld='border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;';
   const pinFld=fld+'text-align:center;letter-spacing:4px';
-  const desc = role==='p1'
-    ? 'فاتورة مبيعات • تحصيل من العملاء • مردود مبيعات • مصروفات — وبيشوف بس اللي سجّله هو.'
-    : 'تسجيل فواتير بيع بس — وبيشوف بس الفواتير اللي سجّلها هو.';
+  const desc=_rolePermsSummary(role);
   const nameRow=`
     <div class="form-row">
       <div class="form-group" style="flex:2"><div class="lbl">اسم الوضع (سمّيه أي اسم يناسبك)</div><input type="text" id="roleLabel_${role}" maxlength="24" value="${esc(label)}" style="${fld}"></div>
@@ -1136,6 +1229,7 @@ function _roleBlockHtml(role){
     <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 وضع ${esc(label)} ${has?'✅ مفعّل':'— مش مفعّل'}</div>
     <div class="pm-desc" style="color:#717D7E;margin-bottom:10px">${desc}</div>
     ${nameRow}
+    ${_rolePermsHtml(role)}
     ${body}
     <div id="roleMsg_${role}" class="pm-msg" style="min-height:16px;margin:8px 0"></div>
   </div>`;
@@ -1321,8 +1415,8 @@ function _applyRoleUI(){
   if(isRestrictedRole()){
     if(ownerBar) ownerBar.style.display='none';
     if(workerBar) workerBar.style.display='flex';
-    // العامل مالوش شريط تبويبات خالص (شاشة الفواتير بس)، أما الشخص 1 فبيظهرله شريط بـ4 تبويبات بس
-    if(tabsBarEl) tabsBarEl.style.display = currentRole==='worker' ? 'none' : '';
+    // لو مسموحله شاشة واحدة بس (زي العامل افتراضيًا) مفيش شريط تبويبات، ولو أكتر بيظهرله شريط بالشاشات المسموحة بس
+    if(tabsBarEl) tabsBarEl.style.display = roleAllowedTabs().length>1 ? '' : 'none';
     if(exportReminder) exportReminder.style.display='none';
   } else {
     if(ownerBar) ownerBar.style.display='';
@@ -2578,12 +2672,12 @@ let tabOrder=sanitizeTabOrder(DB.get('_tabOrder'));
 function renderTabsBar(){
   const bar=document.getElementById('tabsBar');
   if(!bar)return;
-  if(currentRole==='p1'){
-    // الشخص 1: شريط ثابت بالتبويبات المسموحة ليه بس، من غير "المزيد"
-    bar.innerHTML=ROLE_TABS.p1.map(id=>{
-      const t=TAB_DEFS.find(d=>d.id===id);
-      if(!t)return '';
-      return `<button class="tab${id===currentTab?' active':''}" data-tab="${id}" onclick="switchTab('${id}')">${t.icon} ${t.label}</button>`;
+  if(isRestrictedRole()){
+    // دور مقيّد: شريط ثابت بالشاشات المسموحة ليه بس، من غير "المزيد"
+    const _p=rolePerms(currentRole);
+    bar.innerHTML=ROLE_TAB_OPTIONS.filter(o=>_p.tabs.includes(o[0])).map(o=>{
+      const t=o[0]==='clientSummary'?null:TAB_DEFS.find(d=>d.id===o[1]);
+      return `<button class="tab${o[1]===currentTab?' active':''}" data-tab="${o[1]}" onclick="switchTab('${o[1]}')">${t?t.icon:o[2]} ${t?t.label:o[3]}</button>`;
     }).join('');
     updateTabsFadeHint();
     return;
@@ -4149,15 +4243,17 @@ function renderHome(){
 }
 
 // ملخص العملاء بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
-function renderClientSummaryReportBlock(){
-  if(!clients.length) return '';
-  const open=reportsOpenSection==='clientSummary';
-  const header=accordionHeader('clientSummary','👥','ملخص العملاء');
+function renderClientSummaryReportBlock(readOnly){
+  // readOnly=true: نسخة الأدوار المقيّدة — الجدول بس: مفتوح دايمًا، من غير فتح صفحة العميل ومن غير زرار الـ PDF
+  const ro=!!readOnly;
+  if(!clients.length) return ro ? '<div class="card" style="margin-top:14px"><div class="card-body" style="text-align:center;color:#717D7E">مفيش عملاء لسه</div></div>' : '';
+  const open=ro ? true : reportsOpenSection==='clientSummary';
+  const header=ro ? '<div class="card-head">👥 ملخص العملاء</div>' : accordionHeader('clientSummary','👥','ملخص العملاء');
   if(!open) return `<div class="card" id="repsec_clientSummary" style="margin-top:14px">${header}</div>`;
   const {rows:summaryRows,totals}=clientSummaryData(repClientsFromDate,repClientsToDate);
   const clientRows=summaryRows.map(({client:c,opening,sales,ret,paid,bal})=>{
     const balColor=bal>0?'#C0392B':bal<0?'#1E8449':'#717D7E';
-    return `<tr onclick="clientDetailId='${c.id}';switchTab('clients')" style="cursor:pointer">
+    return `<tr${ro?'':` onclick="clientDetailId='${c.id}';switchTab('clients')" style="cursor:pointer"`}>
       <td style="font-weight:bold">${esc(c.name)}</td>
       <td style="text-align:center;color:#D68910">${opening>0?fmt(opening):(opening<0?'-'+fmt(Math.abs(opening)):'—')}</td>
       <td style="text-align:center;color:#1A5276">${sales>0?fmt(sales):'—'}</td>
@@ -4184,7 +4280,7 @@ function renderClientSummaryReportBlock(){
         </div>
         <div class="btn-row">
           ${(repClientsFromDate||repClientsToDate)?`<button class="btn-outline" onclick="repClientsFromDate='';repClientsToDate='';renderReports()">✖ إلغاء الفلتر</button>`:''}
-          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf(repClientsFromDate,repClientsToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص العملاء</button>
+          ${ro?'':`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf(repClientsFromDate,repClientsToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF لملخص العملاء</button>`}
         </div>
       </div>
       <div class="tbl-wrap">
@@ -5008,7 +5104,7 @@ function openReturnFromClient(retId,clientId){
 function renderReturnDetail(){
   const ret=returns.find(r=>r.id===retDetailId);
   if(!ret){retDetailId=null;renderReturns();return;}
-  if(isRestrictedRole() && ret.createdBy!==currentRole){retDetailId=null;renderReturns();return;}
+  if(isRestrictedRole() && !roleCanSee(ret)){retDetailId=null;renderReturns();return;}
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
@@ -5091,7 +5187,7 @@ function goBackFromRetDetail(){
 function renderInvoices(){
   if(invDetailId){renderInvDetail();return;}
   // في وضع العامل: يشوف بس الفواتير اللي سجّلها هو (علامة createdBy)، مش كل فواتير المحل
-  const roleBase = isRestrictedRole() ? invoices.filter(inv=>inv.createdBy===currentRole) : invoices;
+  const roleBase = isRestrictedRole() ? invoices.filter(inv=>roleCanSee(inv)) : invoices;
   const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch);
@@ -5106,8 +5202,8 @@ function renderInvoices(){
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
-        <button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editInvoice('${inv.id}')">✏️</button>
-        <button class="btn-sm red" onclick="deleteInvoice('${inv.id}')" style="margin-right:4px">🗑</button>
+        ${roleCanModify(inv)?`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editInvoice('${inv.id}')">✏️</button>
+        <button class="btn-sm red" onclick="deleteInvoice('${inv.id}')" style="margin-right:4px">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -5266,7 +5362,7 @@ function renderInvoices(){
 function editInvoice(id){
   const inv=invoices.find(i=>i.id===id);
   if(!inv)return;
-  if(isRestrictedRole() && inv.createdBy!==currentRole)return;
+  if(isRestrictedRole() && !roleCanModify(inv))return;
   _autoHoldInvoiceIfOpen();
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
@@ -5454,7 +5550,7 @@ function _saveInvoiceCore(clientId, date, isCash){
 
 function deleteInvoice(id){
   const invToDelete=invoices.find(i=>i.id===id);
-  if(isRestrictedRole() && (!invToDelete||invToDelete.createdBy!==currentRole))return;
+  if(isRestrictedRole() && (!invToDelete||!roleCanModify(invToDelete)))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
     // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
@@ -5647,7 +5743,7 @@ async function printInvoicesSummaryPdf(from,to){
 function renderInvDetail(){
   const inv=invoices.find(i=>i.id===invDetailId);
   if(!inv){invDetailId=null;renderInvoices();return;}
-  if(isRestrictedRole() && inv.createdBy!==currentRole){invDetailId=null;renderInvoices();return;}
+  if(isRestrictedRole() && !roleCanSee(inv)){invDetailId=null;renderInvoices();return;}
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
@@ -5676,7 +5772,7 @@ function renderInvDetail(){
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printInvoice('${inv.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
-          <button class="btn orange" onclick="editInvoice('${inv.id}')">✏️ تعديل</button>
+          ${roleCanModify(inv)?`<button class="btn orange" onclick="editInvoice('${inv.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
     </div>`;
@@ -5711,7 +5807,7 @@ async function printCollectionsSummaryPdf(from,to){
 
 function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
-  const sorted=[...payments].filter(p=>(!isRestrictedRole()||p.createdBy===currentRole)&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const sorted=[...payments].filter(p=>(!isRestrictedRole()||roleCanSee(p))&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
   const clientOptsArr=debtors.map(c=>({id:c.id,label:c.name,sub:`مستحق: ${fmt(clientBalance(c.id))} ج`}));
@@ -5721,7 +5817,7 @@ function renderPayments(){
       <td style="white-space:nowrap">${esc(c?.name||'—')}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
-        <button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>
+        ${roleCanModify(p)?`<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -5799,7 +5895,7 @@ async function printPaymentReceipt(pid){
 function renderPaymentDetail(){
   const p=payments.find(p=>p.id===payDetailId);
   if(!p){payDetailId=null;renderPayments();return;}
-  if(isRestrictedRole() && p.createdBy!==currentRole){payDetailId=null;renderPayments();return;}
+  if(isRestrictedRole() && !roleCanSee(p)){payDetailId=null;renderPayments();return;}
   const c=clients.find(c=>c.id===p.clientId);
   const inv=p.invoiceId?invoices.find(i=>i.id===p.invoiceId):null;
   document.getElementById('tab-payments').innerHTML=`
@@ -5823,7 +5919,7 @@ function renderPaymentDetail(){
 }
 
 function deletePayment(id){
-  if(isRestrictedRole()){ const _pp=payments.find(p=>p.id===id); if(!_pp||_pp.createdBy!==currentRole) return; }
+  if(isRestrictedRole()){ const _pp=payments.find(p=>p.id===id); if(!_pp||!roleCanModify(_pp)) return; }
   showConfirm('هتحذف عملية السداد دي؟', function(){
     recordDeletion('payments',id);
     payments=payments.filter(p=>p.id!==id);
@@ -5870,7 +5966,7 @@ let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل 
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
-  const sorted=[...returns].filter(r=>(!isRestrictedRole()||r.createdBy===currentRole)&&(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const sorted=[...returns].filter(r=>(!isRestrictedRole()||roleCanSee(r))&&(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const retPeriodTotal=sorted.reduce((s,r)=>s+r.total,0);
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   const rows=sorted.map(r=>{
@@ -5880,7 +5976,7 @@ function renderReturns(){
       <td style="font-weight:bold;color:#1E8449;white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
-        <button class="btn-sm red" onclick="deleteReturn('${r.id}')" style="margin-right:4px">🗑</button>
+        ${roleCanModify(r)?`<button class="btn-sm red" onclick="deleteReturn('${r.id}')" style="margin-right:4px">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -6115,7 +6211,7 @@ function saveReturn(){
 }
 
 function deleteReturn(id){
-  if(isRestrictedRole()){ const _rr=returns.find(r=>r.id===id); if(!_rr||_rr.createdBy!==currentRole) return; }
+  if(isRestrictedRole()){ const _rr=returns.find(r=>r.id===id); if(!_rr||!roleCanModify(_rr)) return; }
   showConfirm('هتحذف المرتجع ده؟', function(){
     recordDeletion('returns',id);
     returns=returns.filter(r=>r.id!==id);
@@ -6996,7 +7092,7 @@ function renderExpenses(){
     toVal=document.getElementById('exp_to')?.value||defTo;
   }
 
-  const filtered=[...expenses].filter(e=>(!isRestrictedRole()||e.createdBy===currentRole)&&e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
+  const filtered=[...expenses].filter(e=>(!isRestrictedRole()||roleCanSee(e))&&e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
   const total=filtered.reduce((s,e)=>s+Number(e.amount),0);
 
   const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${expenseQuickFilter===key?'#1A5276':'#D5D8DC'};color:${expenseQuickFilter===key?'#fff':'#333'}" onclick="expenseQuickFilter='${key}';renderExpenses()">${label}</button>`;
@@ -7010,7 +7106,7 @@ function renderExpenses(){
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#C0392B">${fmt(e.amount)} ج</div></div>
       </div>
       <div class="list-item-actions">
-        <button class="btn-sm red" onclick="deleteExpense('${e.id}')">🗑 حذف</button>
+        ${roleCanModify(e)?`<button class="btn-sm red" onclick="deleteExpense('${e.id}')">🗑 حذف</button>`:''}
       </div>
     </div>`).join('');
 
@@ -7151,7 +7247,7 @@ function addExpense(){
 }
 
 function deleteExpense(id){
-  if(isRestrictedRole()){ const _ee=expenses.find(e=>e.id===id); if(!_ee||_ee.createdBy!==currentRole) return; }
+  if(isRestrictedRole()){ const _ee=expenses.find(e=>e.id===id); if(!_ee||!roleCanModify(_ee)) return; }
   showConfirm('متأكد من حذف المصروف ده؟', function(){
     recordDeletion('expenses',id);
     expenses=expenses.filter(e=>e.id!==id);
@@ -7848,6 +7944,14 @@ function goToReportSection(id){
   setTimeout(()=>document.getElementById('repsec_'+id)?.scrollIntoView({behavior:'smooth',block:'center'}),50);
 }
 function renderReports(){
+  if(isRestrictedRole()){
+    // دور مقيّد: جدول ملخص العملاء بس (لو مسموحله)، مفيش أي قسم تاني من التقارير
+    const _el=document.getElementById('tab-reports');
+    if(_el) _el.innerHTML = rolePerms(currentRole).tabs.includes('clientSummary')
+      ? `<div style="padding:14px"><div class="page-title" style="margin-bottom:14px">👥 ملخص العملاء</div>${renderClientSummaryReportBlock(true)}</div>`
+      : '';
+    return;
+  }
   // تواريخ افتراضية: أول وآخر الشهر الحالي
   const now=new Date();
   const defFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
