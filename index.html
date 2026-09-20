@@ -1209,7 +1209,7 @@ function _saveRolePerms(role){
   const rp={...((companyProfile&&companyProfile.rolePerms)||{})};
   rp[role]={tabs,scope,del};
   companyProfile={...companyProfile, rolePerms:rp};
-  idbSet(KEYS.companyProfile, companyProfile);
+  persistCompanyProfile();
   msg.style.color='#27AE60'; msg.textContent='✅ اتحفظت صلاحيات '+roleLabel(role);
   setTimeout(()=>renderWorkerPinModalContent(), 700);
 }
@@ -1274,7 +1274,7 @@ function _saveRoleLabel(role){
   const labels={...((companyProfile&&companyProfile.roleLabels)||{})};
   if(v) labels[role]=v; else delete labels[role]; // اسم فاضي = رجوع للاسم الافتراضي
   companyProfile={...companyProfile, roleLabels:labels};
-  idbSet(KEYS.companyProfile, companyProfile);
+  persistCompanyProfile();
   msg.style.color='#27AE60'; msg.textContent='✅ اتحفظ الاسم';
   _updateHandoverBtnVisibility();
   setTimeout(()=>renderWorkerPinModalContent(), 700);
@@ -2845,7 +2845,9 @@ let __syncPushedSnapshot = {};
 // __syncPushedDeletions[key]: Set من الـ ids اللي اتمسح مستندها على السيرفر بالفعل -
 // عشان منعيدش نبعت أمر حذف لنفس السجل تاني في كل مرة (كان هيفضل موجود في deletedIds المحلي للأبد).
 let __syncPushedDeletions = {};
-let __syncPushedMeta = null; // آخر نسخة (JSON) من بيانات المستند الأساسي (بروفايل الشركة والإعدادات) اتبعتت بنجاح
+// آخر نسخة (JSON ثابت الترتيب) اتبعتت/اتستلمت لكل مجموعة من بيانات المستند الأساسي:
+// company (بروفايل الشركة) / settings (حدود التنبيه) / counters (عدّادات الترقيم) / treasury (رصيد الخزنة الافتتاحي)
+let __syncPushedMetaGroups = {};
 let __syncSubListeners = []; // مراجع إلغاء الاشتراك (unsubscribe) لكل الاستماعات الحالية - عشان نقدر نقفلها لو الربط اتقفل
 let __deviceId = DB.get('_deviceId');
 if(!__deviceId){
@@ -2930,11 +2932,104 @@ function _commitSyncOps(ops){
   chunks.forEach(chunk=>{
     p=p.then(()=>{
       const batch=__syncDB.batch();
-      chunk.forEach(op=>{ if(op.type==='delete') batch.delete(op.ref); else batch.set(op.ref, op.data); });
+      chunk.forEach(op=>{ if(op.type==='delete') batch.delete(op.ref); else if(op.opts) batch.set(op.ref, op.data, op.opts); else batch.set(op.ref, op.data); });
       return batch.commit();
     });
   });
   return p;
+}
+
+// ============================================================
+// بيانات المستند الأساسي المتزامنة (بروفايل الشركة، الإعدادات، عدّادات الترقيم، رصيد الخزنة الافتتاحي).
+// مبدأ مهم (زي أغلب البرامج المحاسبية الكبيرة): البيانات وإعدادات الشركة مشتركة بين كل الأجهزة المربوطة،
+// لكن "هوية الجهاز" فضلة محلية بالكامل ومش بتتزامن أبدًا: الدور الحالي (مالك/الشخص 1/العامل)، PIN المالك،
+// PIN كل شخص، سؤال الأمان، التفعيل، ترتيب التبويبات، ورمز/معرّف الربط نفسه. عشان كده جهاز اتسلّم لعامل
+// يفضل على وضع العامل بصلاحياته، وجهاز المالك يفضل مالك، مهما وصل من تحديثات.
+// (تعريف صلاحيات كل دور rolePerms وأسمائه roleLabels جزء من بروفايل الشركة فبيتزامن - صاحب النشاط
+// يظبطها مرة واحدة من جهازه وتتطبق على كل الأجهزة - لكن أي جهاز بيفضل على دوره الحالي.)
+// ============================================================
+function _stableJson(v){
+  // JSON بترتيب مفاتيح ثابت - فايرستور بيرجّع حقول الـ map بترتيب مختلف عن ترتيب الإدخال المحلي، فمقارنة
+  // JSON.stringify العادية كانت بتشوف اختلاف وهمي في نفس البيانات
+  if(v===undefined || v===null) return 'null';
+  if(Array.isArray(v)) return '['+v.map(_stableJson).join(',')+']';
+  if(typeof v==='object'){
+    return '{'+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+_stableJson(v[k])).join(',')+'}';
+  }
+  return JSON.stringify(v);
+}
+function _metaGroups(){
+  return {
+    company:{companyProfile},
+    settings:{lowStockDefault,expiryAlertMonths},
+    counters:{docNumberCounters},
+    treasury:{treasuryOpening:Number(treasuryOpening)||0}
+  };
+}
+// حفظ بروفايل الشركة محليًا + دفعه للمزامنة فورًا. (قبل كده الأماكن اللي بتعدّل بروفايل الشركة كانت بتحفظ
+// في IndexedDB بس من غير ما تنادي المزامنة، فالتعديل كان مش بيوصل للأجهزة التانية إلا لو حصل أي حفظ تاني
+// في البرنامج - وساعات ساعات ما بيحصلش.)
+function persistCompanyProfile(){
+  idbSet(KEYS.companyProfile, companyProfile);
+  try{ pushSyncSnapshot(); }catch(e){}
+}
+function _roleConfigSig(){
+  try{ return _stableJson([companyProfile.rolePerms||null, companyProfile.roleLabels||null]); }catch(e){ return ''; }
+}
+// بتطبّق بيانات المستند الأساسي الجاية من السيرفر على المتغيّرات المحلية، وبتظبط كاش "اللي على السيرفر"
+// لكل مجموعة عشان pushSyncSnapshot متبعتش حاجة لسه واصلة خلاص. بترجع true لو فيه حاجة اتغيّرت فعلًا محليًا.
+// مبتلمسش الدور الحالي (currentRole) ولا أي PIN - دول محليين في الجهاز بس.
+function _applyRootMeta(rd){
+  if(!rd) return false;
+  let changed=false;
+  const G=__syncPushedMetaGroups;
+  // بروفايل الشركة
+  if(rd.companyProfile && typeof rd.companyProfile==='object'){
+    if(_stableJson(rd.companyProfile)!==_stableJson(companyProfile)){ companyProfile=rd.companyProfile; changed=true; }
+    G.company=_stableJson({companyProfile});
+  }else{ G.company=null; }
+  // حدود التنبيه
+  const hasLow=typeof rd.lowStockDefault!=='undefined', hasExp=typeof rd.expiryAlertMonths!=='undefined';
+  if(hasLow && rd.lowStockDefault!==lowStockDefault){ lowStockDefault=rd.lowStockDefault; changed=true; }
+  if(hasExp && rd.expiryAlertMonths!==expiryAlertMonths){ expiryAlertMonths=rd.expiryAlertMonths; changed=true; }
+  G.settings=(hasLow&&hasExp)?_stableJson({lowStockDefault,expiryAlertMonths}):null;
+  // عدّادات الترقيم: بناخد الأكبر لكل نوع مستند (مبيرجعوش لورا أبدًا) - لو محلينا أعلى بيتبعت في أول حفظ جاي
+  if(rd.docNumberCounters && typeof rd.docNumberCounters==='object'){
+    const merged={...docNumberCounters};
+    Object.keys(rd.docNumberCounters).forEach(k=>{ merged[k]=Math.max(Number(merged[k])||0, Number(rd.docNumberCounters[k])||0); });
+    if(_stableJson(merged)!==_stableJson(docNumberCounters)){ docNumberCounters=merged; changed=true; }
+    G.counters=_stableJson({docNumberCounters:rd.docNumberCounters});
+  }else{ G.counters=null; }
+  // رصيد الخزنة الافتتاحي
+  if(typeof rd.treasuryOpening!=='undefined'){
+    const v=Number(rd.treasuryOpening)||0;
+    if(v!==(Number(treasuryOpening)||0)){ treasuryOpening=v; changed=true; }
+    G.treasury=_stableJson({treasuryOpening:v});
+  }else{
+    // مفيش قيمة على السيرفر (نسخة تطبيق أقدم كتبت المستند من غيرها): لو عندنا رصيد فعلي هيتبعت، لو صفر مفيش داعي
+    G.treasury=Number(treasuryOpening)?null:_stableJson({treasuryOpening:0});
+  }
+  return changed;
+}
+// تحديث أجزاء الشاشة اللي بتتأثر ببيانات الشركة/الإعدادات بعد ما توصل من جهاز تاني (شريط بيانات الشركة،
+// قايمة "المزيد" لتاب الكاشير، وأزرار/شاشات الدور الحالي لو تعريف الصلاحيات أو الأسماء اتغيّر) - كل ده من
+// غير أي تغيير في دور الجهاز نفسه. roleSigBefore=null معناها "اعتبره اتغيّر".
+function _refreshAfterMetaSync(roleSigBefore){
+  try{ renderCompanyBar(); }catch(e){}
+  try{ syncTabsBarStickyTop(); }catch(e){}
+  try{ renderMoreTabsList(); }catch(e){}
+  try{
+    if(roleSigBefore===null || roleSigBefore!==_roleConfigSig()){
+      if(isRestrictedRole()){
+        _applyRoleUI();
+        // لو المالك شال من صلاحيات الجهاز ده الشاشة المفتوحة دلوقتي، بنرجّعه لأول شاشة مسموحة (إلا لو في نص فورم)
+        const allowed=roleAllowedTabs();
+        if(allowed.length && !allowed.includes(currentTab) && !isFormInProgress()) switchTab(allowed[0]);
+      }else{
+        _updateHandoverBtnVisibility();
+      }
+    }
+  }catch(e){}
 }
 
 // بيبعت السجلات اللي اتغيّرت فعليًا بس (إضافة/تعديل) من آخر مرة اتزامنت بنجاح،
@@ -2967,17 +3062,29 @@ function pushSyncSnapshot(){
         cache.delete(id);
       });
     });
-    // بيانات صغيرة (بروفايل الشركة والإعدادات العامة) بتتحدث في المستند الأساسي نفسه
-    const metaJson=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
-    if(__syncPushedMeta!==metaJson){
-      ops.push({ref:wsRef, type:'set', data:{
-        companyProfile, lowStockDefault, expiryAlertMonths, docNumberCounters,
-        _updatedBy: __deviceId,
-        _updatedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
-          ? firebase.firestore.FieldValue.serverTimestamp() : Date.now(),
-        _schemaVersion: 2
-      }});
-      __syncPushedMeta=metaJson;
+    // بيانات صغيرة (بروفايل الشركة والإعدادات العامة ورصيد الخزنة الافتتاحي) بتتحدث في المستند الأساسي نفسه.
+    // كل مجموعة (company / settings / counters / treasury) بتتقارن وبتتبعت لوحدها، وبنستخدم mergeFields عشان
+    // الكتابة تستبدل الحقول اللي اتغيّرت بس - جهاز عدّل عدّاد الفواتير مثلاً مش هيرجّع بروفايل الشركة
+    // بنسخته هو (اللي ممكن تكون قديمة) فوق نسخة جهاز تاني حدّثها.
+    const metaGroups=_metaGroups();
+    const metaData={}, metaFields=[], metaChanged=[];
+    Object.keys(metaGroups).forEach(g=>{
+      const json=_stableJson(metaGroups[g]);
+      if(__syncPushedMetaGroups[g]===json) return;
+      // رصيد افتتاحي صفر ولسه مفيش حاجة اتستلمت/اتبعتت بخصوصه = مفيش داعي نكتب صفر على السيرفر
+      // (الغياب هناك معناه صفر)، ده بيمنع جهاز جديد يمسح رصيد جهاز تاني بالغلط.
+      if(g==='treasury' && __syncPushedMetaGroups[g]==null && !Number(treasuryOpening)){ __syncPushedMetaGroups[g]=json; return; }
+      Object.assign(metaData, metaGroups[g]);
+      Object.keys(metaGroups[g]).forEach(f=>metaFields.push(f));
+      metaChanged.push([g,json]);
+    });
+    if(metaChanged.length){
+      metaData._updatedBy=__deviceId;
+      metaData._updatedAt=(typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp() : Date.now();
+      metaData._schemaVersion=2;
+      ops.push({ref:wsRef, type:'set', data:metaData, opts:{mergeFields:[...metaFields,'_updatedBy','_updatedAt','_schemaVersion']}});
+      metaChanged.forEach(([g,json])=>{ __syncPushedMetaGroups[g]=json; });
     }
     if(!ops.length) return;
     _commitSyncOps(ops).catch(e=>{ console.warn('sync push failed (ignored):', e); });
@@ -3048,12 +3155,15 @@ function startSyncListener(){
   if(!syncEnabled || !syncCode || !__syncDB || __syncListenerActive) return;
   __syncListenerActive = true;
   const wsRef = __syncDB.collection('workspaces').doc(syncCode);
-  const pendingKeys = new Set(SYNC_ARRAY_KEYS); // مفاتيح لسه مستنيين أول لقطة منها
+  // مفاتيح لسه مستنيين أول لقطة منها (المستند الأساسي '__root' كمان جزء من الانتظار - عشان جهاز جديد متبعتش
+  // بروفايل شركة/إعدادات فاضية على السيرفر قبل ما يشوف اللي عليه الأول)
+  const pendingKeys = new Set([...SYNC_ARRAY_KEYS,'__root']);
   const _finishInitialLoadIfReady = ()=>{
     if(pendingKeys.size>0 || __syncPushReady) return;
     __syncPushReady = true;
     save();
     if(!isUserActivelyTyping() && !isFormInProgress()) render();
+    _refreshAfterMetaSync(null); // بيانات الشركة اللي وصلت في أول تحميل لازم تظهر فورًا في الشريط والقوايم
     pushSyncSnapshot(); // سجلات محلية مكانتش على السيرفر (جهاز بيدخل بربط لأول مرة) تتبعت دلوقتي
   };
   try{
@@ -3103,34 +3213,29 @@ function startSyncListener(){
       });
       __syncSubListeners.push(unsub);
     });
-    // استماع لتحديثات بروفايل الشركة والإعدادات العامة (المستند الأساسي الصغير)
+    // استماع لتحديثات بروفايل الشركة والإعدادات العامة ورصيد الخزنة الافتتاحي (المستند الأساسي الصغير)
     let rootFirstSnapshot = true;
     const unsubRoot = wsRef.onSnapshot(doc=>{
       if(rootFirstSnapshot){
         rootFirstSnapshot=false;
-        if(doc.exists){
-          const rd=doc.data();
-          if(rd.companyProfile) companyProfile=rd.companyProfile;
-          if(typeof rd.lowStockDefault!=='undefined') lowStockDefault=rd.lowStockDefault;
-          if(typeof rd.expiryAlertMonths!=='undefined') expiryAlertMonths=rd.expiryAlertMonths;
-          if(rd.docNumberCounters) docNumberCounters=rd.docNumberCounters;
-          __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
-        }
+        if(doc.exists) _applyRootMeta(doc.data());
+        // الحفظ وتحديث الشاشة بيتعملوا مرة واحدة في _finishInitialLoadIfReady بعد ما كل الكولكشنز توصل
+        pendingKeys.delete('__root');
+        _finishInitialLoadIfReady();
         return;
       }
       if(!doc.exists || doc.metadata.hasPendingWrites) return;
-      const rd=doc.data();
-      let changed=false;
-      if(rd.companyProfile && JSON.stringify(rd.companyProfile)!==JSON.stringify(companyProfile)){ companyProfile=rd.companyProfile; changed=true; }
-      if(typeof rd.lowStockDefault!=='undefined' && rd.lowStockDefault!==lowStockDefault){ lowStockDefault=rd.lowStockDefault; changed=true; }
-      if(typeof rd.expiryAlertMonths!=='undefined' && rd.expiryAlertMonths!==expiryAlertMonths){ expiryAlertMonths=rd.expiryAlertMonths; changed=true; }
-      if(rd.docNumberCounters && JSON.stringify(rd.docNumberCounters)!==JSON.stringify(docNumberCounters)){ docNumberCounters=rd.docNumberCounters; changed=true; }
-      if(changed){
-        __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+      const sigBefore=_roleConfigSig();
+      if(_applyRootMeta(doc.data())){
         save();
+        _refreshAfterMetaSync(sigBefore);
         if(!isUserActivelyTyping() && !isFormInProgress()) render();
       }
-    }, err=>{ console.warn('sync root listen error (ignored):', err); });
+    }, err=>{
+      console.warn('sync root listen error (ignored):', err);
+      pendingKeys.delete('__root');
+      _finishInitialLoadIfReady();
+    });
     __syncSubListeners.push(unsubRoot);
   }catch(e){
     console.warn('sync listener setup failed (ignored):', e);
@@ -3163,17 +3268,15 @@ async function _pullAllSyncData(){
     if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
   }
   if(addCount||updCount) applyIncomingChanges(additions,updates);
+  let metaChanged=false;
   const rootDoc = await wsRef.get();
   if(rootDoc.exists){
-    const rd=rootDoc.data();
-    if(rd.companyProfile) companyProfile=rd.companyProfile;
-    if(typeof rd.lowStockDefault!=='undefined') lowStockDefault=rd.lowStockDefault;
-    if(typeof rd.expiryAlertMonths!=='undefined') expiryAlertMonths=rd.expiryAlertMonths;
-    if(rd.docNumberCounters) docNumberCounters=rd.docNumberCounters;
-    __syncPushedMeta=JSON.stringify({companyProfile,lowStockDefault,expiryAlertMonths,docNumberCounters});
+    const sigBefore=_roleConfigSig();
+    metaChanged=_applyRootMeta(rootDoc.data());
+    if(metaChanged) _refreshAfterMetaSync(sigBefore);
   }
-  if(addCount||updCount) save();
-  return {addCount,updCount,total:addCount+updCount};
+  if(addCount||updCount||metaChanged) save();
+  return {addCount,updCount,metaChanged,total:addCount+updCount};
 }
 
 // ============================================================
@@ -3301,9 +3404,10 @@ function receiveSyncUpdates(){
     showToast('⚠️ لسه معملتش رمز مزامنة على الجهاز ده.');
     return;
   }
-  _pullAllSyncData().then(({addCount,updCount,total})=>{
-    if(total===0){ showToast('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
-    showToast('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
+  _pullAllSyncData().then(({addCount,updCount,metaChanged,total})=>{
+    if(total===0 && !metaChanged){ showToast('✅ بياناتك محدّثة بالفعل، مفيش حاجة جديدة أو متغيّرة.'); return; }
+    if(total===0) showToast('✅ تم! اتحدّثت بيانات الشركة/الإعدادات على الجهاز ده.');
+    else showToast('✅ تم! اتضاف '+addCount+' عنصر جديد واتعدّل '+updCount+' عنصر على الجهاز ده.');
     if(!isUserActivelyTyping() && !isFormInProgress()) render();
     if(__syncPushReady) pushSyncSnapshot(); // لو عندنا محليًا حاجة جديدة لسه ما وصلتش السيرفر، ابعتها كمان
   }).catch(err=>{
@@ -3365,7 +3469,7 @@ function disableSync(){
     __syncPushReady = false;
     __syncPushedSnapshot = {};
     __syncPushedDeletions = {};
-    __syncPushedMeta = null;
+    __syncPushedMetaGroups = {};
     renderSyncModal();
   });
 }
@@ -3869,7 +3973,7 @@ function saveCompanyProfile(){
   // ملحوظة: بنعمل spread على companyProfile الحالي قبل الكتابة فوقه، عشان أي حقل
   // إضافي (زي businessType) اتحفظ قبل كده متتمسحش لما المستخدم يحفظ اسم/تليفون/شعار بس
   companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, posModeEnabled, logo:_tempLogoDataUrl||''};
-  idbSet(KEYS.companyProfile, companyProfile);
+  persistCompanyProfile();
   document.getElementById('companyModal').remove();
   renderCompanyBar();
   syncTabsBarStickyTop();
@@ -3901,7 +4005,7 @@ function showBusinessTypeModal(isFirstTime){
 }
 function _selectBusinessType(id){
   companyProfile={...companyProfile, businessType:id};
-  idbSet(KEYS.companyProfile, companyProfile);
+  persistCompanyProfile();
   const modal=document.getElementById('businessTypeModal');
   if(modal) modal.remove();
   showToast('✅ تم ضبط نوع النشاط');
@@ -5613,8 +5717,17 @@ function _captureCurrentDraft(){
     date:document.getElementById('inv_date')?.value||businessDate(),
     isCash:document.getElementById('inv_is_cash')?.checked||false,
     lines:JSON.parse(JSON.stringify(invLines)),
-    overallDiscount:Number(invOverallDiscount)||0
+    overallDiscount:Number(invOverallDiscount)||0,
+    ...(isRestrictedRole()?{createdBy:currentRole}:{}) // صاحب المسودة - عشان مسودة جهاز/شخص متظهرش لشخص تاني بصلاحيات مختلفة بعد المزامنة
   };
+}
+// المعلّقة بتتزامن بين الأجهزة زي باقي السجلات، فلازم تتطبق عليها نفس قاعدة الرؤية: المالك يشوف الكل، والشخص
+// المقيّد يشوف اللي عملها هو بس (أو الكل لو صلاحيته "كل السجلات"). معلّقة قديمة من قبل التحديث ده (من غير علامة
+// صاحب) بتفضل ظاهرة زي ما كانت - مفيش وسيلة نعرف صاحبها.
+function _heldVisibleToCurrentRole(h){
+  if(!isRestrictedRole()) return true;
+  if(!h || !h.createdBy) return true;
+  return roleCanSee(h);
 }
 
 function _resetInvoiceFormState(){
@@ -5685,8 +5798,9 @@ function deleteHeldInvoice(id){
 
 // كارت "فواتير معلقة" اللي بيظهر أعلى تبويب المبيعات (لو فيه فواتير معلقة بس)
 function renderHeldInvoicesBlock(){
-  if(!heldInvoices.length) return '';
-  const rows=[...heldInvoices].sort((a,b)=>String(b.heldAt).localeCompare(String(a.heldAt))).map(h=>{
+  const visibleHeld=heldInvoices.filter(_heldVisibleToCurrentRole);
+  if(!visibleHeld.length) return '';
+  const rows=[...visibleHeld].sort((a,b)=>String(b.heldAt).localeCompare(String(a.heldAt))).map(h=>{
     const c=clients.find(c=>c.id===h.clientId);
     const clientLabel=c?c.name:(h.clientName||'بدون عميل');
     const lines=h.lines||[];
@@ -5712,7 +5826,7 @@ function renderHeldInvoicesBlock(){
     </div>`;
   }).join('');
   return `<div class="card" style="margin-bottom:10px">
-    <div class="card-head orange">⏸️ فواتير معلقة (${heldInvoices.length})</div>
+    <div class="card-head orange">⏸️ فواتير معلقة (${visibleHeld.length})</div>
     <div class="card-body" style="padding-top:10px;padding-bottom:4px">${rows}</div>
   </div>`;
 }
