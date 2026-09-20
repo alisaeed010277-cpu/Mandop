@@ -542,7 +542,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <button class="hdr-btn" onclick="exportData()">💾 تصدير</button>
     <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
     <button class="hdr-btn" onclick="openSyncModal()">🔗 ربط الأجهزة</button>
-    <button class="hdr-btn" onclick="openPinModal()">🔒 قفل PIN</button>
+    <button class="hdr-btn" onclick="openPinModal()">🔑 PIN المالك</button>
     <button class="hdr-btn" onclick="openWorkerPinModal()">👤 الصلاحيات</button>
     <button class="hdr-btn" id="handoverBtn" style="display:none;background:#8E44AD;color:#fff" onclick="handoverToWorker()">🔒 تسليم للعامل</button>
   </div>
@@ -898,6 +898,7 @@ let __pinUnlockCallback = null;
 function _resetPinInactivity(){ __pinLastActivity = Date.now(); __pinHiddenAt = null; }
 
 function _startPinInactivityWatch(){
+  if(!APP_OPEN_PIN_LOCK) return; // مفيش قفل تلقائي لما قفل الفتح مقفول
   if(!hasPinSet()) return;
   if(__pinWatchStarted) return;
   __pinWatchStarted = true;
@@ -988,79 +989,21 @@ async function _submitPinUnlock(){
 }
 
 // ============================================================
-// قفل فتح البرنامج في الأوضاع المقيّدة (مندوب / عامل / الشخص 1)
-// المشكلة اللي كانت موجودة: لما الجهاز يكون متسلَّم في وضع مقيّد، أي فتح للبرنامج
-// (بعد القفل أو بعد ٦ ساعات) كان بيطلب PIN المالك — يعني المندوب لازم يعرف PIN المالك
-// عشان يشتغل. دلوقتي: في الوضع المقيّد شاشة الفتح بتطلب PIN الوضع نفسه (اللي المالك
-// حطه من زرار 👤 الصلاحيات)، وPIN المالك بيفضل للرجوع لوضع المالك بس.
-// المالك نفسه (currentRole = owner): مفيش أي تغيير خالص، نفس شاشة القفل القديمة.
+// مفيش PIN لفتح البرنامج على أي جهاز/وضع (مالك أو مندوب أو عامل أو الشخص 1).
+// الـ PINs الموجودة بتنقل بين الأوضاع بس:
+//   • PIN كل شخص (الشخص 1 / العامل) → بيتطلب عند التسليم (🔒 تسليم)
+//   • PIN المالك → بيتطلب للرجوع لوضع المالك (🔓 رجوع للمالك)
+// مفتاح واحد: false = مفيش قفل عند الفتح خالص | true = الرجوع للسلوك القديم لوضع المالك بس
+// (الأوضاع المقيّدة مبتتقفلش عند الفتح في الحالتين).
 // ============================================================
-const ROLE_OPEN_REQUIRES_OWN_PIN = true; // true = المقيّد بيفتح بـ PIN وضعه هو | false = بيفتح من غير أي PIN
+const APP_OPEN_PIN_LOCK = false;
 function showAppLockScreen(onUnlock){
-  if(!isRestrictedRole()){ showPinLockScreen(onUnlock); return; }
-  if(ROLE_OPEN_REQUIRES_OWN_PIN && _roleHasPin(currentRole)){ showRoleLockScreen(onUnlock); return; }
-  _resetPinInactivity();
-  if(onUnlock) onUnlock();
-}
-
-function showRoleLockScreen(onUnlock){
-  if(document.getElementById('pinLockScreen')) return;
-  const header=document.querySelector('.header');
-  const tabs=document.querySelector('.tabs');
-  const body=document.querySelector('.body');
-  const wm=document.querySelector('.watermark');
-  if(header) header.style.display='none';
-  if(tabs) tabs.style.display='none';
-  if(body) body.style.display='none';
-  if(wm) wm.style.display='none';
-
-  const el=document.createElement('div');
-  el.id='pinLockScreen'; // نفس id شاشة القفل العادية عشان كل حراسة الخمول الموجودة تفضل شغالة
-  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;-webkit-overflow-scrolling:touch;overflow-y:auto;`;
-  el.innerHTML=`
-    <div class="pls-icon" style="margin-bottom:16px;">🔒</div>
-    <div class="pls-title" style="font-weight:bold;margin-bottom:18px;">من فضلك أدخل PIN ${esc(roleLabel(currentRole))}</div>
-    <input type="password" inputmode="numeric" pattern="[0-9]*" id="roleLockInput" maxlength="8" class="pls-input" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
-    <button onclick="_submitRoleUnlock()" class="pls-btn" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
-    <div id="roleLockMsg" class="pls-msg" style="min-height:18px;margin-bottom:10px"></div>
-    <button onclick="_roleLockToOwner()" class="pls-link" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">🔓 دخول المالك</button>
-  `;
-  document.body.appendChild(el);
-  __pinUnlockCallback = onUnlock || null;
-  setTimeout(()=>{
-    const inp=document.getElementById('roleLockInput');
-    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitRoleUnlock(); }); }
-  },50);
-}
-
-async function _submitRoleUnlock(){
-  const inp=document.getElementById('roleLockInput');
-  const val=(inp&&inp.value||'').trim();
-  const msg=document.getElementById('roleLockMsg');
-  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
-  const ok = await _roleVerifyPin(currentRole, val);
-  if(ok){
-    const el=document.getElementById('pinLockScreen'); if(el) el.remove();
-    _restorePinScreenChrome();
+  if(!APP_OPEN_PIN_LOCK || isRestrictedRole()){
     _resetPinInactivity();
-    const cb=__pinUnlockCallback; __pinUnlockCallback=null;
-    if(cb) cb();
-  } else {
-    msg.style.color='#FF6B6B'; msg.textContent='❌ الـ PIN غلط';
-    if(inp){ inp.value=''; inp.focus(); }
+    if(onUnlock) onUnlock();
+    return;
   }
-}
-
-// مخرج الطوارئ: لو المندوب نسي PIN وضعه، المالك يدخل بـ PIN المالك ويرجع لوضعه (ومن هناك يغيّر PIN المندوب)
-function _roleLockToOwner(){
-  const cb=__pinUnlockCallback; __pinUnlockCallback=null;
-  const el=document.getElementById('pinLockScreen'); if(el) el.remove();
-  showPinLockScreen(()=>{
-    currentRole='owner'; DB.set('_currentRole','owner');
-    _applyRoleUI();
-    switchTab('home');
-    if(cb) cb();
-  });
+  showPinLockScreen(onUnlock);
 }
 
 function _openForgotPin(){
@@ -1119,8 +1062,8 @@ function renderPinModalContent(){
   const durLabel = _formatPinTimeout();
   if(!has){
     el.innerHTML=`
-      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 تفعيل قفل PIN</div>
-      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">القفل ده اختياري بالكامل - البرنامج شغال عادي زي ما هو من غيره، وأي حد مش عايز يستخدمه ملوش أي تأثير عليه. لو فعّلته، هيتقفل البرنامج تلقائيًا بعد ${durLabel} من عدم الاستخدام، ولازم تدخل PIN عشان تفتحه تاني. ده بيحمي من أي حد ماسك الجهاز، مش بديل عن كود التفعيل.</div>
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔑 تفعيل PIN المالك</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">ده PIN المالك: بيتطلب بس للرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). البرنامج نفسه بيفتح على طول من غير أي PIN. مش بديل عن كود التفعيل.</div>
       <div class="form-row">
         <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1131,13 +1074,13 @@ function renderPinModalContent(){
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">إجابة السؤال</div><input type="text" id="setupPinA"></div>
       </div>
-      <button class="btn blue" style="width:100%" onclick="_submitSetupPin()">تفعيل القفل</button>
+      <button class="btn blue" style="width:100%" onclick="_submitSetupPin()">تفعيل PIN المالك</button>
       <div id="pinSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
     `;
   } else {
     el.innerHTML=`
-      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔒 قفل PIN مفعّل</div>
-      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">البرنامج بيتقفل تلقائيًا بعد ${durLabel} من عدم الاستخدام. القفل ده اختياري - تقدر تلغيه في أي وقت من تحت لو مش محتاجه.</div>
+      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">🔑 PIN المالك مفعّل</div>
+      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">PIN المالك بيتطلب للرجوع لوضعك بعد التسليم بس — البرنامج نفسه بيفتح من غير أي PIN. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
       <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير الـ PIN</div>
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1149,11 +1092,11 @@ function renderPinModalContent(){
       <button class="btn blue" style="width:100%" onclick="_submitChangePin()">حفظ الـ PIN الجديد</button>
       <div id="pinChangeMsg" class="pm-msg" style="min-height:16px;margin:8px 0 14px"></div>
       <div style="border-top:1px solid #ECF0F1;padding-top:12px">
-        <div class="pm-sub" style="font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء قفل الـ PIN</div>
+        <div class="pm-sub" style="font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء PIN المالك</div>
         <div class="form-row">
           <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="removePinCur" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         </div>
-        <button class="btn red" style="width:100%" onclick="_submitRemovePin()">إلغاء القفل نهائيًا</button>
+        <button class="btn red" style="width:100%" onclick="_submitRemovePin()">إلغاء PIN المالك نهائيًا</button>
         <div id="pinRemoveMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
       </div>
     `;
@@ -1172,7 +1115,7 @@ async function _submitSetupPin(){
   await _setPinHash(p1);
   DB.set('_pinQ', q);
   await _setSecurityAnswerHash(a);
-  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل القفل بنجاح';
+  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل PIN المالك بنجاح';
   _resetPinInactivity();
   _startPinInactivityWatch();
   setTimeout(()=>renderPinModalContent(), 900);
@@ -1200,7 +1143,7 @@ async function _submitRemovePin(){
   DB.set('_pinHash', null);
   DB.set('_pinQ', null);
   DB.set('_pinA', null);
-  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى القفل';
+  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى PIN المالك';
   setTimeout(()=>renderPinModalContent(), 900);
 }
 
@@ -1446,6 +1389,16 @@ function requestReturnToOwner(){
   }
   showOwnerReturnScreen();
 }
+// نسيت PIN المالك — بيفتح مسار الاسترجاع بسؤال الأمان (نفس الكود القديم) وبعدها يرجّع لوضع المالك
+function _ownerReturnForgot(){
+  const el=document.getElementById('ownerReturnScreen'); if(el) el.remove();
+  showPinLockScreen(()=>{
+    currentRole='owner'; DB.set('_currentRole','owner');
+    _applyRoleUI();
+    switchTab('home');
+  });
+  try{ _openForgotPin(); }catch(e){}
+}
 function showOwnerReturnScreen(){
   if(document.getElementById('ownerReturnScreen')) return;
   const el=document.createElement('div');
@@ -1457,6 +1410,7 @@ function showOwnerReturnScreen(){
     <input type="password" inputmode="numeric" pattern="[0-9]*" id="ownerReturnInput" maxlength="8" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px;width:180px">
     <button onclick="_submitOwnerReturnUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px;width:180px">دخول</button>
     <div id="ownerReturnMsg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="_ownerReturnForgot()" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer;margin-bottom:8px">نسيت PIN المالك؟</button>
     <button onclick="document.getElementById('ownerReturnScreen').remove()" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">إلغاء</button>
   `;
   document.body.appendChild(el);
