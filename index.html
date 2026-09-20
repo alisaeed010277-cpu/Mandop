@@ -543,7 +543,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
     <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
     <button class="hdr-btn" onclick="openSyncModal()">🔗 ربط الأجهزة</button>
     <button class="hdr-btn" onclick="openPinModal()">🔒 قفل PIN</button>
-    <button class="hdr-btn" onclick="openWorkerPinModal()">👤 وضع العامل</button>
+    <button class="hdr-btn" onclick="openWorkerPinModal()">👤 الصلاحيات</button>
     <button class="hdr-btn" id="handoverBtn" style="display:none;background:#8E44AD;color:#fff" onclick="handoverToWorker()">🔒 تسليم للعامل</button>
   </div>
   <div class="header-actions" id="workerModeBar" style="display:none">
@@ -797,6 +797,37 @@ function hasWorkerPinSet(){ return !!DB.get('_workerPinHash'); }
 async function _setWorkerPinHash(pin){ DB.set('_workerPinHash', await _sha256Hex('wpin::'+pin)); }
 async function verifyWorkerPin(pin){ const stored=DB.get('_workerPinHash'); if(!stored) return false; return (await _sha256Hex('wpin::'+pin))===stored; }
 
+// ===== الشخص 1 (p1) — دور تاني مقيّد، صلاحياته أوسع من العامل =====
+// ملاحظة توافق مهمة: هوية العامل الداخلية ('worker' / _workerPinHash / createdBy:'worker') متتغيرتش
+// خالص، عشان أجهزة وبيانات العملاء الحاليين تفضل شغالة بالظبط زي ما هي. التغيير في الأسماء الظاهرة بس.
+function hasP1PinSet(){ return !!DB.get('_p1PinHash'); }
+async function _setP1PinHash(pin){ DB.set('_p1PinHash', await _sha256Hex('p1pin::'+pin)); }
+async function verifyP1Pin(pin){ const stored=DB.get('_p1PinHash'); if(!stored) return false; return (await _sha256Hex('p1pin::'+pin))===stored; }
+function isRestrictedRole(){ return currentRole==='worker' || currentRole==='p1'; }
+// التبويبات المسموحة لكل دور مقيّد (العامل: الفواتير بس زي ما كان بالظبط)
+const ROLE_TABS={ worker:['invoices'], p1:['invoices','payments','returns','expenses'] };
+function roleAllowedTabs(){ return ROLE_TABS[currentRole]||[]; }
+
+// الاسم الظاهر لكل دور — بيتخزن في companyProfile.roleLabels (حقل اختياري، مفيش أي حاجة قديمة بتتأثر بغيابه).
+// الأجهزة اللي كان وضع العامل مفعّل عليها قبل التحديث ده بيفضل اسمه "العامل" لحد ما صاحب النشاط يغيّره بنفسه،
+// عشان الموظفين الحاليين ميتلخبطوش. الأجهزة الجديدة بتبدأ بـ "الشخص 1" / "الشخص 2".
+function _roleLblMode(){
+  let m=DB.get('_roleLblMode');
+  if(m!=='legacy' && m!=='new'){ m = hasWorkerPinSet() ? 'legacy' : 'new'; DB.set('_roleLblMode', m); }
+  return m;
+}
+_roleLblMode();
+function roleLabel(role){
+  try{
+    const saved=companyProfile && companyProfile.roleLabels && companyProfile.roleLabels[role];
+    if(saved && String(saved).trim()) return String(saved).trim();
+  }catch(e){}
+  if(role==='p1') return 'الشخص 1';
+  return _roleLblMode()==='legacy' ? 'العامل' : 'الشخص 2';
+}
+// "ل" + الاسم بشكل سليم لغويًا (العامل → للعامل، الشخص 1 → للشخص 1، أحمد → لأحمد)
+function _lamLabel(label){ return label.startsWith('ال') ? 'لل'+label.slice(2) : 'ل'+label; }
+
 // مدة عدم الاستخدام قبل ما البرنامج يتقفل تلقائيًا لوحده
 const PIN_INACTIVITY_MS = 6*60*60*1000; // 6 ساعات
 // بيرجع مدة القفل بصيغة مقروءة (ساعات لو المدة ساعة كاملة أو أكتر، وإلا دقايق)
@@ -950,7 +981,7 @@ async function _resetPinAfterRecovery(){
 
 // ==== إعدادات القفل (من قايمة الإعدادات في الهيدر) ====
 function openPinModal(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   renderPinModalContent();
   document.getElementById('pinModal').style.display='flex';
 }
@@ -1038,7 +1069,7 @@ async function _submitRemovePin(){
   const msg=document.getElementById('pinRemoveMsg');
   const ok = await verifyPin(cur);
   if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
-  if(hasWorkerPinSet()){ msg.style.color='#E74C3C'; msg.textContent='⚠️ متقدرش تلغي قفل الـ PIN دلوقتي — "وضع العامل" لسه مفعّل، ولو لغيت القفل الرئيسي هتتقفل برا وضع المالك أول ما تدخل وضع العامل تاني. الغي وضع العامل الأول من زرار 👤، وبعدين ارجع الغي قفل الـ PIN.'; return; }
+  if(hasWorkerPinSet()||hasP1PinSet()){ const _act=[hasP1PinSet()?'وضع '+roleLabel('p1'):'', hasWorkerPinSet()?'وضع '+roleLabel('worker'):''].filter(Boolean).join(' و '); msg.style.color='#E74C3C'; msg.textContent='⚠️ متقدرش تلغي قفل الـ PIN دلوقتي — "'+_act+'" لسه مفعّل، ولو لغيت القفل الرئيسي هتتقفل برا وضع المالك أول ما تدخل وضع التسليم تاني. الغي الأوضاع دي الأول من زرار 👤، وبعدين ارجع الغي قفل الـ PIN.'; return; }
   DB.set('_pinHash', null);
   DB.set('_pinQ', null);
   DB.set('_pinA', null);
@@ -1052,81 +1083,144 @@ async function _submitRemovePin(){
 // طريقة ترجع بيها لوضعك تاني.
 // ============================================================
 function openWorkerPinModal(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   renderWorkerPinModalContent();
   document.getElementById('workerPinModal').style.display='flex';
 }
-function renderWorkerPinModalContent(){
-  const has = hasWorkerPinSet();
-  const el=document.getElementById('workerPinModalContent');
-  if(!has){
-    el.innerHTML=`
-      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 تفعيل وضع العامل</div>
-      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">هتقدر تسلّم الجهاز لموظف يسجل فواتير بيع بس، من غير ما يشوف المخزن أو الأسعار أو أي بيانات تانية. لازم يكون عندك قفل PIN مفعّل الأول (فوق) عشان تضمن إنك تقدر ترجع لوضعك تاني.</div>
-      ${!hasPinSet()?`<div class="pm-desc" style="color:#C0392B;margin-bottom:4px">⚠️ فعّل قفل الـ PIN بتاعك فوق الأول قبل ما تقدر تحط PIN للعامل.</div>`:`
-      <div class="form-row">
-        <div class="form-group"><div class="lbl">PIN العامل (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupWorkerPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
-        <div class="form-group"><div class="lbl">تأكيد PIN العامل</div><input type="password" inputmode="numeric" id="setupWorkerPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
-      </div>
-      <button class="btn blue" style="width:100%" onclick="_submitSetupWorkerPin()">تفعيل وضع العامل</button>
-      <div id="workerPinSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
-      `}
-    `;
-  } else {
-    el.innerHTML=`
-      <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 وضع العامل مفعّل</div>
-      <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">زرار "🔒 تسليم للعامل" ظاهر فوق دلوقتي. العامل بيدخل بالـ PIN بتاعه ويشوف شاشة تسجيل الفواتير بس. الرجوع لوضعك محتاج PIN المالك بتاعك.</div>
-      <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير PIN العامل</div>
-      <div class="form-row">
-        <div class="form-group"><div class="lbl">PIN جديد للعامل</div><input type="password" inputmode="numeric" id="newWorkerPin1" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
-        <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" id="newWorkerPin2" style="border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
-      </div>
-      <button class="btn blue" style="width:100%" onclick="_submitChangeWorkerPin()">حفظ PIN العامل الجديد</button>
-      <div id="workerPinChangeMsg" class="pm-msg" style="min-height:16px;margin:8px 0 14px"></div>
-      <div style="border-top:1px solid #ECF0F1;padding-top:12px">
-        <div class="pm-sub" style="font-weight:bold;color:#C0392B;margin-bottom:8px">إلغاء وضع العامل نهائيًا</div>
-        <button class="btn red" style="width:100%" onclick="_submitRemoveWorkerPin()">إلغاء وضع العامل</button>
-        <div id="workerPinRemoveMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
-      </div>
-    `;
-  }
+function _roleHasPin(role){ return role==='p1' ? hasP1PinSet() : hasWorkerPinSet(); }
+async function _roleSetPin(role,pin){ return role==='p1' ? _setP1PinHash(pin) : _setWorkerPinHash(pin); }
+async function _roleVerifyPin(role,pin){ return role==='p1' ? verifyP1Pin(pin) : verifyWorkerPin(pin); }
+function _roleOther(role){ return role==='p1' ? 'worker' : 'p1'; }
+// لازم كل PIN يبقى مختلف عن PIN المالك وعن PIN الوضع التاني — لأن شاشة التسليم بتحدد الشخص من الـ PIN نفسه
+async function _pinConflictMsg(role,pin){
+  if(await verifyPin(pin)) return 'الـ PIN ده هو نفسه PIN المالك — اختار PIN مختلف';
+  const other=_roleOther(role);
+  if(_roleHasPin(other) && await _roleVerifyPin(other,pin)) return 'الـ PIN ده مستخدم لوضع '+roleLabel(other)+' — لازم كل وضع يكون ليه PIN مختلف';
+  return '';
 }
-async function _submitSetupWorkerPin(){
-  const p1=document.getElementById('setupWorkerPin1').value.trim();
-  const p2=document.getElementById('setupWorkerPin2').value.trim();
-  const msg=document.getElementById('workerPinSetupMsg');
+
+function _roleBlockHtml(role){
+  const has=_roleHasPin(role);
+  const label=roleLabel(role);
+  const fld='border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;width:100%;background:#FDFEFE;color:#1C2833;box-sizing:border-box;';
+  const pinFld=fld+'text-align:center;letter-spacing:4px';
+  const desc = role==='p1'
+    ? 'فاتورة مبيعات • تحصيل من العملاء • مردود مبيعات • مصروفات — وبيشوف بس اللي سجّله هو.'
+    : 'تسجيل فواتير بيع بس — وبيشوف بس الفواتير اللي سجّلها هو.';
+  const nameRow=`
+    <div class="form-row">
+      <div class="form-group" style="flex:2"><div class="lbl">اسم الوضع (سمّيه أي اسم يناسبك)</div><input type="text" id="roleLabel_${role}" maxlength="24" value="${esc(label)}" style="${fld}"></div>
+      <div class="form-group" style="flex:1;align-self:flex-end"><button class="btn-sm blue" style="width:100%" onclick="_saveRoleLabel('${role}')">حفظ الاسم</button></div>
+    </div>`;
+  let body;
+  if(!has){
+    body = !hasPinSet()
+      ? `<div class="pm-desc" style="color:#C0392B;margin-bottom:4px">⚠️ فعّل قفل الـ PIN بتاعك فوق الأول قبل ما تقدر تفعّل الوضع ده.</div>`
+      : `<div class="form-row">
+          <div class="form-group"><div class="lbl">PIN ${esc(label)} (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="roleSetupPin1_${role}" style="${pinFld}"></div>
+          <div class="form-group"><div class="lbl">تأكيد الـ PIN</div><input type="password" inputmode="numeric" id="roleSetupPin2_${role}" style="${pinFld}"></div>
+        </div>
+        <button class="btn blue" style="width:100%" onclick="_submitSetupRolePin('${role}')">تفعيل وضع ${esc(label)}</button>`;
+  } else {
+    body = `<div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:8px">تغيير الـ PIN</div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN جديد</div><input type="password" inputmode="numeric" id="roleNewPin1_${role}" style="${pinFld}"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" id="roleNewPin2_${role}" style="${pinFld}"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitChangeRolePin('${role}')">حفظ الـ PIN الجديد</button>
+      <div style="border-top:1px solid #ECF0F1;padding-top:12px;margin-top:12px">
+        <button class="btn red" style="width:100%" onclick="_submitRemoveRolePin('${role}')">إلغاء وضع ${esc(label)} نهائيًا</button>
+      </div>`;
+  }
+  return `<div>
+    <div class="pm-sub" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 وضع ${esc(label)} ${has?'✅ مفعّل':'— مش مفعّل'}</div>
+    <div class="pm-desc" style="color:#717D7E;margin-bottom:10px">${desc}</div>
+    ${nameRow}
+    ${body}
+    <div id="roleMsg_${role}" class="pm-msg" style="min-height:16px;margin:8px 0"></div>
+  </div>`;
+}
+function renderWorkerPinModalContent(){
+  const el=document.getElementById('workerPinModalContent');
+  if(!el) return;
+  el.innerHTML=`
+    <div class="pm-title" style="font-weight:bold;color:#1A5276;margin-bottom:4px">👤 الصلاحيات</div>
+    <div class="pm-desc" style="color:#717D7E;margin-bottom:14px">تقدر تسلّم الجهاز لشخص بصلاحيات محدودة. كل وضع ليه اسم تقدر تغيّره وPIN مستقل، والرجوع لوضعك دايمًا محتاج PIN المالك بتاعك.</div>
+    ${_roleBlockHtml('p1')}
+    <div style="border-top:2px solid #D5D8DC;margin:16px 0"></div>
+    ${_roleBlockHtml('worker')}
+  `;
+}
+function _saveRoleLabel(role){
+  const inp=document.getElementById('roleLabel_'+role);
+  const msg=document.getElementById('roleMsg_'+role);
+  if(!inp||!msg) return;
+  const v=(inp.value||'').trim().slice(0,24);
+  const other=_roleOther(role);
+  if(v && v===roleLabel(other)){ msg.style.color='#E74C3C'; msg.textContent='الاسم ده مستخدم للوضع التاني — اختار اسم مختلف'; return; }
+  const labels={...((companyProfile&&companyProfile.roleLabels)||{})};
+  if(v) labels[role]=v; else delete labels[role]; // اسم فاضي = رجوع للاسم الافتراضي
+  companyProfile={...companyProfile, roleLabels:labels};
+  idbSet(KEYS.companyProfile, companyProfile);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتحفظ الاسم';
+  _updateHandoverBtnVisibility();
+  setTimeout(()=>renderWorkerPinModalContent(), 700);
+}
+async function _submitSetupRolePin(role){
+  const msg=document.getElementById('roleMsg_'+role);
+  if(!msg) return;
+  const p1=((document.getElementById('roleSetupPin1_'+role)||{}).value||'').trim();
+  const p2=((document.getElementById('roleSetupPin2_'+role)||{}).value||'').trim();
+  if(!hasPinSet()){ msg.style.color='#E74C3C'; msg.textContent='فعّل قفل الـ PIN بتاعك الأول'; return; }
   if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
   if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN مش متطابق'; return; }
-  await _setWorkerPinHash(p1);
-  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل وضع العامل بنجاح';
+  const conflict=await _pinConflictMsg(role,p1);
+  if(conflict){ msg.style.color='#E74C3C'; msg.textContent=conflict; return; }
+  await _roleSetPin(role,p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل وضع '+roleLabel(role)+' بنجاح';
   _updateHandoverBtnVisibility();
   setTimeout(()=>renderWorkerPinModalContent(), 900);
 }
-async function _submitChangeWorkerPin(){
-  const p1=document.getElementById('newWorkerPin1').value.trim();
-  const p2=document.getElementById('newWorkerPin2').value.trim();
-  const msg=document.getElementById('workerPinChangeMsg');
+async function _submitChangeRolePin(role){
+  const msg=document.getElementById('roleMsg_'+role);
+  if(!msg) return;
+  const p1=((document.getElementById('roleNewPin1_'+role)||{}).value||'').trim();
+  const p2=((document.getElementById('roleNewPin2_'+role)||{}).value||'').trim();
   if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
   if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد مش متطابق'; return; }
-  await _setWorkerPinHash(p1);
-  msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر PIN العامل بنجاح';
+  const conflict=await _pinConflictMsg(role,p1);
+  if(conflict){ msg.style.color='#E74C3C'; msg.textContent=conflict; return; }
+  await _roleSetPin(role,p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر PIN '+roleLabel(role)+' بنجاح';
 }
-async function _submitRemoveWorkerPin(){
-  const msg=document.getElementById('workerPinRemoveMsg');
-  DB.set('_workerPinHash', null);
-  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى وضع العامل';
+async function _submitRemoveRolePin(role){
+  const msg=document.getElementById('roleMsg_'+role);
+  if(!msg) return;
+  const label=roleLabel(role);
+  DB.set(role==='p1' ? '_p1PinHash' : '_workerPinHash', null);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى وضع '+label;
   _updateHandoverBtnVisibility();
   setTimeout(()=>renderWorkerPinModalContent(), 900);
 }
+// زرار التسليم في الهيدر: بيظهر لو أي وضع مفعّل. لو وضع واحد بس مفعّل بيفضل بنفس الصيغة القديمة ("تسليم للعامل")،
+// ولو الاتنين مفعّلين بيبقى "تسليم" بس والـ PIN هو اللي بيحدد مين اللي هيدخل.
 function _updateHandoverBtnVisibility(){
   const btn=document.getElementById('handoverBtn');
-  if(btn) btn.style.display = hasWorkerPinSet() ? '' : 'none';
+  if(!btn) return;
+  const w=hasWorkerPinSet(), p=hasP1PinSet();
+  btn.style.display = (w||p) ? '' : 'none';
+  btn.textContent = (w&&p) ? '🔒 تسليم' : '🔒 تسليم '+_lamLabel(roleLabel(p?'p1':'worker'));
+}
+function _handoverTitle(){
+  const w=hasWorkerPinSet(), p=hasP1PinSet();
+  if(w&&p) return 'من فضلك أدخل الـ PIN';
+  return 'من فضلك أدخل PIN '+esc(roleLabel(p?'p1':'worker'));
 }
 
 // تسليم الجهاز للعامل — شاشة قفل مستقلة بتتحقق من PIN العامل بس
 function handoverToWorker(){
-  if(currentRole==='worker') return;
-  if(!hasWorkerPinSet()){ showToast('من فضلك فعّل وضع العامل الأول من ⚙️ الإعدادات'); return; }
+  if(isRestrictedRole()) return;
+  if(!hasWorkerPinSet() && !hasP1PinSet()){ showToast('من فضلك فعّل أحد أوضاع التسليم الأول من زرار 👤'); return; }
   showWorkerHandoverScreen();
 }
 function showWorkerHandoverScreen(){
@@ -1136,7 +1230,7 @@ function showWorkerHandoverScreen(){
   el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;`;
   el.innerHTML=`
     <div style="font-size:40px;margin-bottom:16px">👤</div>
-    <div style="font-weight:bold;margin-bottom:18px;font-size:16px">من فضلك أدخل PIN العامل</div>
+    <div style="font-weight:bold;margin-bottom:18px;font-size:16px">${_handoverTitle()}</div>
     <input type="password" inputmode="numeric" pattern="[0-9]*" id="workerHandoverInput" maxlength="8" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px;width:180px">
     <button onclick="_submitWorkerHandoverUnlock()" style="background:#fff;color:#1A5276;border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px;width:180px">دخول</button>
     <div id="workerHandoverMsg" style="min-height:18px;margin-bottom:10px"></div>
@@ -1153,13 +1247,15 @@ async function _submitWorkerHandoverUnlock(){
   const val=(inp&&inp.value||'').trim();
   const msg=document.getElementById('workerHandoverMsg');
   if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
-  const ok = await verifyWorkerPin(val);
-  if(ok){
+  let _role=null;
+  if(hasWorkerPinSet() && await verifyWorkerPin(val)) _role='worker';
+  else if(hasP1PinSet() && await verifyP1Pin(val)) _role='p1';
+  if(_role){
     const el=document.getElementById('workerHandoverScreen'); if(el) el.remove();
-    currentRole='worker'; DB.set('_currentRole','worker');
+    currentRole=_role; DB.set('_currentRole',_role);
     _applyRoleUI();
-    switchTab('invoices');
-    showToast('👤 وضع العامل شغال دلوقتي');
+    switchTab(roleAllowedTabs()[0]||'invoices');
+    showToast('👤 وضع '+roleLabel(_role)+' شغال دلوقتي');
   } else {
     msg.style.color='#FFD700'; msg.textContent='❌ الـ PIN غلط';
     if(inp){ inp.value=''; inp.focus(); }
@@ -1168,7 +1264,7 @@ async function _submitWorkerHandoverUnlock(){
 
 // الرجوع لوضع المالك — محتاج PIN المالك العادي (نفس _pinHash فوق)
 function requestReturnToOwner(){
-  if(currentRole!=='worker') return;
+  if(!isRestrictedRole()) return;
   if(!hasPinSet()){
     // مفيش قفل PIN رئيسي مفعّل حاليًا (اتلغى بعد ما وضع العامل كان اتفعّل) —
     // مفيش داعي نطلب PIN مش موجود أصلاً، ده كان بيسبب قفل تام بلا أي حل.
@@ -1222,16 +1318,19 @@ function _applyRoleUI(){
   const workerBar=document.getElementById('workerModeBar');
   const tabsBarEl=document.getElementById('tabsBar');
   const exportReminder=document.getElementById('exportReminder');
-  if(currentRole==='worker'){
+  if(isRestrictedRole()){
     if(ownerBar) ownerBar.style.display='none';
     if(workerBar) workerBar.style.display='flex';
-    if(tabsBarEl) tabsBarEl.style.display='none';
+    // العامل مالوش شريط تبويبات خالص (شاشة الفواتير بس)، أما الشخص 1 فبيظهرله شريط بـ4 تبويبات بس
+    if(tabsBarEl) tabsBarEl.style.display = currentRole==='worker' ? 'none' : '';
     if(exportReminder) exportReminder.style.display='none';
   } else {
     if(ownerBar) ownerBar.style.display='';
     if(workerBar) workerBar.style.display='none';
     if(tabsBarEl) tabsBarEl.style.display='';
   }
+  renderTabsBar();
+  try{ syncTabsBarStickyTop(); }catch(e){}
   _updateHandoverBtnVisibility();
 }
 
@@ -2479,6 +2578,16 @@ let tabOrder=sanitizeTabOrder(DB.get('_tabOrder'));
 function renderTabsBar(){
   const bar=document.getElementById('tabsBar');
   if(!bar)return;
+  if(currentRole==='p1'){
+    // الشخص 1: شريط ثابت بالتبويبات المسموحة ليه بس، من غير "المزيد"
+    bar.innerHTML=ROLE_TABS.p1.map(id=>{
+      const t=TAB_DEFS.find(d=>d.id===id);
+      if(!t)return '';
+      return `<button class="tab${id===currentTab?' active':''}" data-tab="${id}" onclick="switchTab('${id}')">${t.icon} ${t.label}</button>`;
+    }).join('');
+    updateTabsFadeHint();
+    return;
+  }
   const mainBtns=MAIN_TAB_IDS.map(id=>{
     const t=TAB_DEFS.find(d=>d.id===id);
     if(!t)return '';
@@ -2491,7 +2600,7 @@ function renderTabsBar(){
 
 // شيت "المزيد" — باقي التبويبات اللي مش في الشريط الرئيسي
 function openMoreTabsModal(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   renderMoreTabsList();
   document.getElementById('moreTabsModal').style.display='flex';
 }
@@ -3079,7 +3188,7 @@ function receiveSyncUpdates(){
 }
 
 function openSyncModal(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   renderSyncModal();
   document.getElementById('syncModal').style.display='flex';
 }
@@ -3202,7 +3311,7 @@ function testSyncConnection(){
 
 
 function switchTab(name){
-  if(currentRole==='worker' && name!=='invoices') return; // العامل مسموحله بتبويب الفواتير بس
+  if(isRestrictedRole() && !roleAllowedTabs().includes(name)) return; // كل دور مقيّد ليه تبويبات مسموحة بس (العامل: الفواتير فقط)
   if(name==='reports') reportsOpenSection=null; // كل الأقسام تتقفل من الأول كل ما تدخل تبويب التقارير
   currentTab=name;
   document.querySelectorAll('.tab').forEach(btn=>{
@@ -3456,7 +3565,7 @@ function renderPos(){
 // وفواتير المشتريات مع بعض من غير ما تحتاج تفتح كل تبويب لوحده
 // ============================================================
 function openGlobalSearch(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   document.getElementById('globalSearchModal').style.display='flex';
   const input=document.getElementById('globalSearchInput');
   input.value='';
@@ -4899,6 +5008,7 @@ function openReturnFromClient(retId,clientId){
 function renderReturnDetail(){
   const ret=returns.find(r=>r.id===retDetailId);
   if(!ret){retDetailId=null;renderReturns();return;}
+  if(isRestrictedRole() && ret.createdBy!==currentRole){retDetailId=null;renderReturns();return;}
   const c=clients.find(c=>c.id===ret.clientId);
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
@@ -4981,7 +5091,7 @@ function goBackFromRetDetail(){
 function renderInvoices(){
   if(invDetailId){renderInvDetail();return;}
   // في وضع العامل: يشوف بس الفواتير اللي سجّلها هو (علامة createdBy)، مش كل فواتير المحل
-  const roleBase = currentRole==='worker' ? invoices.filter(inv=>inv.createdBy==='worker') : invoices;
+  const roleBase = isRestrictedRole() ? invoices.filter(inv=>inv.createdBy===currentRole) : invoices;
   const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch);
@@ -5014,7 +5124,7 @@ function renderInvoices(){
     const bonusQty=Number(l.bonus)||0;
     // تنبيه هامش الربح: بيقارن سعر البيع (بعد الخصم) بمتوسط سعر التكلفة المعروف للصنف، ومش بيظهر لو مفيش سعر تكلفة معروف أصلاً
     let marginWarningHtml='';
-    if(currentRole!=='worker' && l.productId && Number(l.qty)>0 && afterDiscount>0){
+    if(!isRestrictedRole() && l.productId && Number(l.qty)>0 && afterDiscount>0){
       const costPerSaleUnit=productAvgCost(l.productId)/lineUnitFactor(l);
       if(costPerSaleUnit>0){
         const marginPct=(afterDiscount-costPerSaleUnit)/afterDiscount*100;
@@ -5143,7 +5253,7 @@ function renderInvoices(){
         </div>
         <div class="btn-row">
           ${(invFromDate||invToDate)?`<button class="btn-outline" onclick="invFromDate='';invToDate='';renderInvoices()">✖ إلغاء الفلتر</button>`:''}
-          ${filtered.length>0&&currentRole!=='worker'?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printInvoicesSummaryPdf(invFromDate,invToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المبيعات PDF</button>`:''}
+          ${filtered.length>0&&!isRestrictedRole()?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printInvoicesSummaryPdf(invFromDate,invToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المبيعات PDF</button>`:''}
         </div>
       </div>
     </div>
@@ -5156,7 +5266,7 @@ function renderInvoices(){
 function editInvoice(id){
   const inv=invoices.find(i=>i.id===id);
   if(!inv)return;
-  if(currentRole==='worker' && inv.createdBy!=='worker')return;
+  if(isRestrictedRole() && inv.createdBy!==currentRole)return;
   _autoHoldInvoiceIfOpen();
   editInvoiceId=id;
   invLines=inv.lines.map(l=>({...l}));
@@ -5313,7 +5423,7 @@ function _saveInvoiceCore(clientId, date, isCash){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && p.isCashAuto);
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(currentRole==='worker'?'worker':undefined)};
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
@@ -5344,7 +5454,7 @@ function _saveInvoiceCore(clientId, date, isCash){
 
 function deleteInvoice(id){
   const invToDelete=invoices.find(i=>i.id===id);
-  if(currentRole==='worker' && (!invToDelete||invToDelete.createdBy!=='worker'))return;
+  if(isRestrictedRole() && (!invToDelete||invToDelete.createdBy!==currentRole))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
     // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
@@ -5537,7 +5647,7 @@ async function printInvoicesSummaryPdf(from,to){
 function renderInvDetail(){
   const inv=invoices.find(i=>i.id===invDetailId);
   if(!inv){invDetailId=null;renderInvoices();return;}
-  if(currentRole==='worker' && inv.createdBy!=='worker'){invDetailId=null;renderInvoices();return;}
+  if(isRestrictedRole() && inv.createdBy!==currentRole){invDetailId=null;renderInvoices();return;}
   const c=clients.find(c=>c.id===inv.clientId);
   const rows=inv.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
@@ -5601,7 +5711,7 @@ async function printCollectionsSummaryPdf(from,to){
 
 function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
-  const sorted=[...payments].filter(p=>(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const sorted=[...payments].filter(p=>(!isRestrictedRole()||p.createdBy===currentRole)&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
   const clientOptsArr=debtors.map(c=>({id:c.id,label:c.name,sub:`مستحق: ${fmt(clientBalance(c.id))} ج`}));
@@ -5653,7 +5763,7 @@ function renderPayments(){
         </div>
         <div class="btn-row">
           ${(payFromDate||payToDate)?`<button class="btn-outline" onclick="payFromDate='';payToDate='';renderPayments()">✖ إلغاء الفلتر</button>`:''}
-          ${sorted.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printCollectionsSummaryPdf(payFromDate,payToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير التحصيل PDF</button>`:''}
+          ${sorted.length>0&&!isRestrictedRole()?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printCollectionsSummaryPdf(payFromDate,payToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير التحصيل PDF</button>`:''}
         </div>
       </div>
     </div>
@@ -5689,6 +5799,7 @@ async function printPaymentReceipt(pid){
 function renderPaymentDetail(){
   const p=payments.find(p=>p.id===payDetailId);
   if(!p){payDetailId=null;renderPayments();return;}
+  if(isRestrictedRole() && p.createdBy!==currentRole){payDetailId=null;renderPayments();return;}
   const c=clients.find(c=>c.id===p.clientId);
   const inv=p.invoiceId?invoices.find(i=>i.id===p.invoiceId):null;
   document.getElementById('tab-payments').innerHTML=`
@@ -5712,6 +5823,7 @@ function renderPaymentDetail(){
 }
 
 function deletePayment(id){
+  if(isRestrictedRole()){ const _pp=payments.find(p=>p.id===id); if(!_pp||_pp.createdBy!==currentRole) return; }
   showConfirm('هتحذف عملية السداد دي؟', function(){
     recordDeletion('payments',id);
     payments=payments.filter(p=>p.id!==id);
@@ -5740,6 +5852,7 @@ function savePayment(){
   if(cashAmount<0||discount<0){showToast('لا يمكن إدخال مبلغ سالب');return;} // تحقق من صحة المجاميع - يمنع أي تسريب لو اتكتب رقم سالب بالغلط أو بقصد
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد العميل (نقدي + خصم)
   const pay={id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
+  if(isRestrictedRole()) pay.createdBy=currentRole;
   payments.push(pay);
   const lines=[];
   if(cashAmount>0) lines.push({accountId:'cash',debit:cashAmount,credit:0});
@@ -5757,7 +5870,7 @@ let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل 
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
-  const sorted=[...returns].filter(r=>(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+  const sorted=[...returns].filter(r=>(!isRestrictedRole()||r.createdBy===currentRole)&&(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const retPeriodTotal=sorted.reduce((s,r)=>s+r.total,0);
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   const rows=sorted.map(r=>{
@@ -5875,7 +5988,7 @@ function renderReturns(){
         </div>
         <div class="btn-row">
           ${(retFromDate||retToDate)?`<button class="btn-outline" onclick="retFromDate='';retToDate='';renderReturns()">✖ إلغاء الفلتر</button>`:''}
-          ${sorted.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printReturnsSummaryPdf(retFromDate,retToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المردودات PDF</button>`:''}
+          ${sorted.length>0&&!isRestrictedRole()?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printReturnsSummaryPdf(retFromDate,retToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير المردودات PDF</button>`:''}
         </div>
       </div>
     </div>
@@ -5971,6 +6084,7 @@ function saveReturn(){
     const cashRefund=document.getElementById('ret_is_cash')?.checked||false;
     const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
     const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
+    if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
     postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
       [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
@@ -6001,6 +6115,7 @@ function saveReturn(){
 }
 
 function deleteReturn(id){
+  if(isRestrictedRole()){ const _rr=returns.find(r=>r.id===id); if(!_rr||_rr.createdBy!==currentRole) return; }
   showConfirm('هتحذف المرتجع ده؟', function(){
     recordDeletion('returns',id);
     returns=returns.filter(r=>r.id!==id);
@@ -6651,7 +6766,7 @@ function renderStockDetail(){
 
 // ===== BACKUP =====
 function exportData(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   _renderExportModalGoogleLink();
   document.getElementById('exportModal').style.display='flex';
 }
@@ -6801,7 +6916,7 @@ function checkExportReminder(){
   }
 }
 function importData(){
-  if(currentRole==='worker') return;
+  if(isRestrictedRole()) return;
   const input=document.createElement('input');
   input.type='file';input.accept='.json,.txt';
   input.onchange=(e)=>{
@@ -6881,7 +6996,7 @@ function renderExpenses(){
     toVal=document.getElementById('exp_to')?.value||defTo;
   }
 
-  const filtered=[...expenses].filter(e=>e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
+  const filtered=[...expenses].filter(e=>(!isRestrictedRole()||e.createdBy===currentRole)&&e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
   const total=filtered.reduce((s,e)=>s+Number(e.amount),0);
 
   const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${expenseQuickFilter===key?'#1A5276':'#D5D8DC'};color:${expenseQuickFilter===key?'#fff':'#333'}" onclick="expenseQuickFilter='${key}';renderExpenses()">${label}</button>`;
@@ -6964,7 +7079,7 @@ function renderExpenses(){
 
       ${filtered.length===0?'<div class="empty">لا توجد مصاريف في الفترة دي</div>':rows}
 
-      <div class="card" style="margin-top:18px;border-right:4px solid #F1C40F">
+      ${isRestrictedRole()?'':`<div class="card" style="margin-top:18px;border-right:4px solid #F1C40F">
         <div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظاتي (شخصية فقط — مش بتدخل في حساب المصاريف ولا الخزنة)</div>
         <div class="card-body">
           ${!showNoteForm?`<button class="btn-outline" onclick="showNoteForm=true;renderExpenses()">+ ملاحظة جديدة</button>`:`
@@ -6992,11 +7107,12 @@ function renderExpenses(){
               </div>`).join('')||'<div class="empty">مفيش ملاحظات لسه</div>'}
           </div>
         </div>
-      </div>
+      </div>`}
     </div>`;
 }
 
 function addRepNote(){
+  if(isRestrictedRole()) return;
   const text=document.getElementById('note_text')?.value?.trim();
   const amount=Number(document.getElementById('note_amount')?.value||0);
   const date=document.getElementById('note_date')?.value||today();
@@ -7007,6 +7123,7 @@ function addRepNote(){
   renderExpenses();
 }
 function deleteRepNote(id){
+  if(isRestrictedRole()) return;
   showConfirm('متأكد من حذف الملاحظة دي؟', function(){
     recordDeletion('repNotes',id);
     repNotes=repNotes.filter(n=>n.id!==id);
@@ -7024,6 +7141,7 @@ function addExpense(){
   if(!label){showToast('اكتب بند المصروف');return;}
   if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
   const exp={id:uid(),label,amount,date,costType,costNature};
+  if(isRestrictedRole()) exp.createdBy=currentRole;
   expenses.push(exp);
   const expAccount=costType==='direct'?'directcost':'opex';
   postJournal('expense', exp.id, date, 'مصروف: '+label, [{accountId:expAccount,debit:amount,credit:0},{accountId:'cash',debit:0,credit:amount}]);
@@ -7033,6 +7151,7 @@ function addExpense(){
 }
 
 function deleteExpense(id){
+  if(isRestrictedRole()){ const _ee=expenses.find(e=>e.id===id); if(!_ee||_ee.createdBy!==currentRole) return; }
   showConfirm('متأكد من حذف المصروف ده؟', function(){
     recordDeletion('expenses',id);
     expenses=expenses.filter(e=>e.id!==id);
@@ -9552,7 +9671,7 @@ function initActivation(){
   if(activated && _vk(dCode, activated)){
     const _afterPinOk = () => {
     _applyRoleUI();
-    if(currentRole==='worker'){ switchTab('invoices'); } else { render(); }
+    if(isRestrictedRole()){ switchTab(roleAllowedTabs()[0]||'invoices'); } else { render(); }
     if(_looksWiped()){
       _handlePossibleWipe();
     }else{
@@ -9578,7 +9697,7 @@ function initActivation(){
       // التجربة لسه شغالة
       const _afterPinOkTrial = () => {
         _applyRoleUI();
-        if(currentRole==='worker'){ switchTab('invoices'); } else { render(); }
+        if(isRestrictedRole()){ switchTab(roleAllowedTabs()[0]||'invoices'); } else { render(); }
         _showTrialBanner(7 - Math.floor(daysPassed));
         if(_looksWiped()){
           _handlePossibleWipe();
