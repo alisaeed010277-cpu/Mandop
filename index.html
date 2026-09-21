@@ -9910,7 +9910,7 @@ function initActivation(){
   // توليد كود الجهاز — بيتخزن مرة واحدة في الجهاز ده بس
   let dCode = DB.get('_dc');
   if(!dCode){
-    dCode = Math.floor(1000 + Math.random() * 9000);
+    dCode = _newDeviceCode();
     DB.set('_dc', dCode);
   }
 
@@ -10031,17 +10031,17 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
     ${expiredMsg}
     <div style="background:rgba(255,255,255,.15);border-radius:12px;padding:20px 24px;margin-bottom:24px;width:100%;max-width:320px;">
       <div class="ls-code-label" style="opacity:.9;margin-bottom:10px;">أرسل كود الجهاز ده للمبرمج على واتساب:</div>
-      <div class="ls-code" style="font-weight:bold;letter-spacing:8px;color:#FFD700;">${dCode}</div>
+      <div class="ls-code" style="font-weight:bold;letter-spacing:8px;color:#FFD700;${String(dCode).length>4?'font-size:24px;letter-spacing:3px;':''}">${dCode}</div>
       <div class="ls-code-caption" style="opacity:.7;margin-top:6px;">كود الجهاز</div>
     </div>
     <div style="display:flex;gap:10px;margin-bottom:12px;width:100%;max-width:320px;">
-      <input id="serialInput" type="number" placeholder="أدخل الكود هنا" style="
+      <input id="serialInput" type="${String(dCode).length>4?'text':'number'}"${String(dCode).length>4?' autocomplete="off" autocapitalize="characters" spellcheck="false"':''} placeholder="أدخل الكود هنا" style="
         flex:1;padding:12px;border-radius:8px;border:2px solid rgba(255,255,255,.4);
         background:rgba(255,255,255,.1);color:#fff;font-size:16px;text-align:center;
         outline:none;direction:ltr;-webkit-appearance:none;
       ">
     </div>
-    ${!trialExpired && !fromTrial?`
+    ${String(dCode).length>4?`<button onclick="_pasteSerial()" class="ls-btn" style="background:none;border:1px dashed rgba(255,255,255,.6);color:#fff;border-radius:8px;padding:8px 20px;cursor:pointer;width:100%;max-width:320px;margin-bottom:10px;-webkit-appearance:none;">📋 لصق الكود</button>`:''}${!trialExpired && !fromTrial?`
     <button onclick="_activateTrial(${dCode})" class="ls-btn" style="
       background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
       padding:12px 40px;font-weight:bold;cursor:pointer;
@@ -10090,6 +10090,10 @@ document.addEventListener('DOMContentLoaded', async function(){
     console.error('فشل تحميل البيانات من التخزين', e);
     _showLoadErrorScreen();
     return;
+  }
+  if(_hasSignedCandidate()){
+    // تحقق التوقيع (async) قبل فحص التفعيل — بحد أقصى 3 ثواني، ولو فشل أو اتأخر البرنامج بيكمل عادي
+    try{ await Promise.race([_sigPreverify(), new Promise(r=>setTimeout(r,3000))]); }catch(e){}
   }
   initActivation();
   renderCompanyBar();
@@ -10185,11 +10189,93 @@ window.addEventListener('popstate', function(){
 // حارس أولي عند فتح الصفحة
 _pushBackGuard();
 
+// ============================================================
+// التوقيع الرقمي (المرحلة 1): أكواد التفعيل الجديدة بتتحقق بمفتاح عام بس.
+// المفتاح الخاص مش هنا أبدًا — موجود في الحاسبة عند صاحب البرنامج بس، فمفيش معادلة تتقلّد.
+// المعادلات القديمة تحت (_vk/_vt/_ve) لسه شغالة زي ما هي للأجهزة القديمة (كود جهاز 4 أرقام).
+// الأجهزة الجديدة (كود جهاز 10 أرقام) بتتفعّل بالتوقيع بس.
+// لو _SIG_PUBKEYS فاضية الميزة كلها مطفية والبرنامج بيشتغل بالظبط زي الأول.
+// ============================================================
+const _SIG_PUBKEYS = [
+  '04e11216823fee5f3062c771d6c7ad8af928d7e895685fb79546cc6554a1c975cb319b1d7a6418dc01eebf9a6fbe5f002aebd7847c52a9c3004acfd968d72c58f2', // المفتاح العام الحالي (من حاسبة التفعيل). ممكن تضيف مفتاح احتياطي كمان بعد الفاصلة.
+];
+const _SIG_ENABLED = _SIG_PUBKEYS.length > 0;
+const _SIG_PREFIX = 'SDK1';
+const __sigOkSet = new Set(); // أكواد اتحقق منها فعلًا في الجلسة دي (النوع|كود الجهاز|الكود)
+function _isLegacyDc(c){ const n = Number(c); return Number.isInteger(n) && n >= 1000 && n <= 9999; }
+function _newDeviceCode(){
+  if(_SIG_ENABLED) return Math.floor(1000000000 + Math.random() * 9000000000); // 10 أرقام
+  return Math.floor(1000 + Math.random() * 9000); // السلوك القديم بالظبط
+}
+function _sigNorm(s){ return String(s == null ? '' : s).toUpperCase().replace(/[^A-Z2-7]/g, ''); } // بيشيل أي مسافة أو شرطة أو علامة اتجاه مخفية (بتيجي من واتساب)
+function _b32ToBytes(s){
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, val = 0; const out = [];
+  for(const ch of s){
+    const i = A.indexOf(ch);
+    if(i < 0) return null;
+    val = (val << 5) | i; bits += 5;
+    if(bits >= 8){ bits -= 8; out.push((val >>> bits) & 255); val &= (1 << bits) - 1; }
+  }
+  return new Uint8Array(out);
+}
+function _hexToBytes(h){
+  const o = new Uint8Array(h.length / 2);
+  for(let i = 0; i < o.length; i++) o[i] = parseInt(h.substr(i * 2, 2), 16);
+  return o;
+}
+async function _sigVerify(type, dCode, code){
+  try{
+    if(!_SIG_ENABLED || !(window.crypto && crypto.subtle)) return false;
+    const n = _sigNorm(code);
+    if(n.length !== 103) return false;
+    const sig = _b32ToBytes(n);
+    if(!sig || sig.length !== 64) return false;
+    const msg = new TextEncoder().encode(_SIG_PREFIX + '|' + dCode + '|' + type);
+    for(const pk of _SIG_PUBKEYS){
+      const key = await crypto.subtle.importKey('raw', _hexToBytes(pk), {name:'ECDSA', namedCurve:'P-256'}, false, ['verify']);
+      if(await crypto.subtle.verify({name:'ECDSA', hash:'SHA-256'}, key, sig, msg)) return true;
+    }
+  }catch(e){}
+  return false;
+}
+async function _sigPrime(type, dCode, code){
+  if(await _sigVerify(type, dCode, code)) __sigOkSet.add(type + '|' + dCode + '|' + _sigNorm(code));
+}
+function _sigOK(type, c, k){ return __sigOkSet.size > 0 && __sigOkSet.has(type + '|' + c + '|' + _sigNorm(k)); }
+function _sigHint(dCode, code){
+  if(!_SIG_ENABLED || String(dCode).length <= 4) return '';
+  if(!(window.crypto && crypto.subtle)) return '\n(المتصفح ده مش بيدعم التحقق. افتح البرنامج من Chrome على رابط https)';
+  const n = _sigNorm(code).length;
+  if(n !== 103) return '\n(طول الكود ' + n + ' من 103. اتقطع أو اتزوّد حاجة وقت النسخ)';
+  return '\n(بصمة المفتاح في البرنامج: ' + _SIG_PUBKEYS[0].slice(-6) + ' — لازم تطابق آخر المفتاح العام في الحاسبة)';
+}
+function _hasSignedCandidate(){
+  if(!_SIG_ENABLED) return false;
+  return [DB.get('_ak'), DB.get('_ta')].some(v => v && _sigNorm(v).length === 103);
+}
+async function _sigPreverify(){
+  const dc = DB.get('_dc'); if(!dc) return;
+  const ak = DB.get('_ak'), ta = DB.get('_ta');
+  if(ak) await _sigPrime('P', dc, ak);
+  if(ta) await _sigPrime('T', dc, ta);
+}
+async function _pasteSerial(){
+  const inp = document.getElementById('serialInput'), msg = document.getElementById('activationMsg');
+  try{
+    const t = await navigator.clipboard.readText();
+    if(t && inp){ inp.value = t.trim(); return; }
+  }catch(e){}
+  if(msg){ msg.style.color = '#FFD700'; msg.textContent = 'اضغط مطولًا على الخانة واختار "لصق"'; }
+}
+
 // معادلة التحقق من كود التفعيل الدائم
 // بتقبل الكود الجديد (المعقّد) أو القديم (البسيط) — القديمة اتسابت زي ما هي بالظبط عشان
 // أي عميل كان مفعّل قبل التحديث ده يفضل شغال بالظبط زي ما هو من غير أي تأثير عليه.
 // أي كود جديد من دلوقتي لازم يتحسب بالمعادلة الجديدة (الحاسبة المرفقة بتحسبها تلقائي).
 function _vk(c,k){
+  if(_sigOK('P',c,k)) return true; // توقيع رقمي (أجهزة جديدة)
+  if(!_isLegacyDc(c)) return false; // المعادلات القديمة لأجهزة كود الجهاز فيها 4 أرقام بس
   const kn=Number(k);
   const _a='\x36\x35',_b='\x31\x33',_c='\x34\x35\x37',_d='\x39\x31';
   const _x=c,_y=Number(_b),_z=Number(_c),_w=Number(_d);
@@ -10202,6 +10288,8 @@ function _permNew(c){
 
 // معادلة التحقق من كود التجربة (مختلفة عن الدائم) — نفس مبدأ القديمة+الجديدة فوق
 function _vt(c,k){
+  if(_sigOK('T',c,k)) return true;
+  if(!_isLegacyDc(c)) return false;
   const kn=Number(k);
   if(kn===(c*7+199)*2-83) return true; // القديمة
   return kn===_trialNew(c); // الجديدة
@@ -10212,6 +10300,8 @@ function _trialNew(c){
 
 // معادلة التحقق من كود الأسبوع الإضافي (منفصلة تمامًا عن الدائم والتجربة) — نفس المبدأ
 function _ve(c,k){
+  if(_sigOK('E',c,k)) return true;
+  if(!_isLegacyDc(c)) return false;
   const kn=Number(k);
   if(kn===(c*11+331)*2-67) return true; // القديمة
   return kn===_extNew(c); // الجديدة
@@ -10221,11 +10311,12 @@ function _extNew(c){
 }
 
 // تفعيل أسبوع إضافي بعد انتهاء التجربة — مرة واحدة فقط لكل جهاز
-function _activateExtension(dCode){
+async function _activateExtension(dCode){
   const serial = document.getElementById('serialInput').value.trim();
   const msg = document.getElementById('activationMsg');
   if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الكود'; return; }
   if(DB.get('_te')){ msg.style.color='#FF6B6B'; msg.textContent='❌ الأسبوع الإضافي اتفعّل قبل كده على الجهاز ده'; return; }
+  await _sigPrime('E', dCode, serial);
   if(_ve(dCode, serial)){
     DB.set('_ts', Date.now()); // إعادة بدء عد الأيام من دلوقتي (7 أيام جديدة)
     DB.set('_te', true); // منع استخدام الخاصية دي مرة تانية على نفس الجهاز
@@ -10244,15 +10335,16 @@ function _activateExtension(dCode){
     },1200);
   } else {
     msg.style.color='#FF6B6B';
-    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني' + _sigHint(dCode, serial);
   }
 }
 
 // تفعيل النسخة التجريبية
-function _activateTrial(dCode){
+async function _activateTrial(dCode){
   const serial = document.getElementById('serialInput').value.trim();
   const msg = document.getElementById('activationMsg');
   if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل كود التجربة'; return; }
+  await _sigPrime('T', dCode, serial);
   if(_vt(dCode, serial)){
     DB.set('_ta', serial);
     DB.set('_ts', Date.now());
@@ -10272,15 +10364,16 @@ function _activateTrial(dCode){
     },1200);
   } else {
     msg.style.color='#FF6B6B';
-    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني' + _sigHint(dCode, serial);
   }
 }
 
 // تفعيل النسخة الكاملة الدائمة
-function _activate(dCode){
+async function _activate(dCode){
   const serial = document.getElementById('serialInput').value.trim();
   const msg = document.getElementById('activationMsg');
   if(!serial){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل كود التفعيل'; return; }
+  await _sigPrime('P', dCode, serial);
   if(_vk(dCode, serial)){
     DB.set('_ak', serial);
     // امسح بيانات التجربة
@@ -10303,7 +10396,7 @@ function _activate(dCode){
     },1200);
   } else {
     msg.style.color='#FF6B6B';
-    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني';
+    msg.textContent='❌ الكود غلط، تأكد من الكود وحاول تاني' + _sigHint(dCode, serial);
   }
 }
 
