@@ -3322,7 +3322,7 @@ async function _pullAllSyncData(){
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
-const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases'];
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases','auditLog'];
 
 const SYNC_ARRAY_LABELS={
   clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
@@ -3331,7 +3331,8 @@ const SYNC_ARRAY_LABELS={
   purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
   checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
-  clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة', heldPurchases:'مشتريات معلقة'
+  clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة', heldPurchases:'مشتريات معلقة',
+  auditLog:'سجل حذف وتعديل'
 }; // مستخدمة لو حبينا نبني شاشة سجل مزامنة تفصيلية لاحقًا
 
 // بتسجل id عنصر اتمسح في سجل الحذف (dedup) - بتتنادى من كل فانكشن حذف
@@ -3357,7 +3358,7 @@ function logActivity(action, entityLabel, itemName, detail){
 function getSyncArrayMap(){
   return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
     supplierPayments,purchaseReturns,expenses,productions,checksPayable,
-    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases};
+    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases,auditLog};
 }
 
 // بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
@@ -3422,6 +3423,14 @@ function applyIncomingChanges(additions,updates){
       if(idx>-1) arr[idx]=remoteItem;
     });
   });
+  // سجل الحذف والتعديل بيوصل هنا بترتيب وصوله (push في الآخر) مش بترتيب وقت حصوله فعليًا،
+  // وده عكس ترتيب unshift المحلي (الأحدث فوق) اللي شاشة "سجل الحذف والتعديل" معتمدة عليه في
+  // العرض. فبعد أي إضافة فعلية جواه، بنعيد ترتيبه تنازليًا بالـ ts ونقصّه لآخر 500 عشان يفضل
+  // الأحدث فوق ونفس السقف المحلي (logActivity) ساري حتى بعد دمج جهاز تاني.
+  if(additions.auditLog && additions.auditLog.length){
+    auditLog.sort((a,b)=>(b.ts||0)-(a.ts||0));
+    if(auditLog.length>500) auditLog.length=500;
+  }
 }
 
 // الزرار اللي بيستلم التحديثات فعليًا - بيجيب آخر نسخة من السيرفر،
