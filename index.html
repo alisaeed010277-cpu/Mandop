@@ -719,6 +719,7 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
   <div id="tab-pricelist" style="display:none"></div>
   <div id="tab-banks" style="display:none"></div>
   <div id="tab-pos" style="display:none"></div>
+  <div id="tab-auditlog" style="display:none"></div>
 </div>
 
 <!-- زر التواصل السريع (واتساب) -->
@@ -771,7 +772,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1486,6 +1487,9 @@ let docNumberCounters={invoice:0, purchase:0, return:0, purchaseReturn:0};
 let repNotes=[];
 let clientNotes=[];
 let companyProfile={name:'',phone:'',businessType:''};
+// سجل الحذف والتعديل — بيتعرض في شاشة "سجل الحذف والتعديل" آخر المزيد. الأحدث في المقدمة
+// (unshift)، ومحدود بآخر 500 عملية بس عشان الحجم مايكبرش من غير داعي. راجع logActivity() تحت.
+let auditLog=[];
 
 // ===== تخصيص النشاط: نمطين تقنيين (medical/simple) تحت 4 اختيارات ظاهرة للعميل =====
 // مفيش أي اختيار محفوظ (كل العملاء الحاليين النهاردة) ⇒ currentMode() بترجع 'medical'
@@ -1866,13 +1870,14 @@ const save=()=>{
   idbSet(KEYS.deletedIds,deletedIds);
   idbSet(KEYS.heldInvoices,heldInvoices);
   idbSet(KEYS.heldPurchases,heldPurchases);
+  idbSet(KEYS.auditLog,auditLog);
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
   try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1899,6 +1904,9 @@ async function loadAllData(){
   deletedIds=delIds||{};
   heldInvoices=hInv||[];
   heldPurchases=hPur||[];
+  // أجهزة كانت شغالة قبل إضافة سجل الحذف والتعديل هيبقى عندها القيمة دي فاضية أول مرة -
+  // عادي وآمن، بالظبط زي نفس الأسلوب المتبع فوق مع heldInvoices/heldPurchases
+  auditLog=aLog||[];
   // أجهزة كانت شغالة قبل الإضافة دي هيبقى عندها القيمة دي فاضية أول مرة - عادي وآمن،
   // لأن nextDocNumber() تحت بتاخد أعلى رقم موجود فعلاً في الفواتير كحد أدنى أول ما تتنادى
   docNumberCounters=dnc||{invoice:0, purchase:0, return:0, purchaseReturn:0};
@@ -2697,7 +2705,8 @@ const TAB_DEFS=[
   {id:'treasury',icon:'🏦',label:'الخزنة'},
   {id:'pricelist',icon:'📋',label:'قائمة الأسعار'},
   {id:'banks',icon:'🏛️',label:'البنوك'},
-  {id:'pos',icon:'🛒',label:'كاشير سريع'}
+  {id:'pos',icon:'🛒',label:'كاشير سريع'},
+  {id:'auditlog',icon:'🛡️',label:'سجل الحذف والتعديل'}
 ];
 // أول 5 تابات ثابتة تظهر في الشريط لكل المستخدمين (مش قابلة للتخصيص) — الباقي يظهر في "المزيد"
 const MAIN_TAB_IDS=['home','stock','clients','suppliers','payments'];
@@ -3333,6 +3342,15 @@ function recordDeletion(key,id){
   if(!deletedIds[key].includes(id)) deletedIds[key].push(id);
 }
 
+// سجل الحذف والتعديل (شاشة "سجل الحذف والتعديل" آخر المزيد) — منفصل تمامًا عن recordDeletion
+// فوق (اللي غرضه مزامنة الأجهزة بس). الهدف هنا إن صاحب النشاط يقدر يرجع يشوف مين مسح/عدّل
+// إيه وإمتى، على البيانات الأساسية المحفوظة فقط (مش مسودات ولا سطور فورم لسه مش متحفوظة).
+// الأحدث بيتحط في المقدمة (unshift)، ومحدود بآخر 500 عملية بس عشان الحجم مايكبرش من غير داعي.
+function logActivity(action, entityLabel, itemName, detail){
+  auditLog.unshift({id:uid(), ts:Date.now(), action, entityLabel, itemName:itemName||'', detail:detail||''});
+  if(auditLog.length>500) auditLog.length=500;
+}
+
 // الـ arrays دي متعرّفة بـ let منفصلة على مستوى الملف مش object واحد،
 // فالفانكشن دي بترجع مرجع مباشر لكل واحدة فيهم (نفس الـ array الأصلي
 // بالظبط، مش نسخة) عشان أي push عليها يأثر على المتغير الحقيقي فورًا
@@ -3581,6 +3599,7 @@ function render(){
   else if(currentTab==='pricelist')renderPriceList();
   else if(currentTab==='banks')renderBanks();
   else if(currentTab==='pos')renderPos();
+  else if(currentTab==='auditlog')renderAuditLog();
 }
 
 // ===== كاشير سريع (POS) — المرحلة ٢: محرك المسح والبيع الفعلي =====
@@ -4051,8 +4070,12 @@ function saveOpeningBalance(type, id){
   const list = type==='client' ? clients : suppliers;
   const item = list.find(x=>x.id===id);
   if(!item)return;
+  const oldOpening=Number(item.opening||0);
   item.opening = Number(document.getElementById('openingAmountInput').value||0);
   item.openingDate = document.getElementById('openingDateInput').value||today();
+  if(oldOpening!==item.opening){
+    logActivity('edit',type==='client'?'عميل':'مورد',item.name,'الرصيد الافتتاحي: من '+fmt(oldOpening)+' إلى '+fmt(item.opening)+' ج');
+  }
   postOpeningBalanceJournal(type,item);
   save();
   document.getElementById('openingModal').remove();
@@ -4086,7 +4109,11 @@ function saveEditedName(type, id){
   const newName=document.getElementById('editNameInput').value.trim();
   if(!newName){showToast('أدخل الاسم');return;}
   if(isDuplicateName(list,newName,id)){showToast(`في ${type==='client'?'عميل':'مورد'} بنفس الاسم ده موجود بالفعل`);return;}
+  const oldName=item.name;
   item.name=newName;
+  if(oldName!==newName){
+    logActivity('edit',type==='client'?'عميل':'مورد',newName,'الاسم القديم: '+oldName);
+  }
   save();
   document.getElementById('editNameModal').remove();
   if(type==='client') renderClients(); else renderSuppliers();
@@ -4620,6 +4647,7 @@ function deleteClient(id){
   const cl=clients.find(c=>c.id===id);
   const cName=cl?cl.name:'';
   showDangerConfirm('هتحذف العميل "'+cName+'" وكل الفواتير والسداد والمرتجعات الخاصة بيه؟ الإجراء ده مينفعش يترجع.', cName, function(){
+    logActivity('delete','عميل',cName,'');
     const clientInvoiceIds=invoices.filter(i=>i.clientId===id).map(i=>i.id);
     const clientReturnIds=returns.filter(r=>r.clientId===id).map(r=>r.id);
     const clientPaymentIds=payments.filter(p=>p.clientId===id).map(p=>p.id);
@@ -5668,6 +5696,9 @@ function _saveInvoiceCore(clientId, date, isCash){
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
   const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
+  if(removedInv){
+    logActivity('edit','فاتورة مبيعات','#'+inv.number,(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج');
+  }
   removeJournalBySource('invoice', inv.id);
   postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
   reconcileCogsJournals(); // بيحسب ويرحّل تكلفة البضاعة المباعة لكل الفواتير (بما فيها دي) بمتوسط التكلفة الصحيح وقت كل عملية بيع — بدل حساب مكرر هنا كان ممكن يختلف عن نتيجة إعادة التسوية
@@ -5699,6 +5730,7 @@ function deleteInvoice(id){
   const invToDelete=invoices.find(i=>i.id===id);
   if(isRestrictedRole() && (!invToDelete||!roleCanModify(invToDelete)))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
+    logActivity('delete','فاتورة مبيعات','#'+invToDelete.number,(clients.find(c=>c.id===invToDelete.clientId)?.name||'')+' • '+fmt(invToDelete.total)+' ج');
     // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
     if(autoPay){ recordDeletion('payments',autoPay.id); payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
@@ -6077,7 +6109,9 @@ function renderPaymentDetail(){
 
 function deletePayment(id){
   if(isRestrictedRole()){ const _pp=payments.find(p=>p.id===id); if(!_pp||!roleCanModify(_pp)) return; }
+  const _payItem=payments.find(p=>p.id===id);
   showConfirm('هتحذف عملية السداد دي؟', function(){
+    logActivity('delete','تحصيل من عميل',(clients.find(c=>c.id===_payItem?.clientId)?.name||''),fmt(_payItem?.amount||0)+' ج');
     recordDeletion('payments',id);
     payments=payments.filter(p=>p.id!==id);
     removeJournalBySource('payment', id);
@@ -6369,7 +6403,9 @@ function saveReturn(){
 
 function deleteReturn(id){
   if(isRestrictedRole()){ const _rr=returns.find(r=>r.id===id); if(!_rr||!roleCanModify(_rr)) return; }
+  const _retItem=returns.find(r=>r.id===id);
   showConfirm('هتحذف المرتجع ده؟', function(){
+    logActivity('delete','مردود مبيعات','#'+(_retItem?.number||''),(clients.find(c=>c.id===_retItem?.clientId)?.name||'')+' • '+fmt(_retItem?.total||0)+' ج');
     recordDeletion('returns',id);
     returns=returns.filter(r=>r.id!==id);
     movements.filter(m=>m.returnId===id).forEach(m=>recordDeletion('movements',m.id));
@@ -6755,6 +6791,7 @@ function saveProduct(){
           [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
       }
       save();
+      logActivity('edit','منتج',name,price>0?(fmt(price)+' ج'):'');
       editProductId=null; showProductForm=false; productSubUnits=[]; productFormDraft={};
       renderStock();
     };
@@ -6801,7 +6838,9 @@ function saveProduct(){
   }
 }
 function deleteProduct(id){
+  const _prod=stock.find(p=>p.id===id);
   showConfirm('هتحذف المنتج ده؟', function(){
+    logActivity('delete','منتج',_prod?_prod.name:'','');
     recordDeletion('stock',id);
     stock=stock.filter(p=>p.id!==id);
     movements.filter(m=>m.productId===id).forEach(m=>recordDeletion('movements',m.id));
@@ -6926,6 +6965,7 @@ function deleteProduction(id){
       showToast('معلش، مينفعش تحذف العملية دي — جزء من الكمية الناتجة اتباع أو اتصرف بالفعل. لازم رصيد الصنف الناتج يكون كافي الأول.');
       return;
     }
+    logActivity('delete','عملية تصنيع',(stock.find(s=>s.id===op.outputProductId)?.name||''),'الكمية: '+fmtQty(op.outputQty));
     movements.filter(m=>m.productionId===id).forEach(m=>recordDeletion('movements',m.id));
     movements=movements.filter(m=>m.productionId!==id);
     removeJournalBySource('production', id);
@@ -7446,7 +7486,9 @@ function addExpense(){
 
 function deleteExpense(id){
   if(isRestrictedRole()){ const _ee=expenses.find(e=>e.id===id); if(!_ee||!roleCanModify(_ee)) return; }
+  const _exp=expenses.find(e=>e.id===id);
   showConfirm('متأكد من حذف المصروف ده؟', function(){
+    logActivity('delete','مصروف',_exp?_exp.label:'',fmt(_exp?.amount||0)+' ج');
     recordDeletion('expenses',id);
     expenses=expenses.filter(e=>e.id!==id);
     removeJournalBySource('expense', id);
@@ -7709,7 +7751,7 @@ function saveCheck(){
   const arr=currentChecksArr();
   if(editCheckId){
     const c=arr.find(x=>x.id===editCheckId);
-    if(c){ c.number=number; c.amount=amount; c.holderType=holderType; c.holderId=holderId||null; c.holderName=holderName; c.bank=bank; c.dueDate=dueDate; c.note=note; }
+    if(c){ c.number=number; c.amount=amount; c.holderType=holderType; c.holderId=holderId||null; c.holderName=holderName; c.bank=bank; c.dueDate=dueDate; c.note=note; logActivity('edit','شيك','#'+number,holderName+' • '+fmt(amount)+' ج'); }
   }else{
     arr.push({id:uid(),number,amount,holderType,holderId:holderId||null,holderName,bank,dueDate,note,status:'pending',settledDate:null,createdDate:today()});
   }
@@ -7718,7 +7760,9 @@ function saveCheck(){
 }
 
 function deleteCheck(id){
+  const _chkItem=(banksSubView==='payable'?checksPayable:checksReceivable).find(c=>c.id===id);
   showConfirm('متأكد من حذف الشيك ده؟', function(){
+    logActivity('delete','شيك','#'+(_chkItem?.number||''),(_chkItem?.holderName||'')+' • '+fmt(_chkItem?.amount||0)+' ج');
     removeJournalBySource('check',id);
     if(banksSubView==='payable'){ recordDeletion('checksPayable',id); checksPayable=checksPayable.filter(c=>c.id!==id); }
     else{ recordDeletion('checksReceivable',id); checksReceivable=checksReceivable.filter(c=>c.id!==id); }
@@ -7816,7 +7860,7 @@ function saveBankAccount(){
   if(!accountNumber){showToast('اكتب رقم الحساب');return;}
   if(editBankAccId){
     const a=bankAccounts.find(x=>x.id===editBankAccId);
-    if(a){ a.bankName=bankName; a.accountNumber=accountNumber; a.opening=opening; }
+    if(a){ a.bankName=bankName; a.accountNumber=accountNumber; a.opening=opening; logActivity('edit','حساب بنكي',bankName,accountNumber); }
   }else{
     bankAccounts.push({id:uid(),bankName,accountNumber,opening,createdDate:today()});
   }
@@ -7828,6 +7872,8 @@ function deleteBankAccount(id){
   const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id);
   const msg=hasTx?'الحساب ده متسجل عليه حركات شيكات فعلية. حذفه هيمسح بياناته بس الشيكات هتفضل موجودة في سجلها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
   showConfirm(msg, function(){
+    const _acc=bankAccounts.find(a=>a.id===id);
+    logActivity('delete','حساب بنكي',_acc?_acc.bankName:'',_acc?_acc.accountNumber:'');
     recordDeletion('bankAccounts',id);
     bankAccounts=bankAccounts.filter(a=>a.id!==id);
     if(bankAccountDetailId===id) bankAccountDetailId=null;
@@ -8754,6 +8800,7 @@ function deleteSupplier(id){
   const sp=suppliers.find(s=>s.id===id);
   const spName=sp?sp.name:'';
   showDangerConfirm('هتحذف المورد "'+spName+'" وكل المشتريات والمدفوعات والمردودات المرتبطة بيه؟', spName, function(){
+    logActivity('delete','مورد',spName,'');
     const purIds=purchases.filter(p=>p.supplierId===id).map(p=>p.id);
     const purRetIds=purchaseReturns.filter(r=>r.supplierId===id).map(r=>r.id);
     const supPaymentIds=supplierPayments.filter(p=>p.supplierId===id).map(p=>p.id);
@@ -9145,6 +9192,9 @@ function savePurchase(){
   if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
   const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
   purchases.push(pur);
+  if(removedPur){
+    logActivity('edit','فاتورة مشتريات','#'+pur.number,(suppliers.find(s=>s.id===supplierId)?.name||'')+' • '+fmt(total)+' ج');
+  }
   removeJournalBySource('purchase', pur.id);
   postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+pur.number, [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
   // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
@@ -9166,7 +9216,9 @@ function savePurchase(){
 }
 
 function deletePurchase(id){
+  const _purItem=purchases.find(p=>p.id===id);
   showConfirm('هتحذف فاتورة المشتريات دي؟ الكميات هترجع للمخزن.', function(){
+    logActivity('delete','فاتورة مشتريات','#'+(_purItem?.number||''),(suppliers.find(s=>s.id===_purItem?.supplierId)?.name||'')+' • '+fmt(_purItem?.total||0)+' ج');
     // لو كانت فاتورة مشتريات كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=supplierPayments.find(p=>p.purchaseId===id&&p.isCashAuto);
     if(autoPay){ recordDeletion('supplierPayments',autoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==autoPay.id); removeJournalBySource('supplierPayment', autoPay.id); }
@@ -9518,7 +9570,9 @@ function renderSupPayTabDetail(){
 }
 
 function deleteSupplierPaymentTab(id){
+  const _spItem=supplierPayments.find(p=>p.id===id);
   showConfirm('هتحذف عملية السداد دي؟', function(){
+    logActivity('delete','سداد مورد',(suppliers.find(s=>s.id===_spItem?.supplierId)?.name||''),fmt(_spItem?.amount||0)+' ج');
     recordDeletion('supplierPayments',id);
     supplierPayments=supplierPayments.filter(p=>p.id!==id);
     removeJournalBySource('supplierPayment', id);
@@ -9736,7 +9790,9 @@ function savePurRet(){
 }
 
 function deletePurRet(id){
+  const _prItem=purchaseReturns.find(r=>r.id===id);
   showConfirm('هتحذف مردود المشتريات ده؟ الكميات هتترجع تتخصم تاني من المخزن.', function(){
+    logActivity('delete','مردود مشتريات','#'+(_prItem?.number||''),(suppliers.find(s=>s.id===_prItem?.supplierId)?.name||'')+' • '+fmt(_prItem?.total||0)+' ج');
     recordDeletion('purchaseReturns',id);
     purchaseReturns=purchaseReturns.filter(r=>r.id!==id);
     movements.filter(m=>m.purchaseReturnId===id).forEach(m=>recordDeletion('movements',m.id));
@@ -10145,6 +10201,17 @@ document.addEventListener('DOMContentLoaded', async function(){
     _showLoadErrorScreen();
     return;
   }
+  // إصلاح حرج (مسح البيانات عند المزامنة): startSyncListener() كانت بتتنادى من سكريبت
+  // منفصل تحت آخر الملف، بيشتغل وقت تحليل الصفحة نفسه - يعني قبل ما await loadAllData()
+  // فوق يخلص أصلاً (لأن السكريبت ده بره الـ DOMContentLoaded وبيسبقه). النتيجة: أول
+  // "لقطة" جايه من فايرستور كانت بتوصل والمصفوفات المحلية (clients/invoices/...) لسه
+  // فاضية بقيمتها الافتراضية، فبتتطبق كأنها "إضافات" فوق مصفوفة فاضية، وبعدين save()
+  // بتحفظ الفاضي/الناقص ده في IndexedDB فوق بيانات الجهاز الحقيقية (وكمان بترفعه كنسخة
+  // احتياطية صامتة فوق النسخة الصح) - وده اللي كان بيظهر للمستخدم كمسح كامل للبيانات
+  // بعد أي مزامنة. الحل: منادي startSyncListener() هنا بس، بعد ما البيانات المحلية
+  // الحقيقية تكون خلصت تحميل فعلاً من IndexedDB، عشان أي دمج مع السيرفر يبقى على
+  // البيانات الحقيقية مش على مصفوفات فاضية. (الاستدعاء القديم تحت آخر الملف اتشال.)
+  try{ if(typeof startSyncListener==='function') startSyncListener(); }catch(e){}
   if(_hasSignedCandidate()){
     // تحقق التوقيع (async) قبل فحص التفعيل — بحد أقصى 3 ثواني، ولو فشل أو اتأخر البرنامج بيكمل عادي
     try{ await Promise.race([_sigPreverify(), new Promise(r=>setTimeout(r,3000))]); }catch(e){}
@@ -10465,6 +10532,53 @@ function _maybeShowBusinessTypeFirstTime(){
   setTimeout(()=>{ showBusinessTypeModal(true); }, 600);
 }
 
+// ============================================================
+// سجل الحذف والتعديل — شاشة للقراءة فقط، آخر حاجة في "المزيد"، وظاهرة للمالك بس (مش
+// موجودة أصلًا في ROLE_TAB_OPTIONS ولا في قائمة "المزيد" للأدوار المقيّدة، زي أي تبويب تاني).
+// عن قصد مفيش أي زرار حذف أو تعديل جوه الشاشة دي نفسها — سجل تقدر تعدّل فيه مش سجل يتوثق بيه.
+// ============================================================
+let auditLogFilter='all'; // all | delete | edit
+
+function renderAuditLog(){
+  if(isRestrictedRole()){ document.getElementById('tab-auditlog').innerHTML='<div class="empty">غير متاح</div>'; return; }
+  const filtered=auditLog.filter(a=>auditLogFilter==='all'||a.action===auditLogFilter);
+  const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${auditLogFilter===key?'#1A5276':'#D5D8DC'};color:${auditLogFilter===key?'#fff':'#333'}" onclick="auditLogFilter='${key}';renderAuditLog()">${label}</button>`;
+
+  const rows=filtered.map(a=>{
+    const isDelete=a.action==='delete';
+    let dateStr='',timeStr='';
+    try{
+      const d=new Date(a.ts);
+      dateStr=d.toLocaleDateString('ar-EG');
+      timeStr=d.toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
+    }catch(e){}
+    return `
+    <div class="list-item">
+      <div class="list-item-head">
+        <div>
+          <div class="list-item-name">${isDelete?'🗑️':'✏️'} ${esc(a.entityLabel)}${a.itemName?' — '+esc(a.itemName):''}</div>
+          <div class="list-item-sub">📅 ${dateStr} ⏰ ${timeStr}${a.detail?' · '+esc(a.detail):''}</div>
+        </div>
+        <span class="badge ${isDelete?'red':'orange'}">${isDelete?'حذف':'تعديل'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('tab-auditlog').innerHTML=`
+    <div style="padding:14px">
+      <div class="page-title" style="margin-bottom:10px">🛡️ سجل الحذف والتعديل</div>
+      <div style="font-size:12.5px;color:#717D7E;margin-bottom:14px;line-height:1.7">
+        بيتسجل هنا تلقائيًا أي عملية حذف أو تعديل على بيانات محفوظة (عملاء، موردين، فواتير، مخزون، مصاريف...) بتاريخها ووقتها. السجل للعرض بس — مفيش أي زرار يعدّله أو يمسح منه.
+      </div>
+      <div class="btn-row" style="margin-bottom:14px">
+        ${filterBtn('all','الكل')}
+        ${filterBtn('delete','حذف بس')}
+        ${filterBtn('edit','تعديل بس')}
+      </div>
+      ${filtered.length===0?'<div class="empty">مفيش عمليات حذف أو تعديل متسجلة لسه</div>':rows}
+    </div>`;
+}
+
 // تسجيل السيرفس ووركر لتفعيل تثبيت التطبيق كأيقونة مستقلة (PWA)
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
@@ -10516,8 +10630,9 @@ try{
   // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
   console.warn('sync init skipped:', e);
 }
-// لو المزامنة كانت متفعّلة من قبل على الجهاز ده، ابدأ الاستماع تلقائيًا
-try{ if(typeof startSyncListener==='function') startSyncListener(); }catch(e){}
+// ملاحظة: استدعاء startSyncListener() اتنقل لجوه DOMContentLoaded (بعد ما await loadAllData()
+// يخلص) - راجع تعليق "إصلاح حرج" هناك. منادتها هنا مباشرة كانت بتسبق تحميل البيانات المحلية
+// وتسبب مسح بيانات حقيقي عند أول مزامنة على أي جهاز.
 </script>
 </body>
 </html>
