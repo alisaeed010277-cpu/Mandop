@@ -2026,9 +2026,26 @@ function removeJournalBySource(sourceType, sourceId){
   journalEntries=journalEntries.filter(j=>!(j.sourceType===sourceType && j.sourceId===sourceId));
 }
 // رصيد حساب معين: بيرجع {debit, credit} — العمود اللي المفروض يظهر فيه الرصيد حسب طبيعة الحساب
-function accountBalance(accountId){
+// uptoDate اختياري: لو اتبعت، الرصيد بيتحسب "كما في" التاريخ ده (تراكمي لحد آخره) بدل تراكمي لحد النهاردة —
+// مستخدم في ميزان المراجعة والميزانية العمومية عشان يحترموا "إلى تاريخ" في فلتر فترة التقرير
+function accountBalance(accountId, uptoDate){
   let totalDebit=0, totalCredit=0;
   journalEntries.forEach(j=>{
+    if(uptoDate && j.date>uptoDate) return;
+    j.lines.forEach(l=>{
+      if(l.accountId===accountId){ totalDebit+=Number(l.debit)||0; totalCredit+=Number(l.credit)||0; }
+    });
+  });
+  const net=totalDebit-totalCredit;
+  return {totalDebit, totalCredit, debit: net>=0?net:0, credit: net<0?-net:0};
+}
+// حركة حساب معين خلال فترة بس (من غير أي رصيد سابق) — بعكس accountBalance اللي بيرجع رصيد تراكمي "كما في تاريخ"،
+// دي بترجع إجمالي المدين/الدائن اللي حصل بين from و to بس. مستخدمة في قائمة الدخل (تقرير "لفترة" مش "كما في تاريخ")
+function accountPeriodMovement(accountId, fromDate, toDate){
+  let totalDebit=0, totalCredit=0;
+  journalEntries.forEach(j=>{
+    if(fromDate && j.date<fromDate) return;
+    if(toDate && j.date>toDate) return;
     j.lines.forEach(l=>{
       if(l.accountId===accountId){ totalDebit+=Number(l.debit)||0; totalCredit+=Number(l.credit)||0; }
     });
@@ -3073,8 +3090,16 @@ function pushSyncSnapshot(){
         if(!item || !item.id) return;
         const json=JSON.stringify(item);
         if(cache.get(item.id)===json) return; // زي ما هو على السيرفر بالظبط - مفيش داعي نكتبه تاني
+        // نقطة 11 (حماية من تعارض التعديلات): محتوى السجل اتغيّر فعليًا عن آخر نسخة نعرف إنها
+        // وصلت السيرفر - قبل ما نبعته، بنختم عليه رقم نسخة متزايد (_v) + وقت التعديل + هوية
+        // الجهاز، عشان أي جهاز تاني يستلم السجل ده بعدين يقدر يكتشف لو هو كان بيعدّل نفس السجل
+        // في نفس الوقت تقريبًا (تعارض حقيقي) بدل ما يستبدله من غير ما حد ينتبه - راجع
+        // _isSyncConflict() و applyIncomingChanges() تحت.
+        item._v=(Number(item._v)||0)+1;
+        item._updatedAt=Date.now();
+        item._updatedBy=__deviceId;
         ops.push({ref:wsRef.collection(key).doc(String(item.id)), type:'set', data:item});
-        cache.set(item.id, json);
+        cache.set(item.id, JSON.stringify(item));
       });
       const delSet=__syncPushedDeletions[key] || (__syncPushedDeletions[key]=new Set());
       (deletedIds[key]||[]).forEach(id=>{
@@ -3315,10 +3340,16 @@ async function _pullAllSyncData(){
 //
 // مرحلة 6: إضافة اكتشاف وتطبيق "التعديلات" على عناصر موجودة بالفعل
 // (مش بس العناصر الجديدة زي المرحلة اللي فاتت). التعديل بيتطبق بنظام
-// last-write-wins بسيط (بناخد النسخة الجاية من السيرفر زي ما هي) من
-// غير أي منطق تعارض معقد - قرار متعمد لأن احتمال إن جهازين يعدّلوا
-// نفس العنصر بالظبط في نفس اللحظة تقريبًا معدوم في طريقة استخدامك
-// الفعلية للتطبيق.
+// last-write-wins (بناخد النسخة الجاية من السيرفر زي ما هي) - القرار
+// الأصلي كان تجاهل أي منطق تعارض تمامًا لأن احتمال إن جهازين يعدّلوا
+// نفس العنصر بالظبط في نفس اللحظة تقريبًا كان شبه معدوم. **نقطة 11:**
+// بعد مراجعة أمان المزامنة، اتضاف اكتشاف تعارض فعلي فوق last-write-wins
+// دي (مش بديل عنها): كل سجل بيتختم برقم نسخة (_v) وهوية آخر جهاز عدّله
+// وقت الحفظ (pushSyncSnapshot)، ولو تحديث واصل هنا لقى إن آخر تعديل
+// محلي لنفس السجل كان من الجهاز ده نفسه وبنسخة مش أقدم من الواصلة،
+// بيتسجل تعارض في سجل الحذف والتعديل ويظهر تنبيه - عشان الاستبدال
+// يحصل مع تنبيه مش من غير ما حد ينتبه. شوف _isSyncConflict() و
+// applyIncomingChanges() تحت.
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
@@ -3407,22 +3438,56 @@ function applyIncomingDeletions(remoteDeletedIds){
   return count;
 }
 
+// نقطة 11 (حماية من تعارض التعديلات): بنعتبرها "تعارض حقيقي" بس لو آخر حد عدّل السجل ده محليًا
+// كان الجهاز ده نفسه (_updatedBy) وبرقم نسخة مش أقدم من النسخة الواصلة من السيرفر (_v) - يعني
+// الجهازين عدّلوا نفس السجل من نفس نقطة البداية تقريبًا من غير ما أي واحد فيهم ياخد تعديل التاني
+// في الاعتبار. لو آخر تعديل محلي كان هو نفسه جاي من مزامنة قبل كده (مش من مستخدم الجهاز ده)، أو لو
+// نسخته أقدم من الواصلة، يبقى التحديث طبيعي ومتسلسل مش تعارض. سجلات قديمة (من قبل إضافة الميزة
+// دي) مفيهاش _v/_updatedBy فبترجع false هنا زي بالظبط السلوك اللي كان قبل كده (توافق للخلف).
+function _isSyncConflict(local, remote){
+  return !!local && local._updatedBy===__deviceId && (Number(local._v)||0)>=(Number(remote._v)||0);
+}
+// اسم قصير مفهوم للسجل عشان يتعرض في سجل الحذف والتعديل عند اكتشاف تعارض - بيجرب أشهر الحقول
+// المستخدمة زي الاسم/الرقم/الملاحظة، وبيرجع جزء من الـid لو معرفش حقل مناسب
+function _syncItemLabel(item){
+  return (item&&(item.name||item.number||item.note))||('#'+String(item&&item.id||'').slice(-4));
+}
+// نقطة 11: بيسجل كل تعارض اتكتشف في سجل الحذف والتعديل (بيتزامن ويفضل موجود للمراجعة لاحقًا على
+// أي جهاز) وبيوريك تنبيه واحد مجمّع (مش تنبيه منفصل لكل سجل) - عشان "عدم الكتابة فوق سجل متغير
+// دون تنبيه". السجل اللي كان عندك محليًا بيتستبدل بالنسخة الواصلة برضه (زي أي تحديث تاني) لكن
+// دلوقتي بتنتبه وتقدر تراجع/تعيد تعديلك لو حصل فيه فقد فعلي.
+function _alertSyncConflicts(conflicts){
+  conflicts.forEach(({key,item})=>{
+    logActivity('edit', SYNC_ARRAY_LABELS[key]||key, _syncItemLabel(item),
+      'تعارض تعديل: جهاز تاني عدّل نفس السجل في نفس الوقت تقريبًا، واتطبقت نسخته (آخر نسخة وصلت للسيرفر)');
+  });
+  try{
+    showToast('⚠️ تعارض تعديل على '+conflicts.length+' سجل كنت بتعدّله هنا وعدّله جهاز تاني في نفس الوقت تقريبًا. اتطبقت آخر نسخة - راجع "سجل الحذف والتعديل".');
+  }catch(e){}
+}
 // بتحقن العناصر الجديدة وبتستبدل العناصر المعدّلة مباشرة في المصفوفات
 // المحلية (من غير المرور على أي فانكشن إضافة/تعديل عادي) - العناصر دي
 // جاهزة بالكامل زي ما هي اتسجلت على الجهاز الأصلي، بما فيها أي حركات
-// مخزون أو قيود مرتبطة. التعديل بيستبدل العنصر بالكامل (last-write-wins)
+// مخزون أو قيود مرتبطة. التعديل بيستبدل العنصر بالكامل (last-write-wins)،
+// لكن نقطة 11 ضافت خطوة قبلها: لو السجل ده كان اتعدّل هنا في نفس الوقت
+// تقريبًا (_isSyncConflict)، بنسجّل تعارض ونتنبّه قبل الاستبدال.
 function applyIncomingChanges(additions,updates){
   const map=getSyncArrayMap();
   Object.keys(additions).forEach(key=>{
     if(map[key]) map[key].push(...additions[key]);
   });
+  const _conflicts=[];
   Object.keys(updates).forEach(key=>{
     const arr=map[key]; if(!arr) return;
     updates[key].forEach(remoteItem=>{
       const idx=arr.findIndex(x=>x&&x.id===remoteItem.id);
-      if(idx>-1) arr[idx]=remoteItem;
+      if(idx>-1){
+        if(_isSyncConflict(arr[idx],remoteItem)) _conflicts.push({key,item:arr[idx]});
+        arr[idx]=remoteItem;
+      }
     });
   });
+  if(_conflicts.length) _alertSyncConflicts(_conflicts);
   // سجل الحذف والتعديل بيوصل هنا بترتيب وصوله (push في الآخر) مش بترتيب وقت حصوله فعليًا،
   // وده عكس ترتيب unshift المحلي (الأحدث فوق) اللي شاشة "سجل الحذف والتعديل" معتمدة عليه في
   // العرض. فبعد أي إضافة فعلية جواه، بنعيد ترتيبه تنازليًا بالـ ts ونقصّه لآخر 500 عشان يفضل
@@ -5290,6 +5355,7 @@ function renderReturnDetail(){
   if(!ret){retDetailId=null;renderReturns();return;}
   if(isRestrictedRole() && !roleCanSee(ret)){retDetailId=null;renderReturns();return;}
   const c=clients.find(c=>c.id===ret.clientId);
+  const linkedInv=ret.invoiceId?invoices.find(i=>i.id===ret.invoiceId):null;
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
@@ -5303,6 +5369,7 @@ function renderReturnDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
+        ${linkedInv?`<div style="margin-bottom:10px"><strong>الفاتورة الأصلية:</strong> <a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${linkedInv.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline">🧾 فاتورة #${linkedInv.number}</a></div>`:''}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
@@ -5317,6 +5384,7 @@ async function printReturn(retId){
   const ret=returns.find(r=>r.id===retId);
   if(!ret)return;
   const c=clients.find(c=>c.id===ret.clientId);
+  const linkedInv=ret.invoiceId?invoices.find(i=>i.id===ret.invoiceId):null;
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
@@ -5326,6 +5394,7 @@ async function printReturn(retId){
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
+      ${linkedInv?`<div><strong>الفاتورة الأصلية:</strong> #${linkedInv.number}</div>`:''}
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
@@ -6163,9 +6232,50 @@ let showRetForm=false;
 let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];
 let retFromDate='',retToDate='';
 let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل كاش فورًا من الخزنة عند الحفظ
+let retInvoiceId=''; // الفاتورة الأصلية المختارة للمرتجع الجاري تسجيله — لازم تتحدد الأول (لما فيه مخزون فعلي) قبل إضافة أي صنف
+
+// بيرجّع لفاتورة بيع معينة خريطة كل صنف فيها -> {sold: الكمية المباعة فيها (شامل البونص) بالوحدة الأساسية،
+// returned: اللي اترجع منها فعلاً في مرتجعات سابقة مرتبطة بنفس الفاتورة دي بالتحديد، available: المتبقي المسموح إرجاعه}
+// بيتحسب لحظيًا من نفس بيانات invoices/returns الحالية من غير أي تخزين وسيط، فأي مرتجع يتحذف بيحرر رصيده تلقائيًا
+function invoiceReturnableMap(invoiceId){
+  const inv=invoices.find(i=>i.id===invoiceId);
+  const map={};
+  if(!inv) return map;
+  (inv.lines||[]).forEach(l=>{
+    if(!l.productId) return;
+    if(!map[l.productId]) map[l.productId]={sold:0,returned:0,available:0};
+    map[l.productId].sold+=lineMainQty(l)+lineMainBonus(l);
+  });
+  returns.filter(r=>r.invoiceId===invoiceId).forEach(r=>{
+    (r.lines||[]).forEach(l=>{
+      if(!l.productId||!map[l.productId]) return;
+      map[l.productId].returned+=lineMainQty(l);
+    });
+  });
+  Object.values(map).forEach(v=>{ v.available=Math.max(0,v.sold-v.returned); });
+  return map;
+}
+// فواتير بيع العميل اللي لسه فيها أي صنف متاح للإرجاع (اللي اترجعت بالكامل بتتشال من القايمة تلقائيًا) — الأحدث أولًا.
+// بتحترم نفس قاعدة صلاحية الدور المستخدمة في قايمة المرتجعات نفسها (roleCanSee) عشان عامل بصلاحية محدودة
+// (worker/p1) ميقدرش يستعرض فواتير خارج نطاقه من خلال قايمة اختيار الفاتورة الأصلية دي
+function clientInvoicesForReturn(clientId){
+  if(!clientId) return [];
+  return invoices.filter(i=>i.clientId===clientId && (!isRestrictedRole()||roleCanSee(i)))
+    .filter(i=>Object.values(invoiceReturnableMap(i.id)).some(v=>v.available>0.0001))
+    .sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
+}
+// بيتنفّذ لما يتم اختيار فاتورة أصلية للمرتجع — بيصفّر أصناف المرتجع (عشان مكانش فيه أي التزام بأصناف الفاتورة القديمة) ويحافظ على التاريخ المكتوب
+function applyRetInvoicePick(){
+  retInvoiceId=document.getElementById('ret_invoice')?.value||'';
+  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
+  const savedDate=document.getElementById('ret_date')?.value;
+  renderReturns();
+  if(savedDate){const el=document.getElementById('ret_date');if(el)el.value=savedDate;}
+}
 
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
+  const currentRetClientId=document.getElementById('ret_client')?.value||'';
   const sorted=[...returns].filter(r=>(!isRestrictedRole()||roleCanSee(r))&&(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const retPeriodTotal=sorted.reduce((s,r)=>s+r.total,0);
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
@@ -6181,8 +6291,16 @@ function renderReturns(){
     </tr>`;
   }).join('');
 
+  // لما فيه مخزون فعلي، المرتجع لازم يترتبط بفاتورة بيع أصلية (مانع تجاوز الكمية المباعة فعلاً) — نفس الفكرة
+  // مبتنفعش تتطبق على متاجر مالهاش كتالوج أصناف أصلًا (stock.length===0)، فهناك السلوك القديم فاضل زي ما هو تمامًا
+  const useInvoiceLink=stock.length>0;
+  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).map(inv=>({id:inv.id,label:`فاتورة #${inv.number} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
+  const invMap=(useInvoiceLink&&retInvoiceId)?invoiceReturnableMap(retInvoiceId):null;
   const _stockIdx5386=buildStockIndexes();
-  const stockOptsArrShared=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx5386.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const stockOptsArrShared=invMap
+    ?stock.filter(p=>invMap[p.id]&&invMap[p.id].available>0.0001).map(p=>({id:p.id,label:p.name,sub:`متاح للإرجاع: ${fmtQty(invMap[p.id].available)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
+    :stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx5386.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
+  const canAddRetLines=!useInvoiceLink||!!retInvoiceId;
   let linesHtml=retLines.map(l=>{
     const stockOptsArr=stockOptsArrShared;
     return `<div class="line-box">
@@ -6210,7 +6328,7 @@ function renderReturns(){
           </select>
         </div>`:'';})()}
         <div class="form-group">
-          <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})</div>
+          <div class="lbl">الكمية (${lineUnitLabel(l)||'وحدة'})${invMap&&l.productId&&invMap[l.productId]?` — متاح: ${fmtQty(invMap[l.productId].available)}`:''}</div>
           <input type="number" min="0" step="any" value="${l.qty}" onchange="updateRetLine('${l.id}','qty',this.value)">
         </div>
         ${l.saleUnit?`
@@ -6249,10 +6367,23 @@ function renderReturns(){
             <input type="date" id="ret_date" value="${businessDate()}">
           </div>
         </div>
+        ${useInvoiceLink?`
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <div class="lbl">الفاتورة الأصلية *</div>
+            ${!currentRetClientId
+              ?`<div style="padding:8px 0;color:#909497;font-size:13px">اختر العميل الأول</div>`
+              :invoiceOptsArr.length>0
+                ?searchableSelectHtml('ret_invoice', invoiceOptsArr, '🔍 دور على رقم الفاتورة...', retInvoiceId, 'applyRetInvoicePick()')
+                :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير بيع لهذا العميل فيها كمية متاحة للإرجاع</div>`}
+          </div>
+        </div>`:''}
         <div class="divider"></div>
         <div class="section-title">📦 أصناف المرتجع</div>
+        ${canAddRetLines?`
         ${linesHtml}
-        <button class="btn-outline" style="margin-bottom:10px" onclick="addRetLine()">+ إضافة صنف</button>
+        <button class="btn-outline" style="margin-bottom:10px" onclick="addRetLine()">+ إضافة صنف</button>`:`
+        <div class="empty" style="margin:8px 0">اختر العميل والفاتورة الأصلية الأول عشان تقدر تضيف أصناف المرتجع</div>`}
         <div class="divider"></div>
         <div class="form-row">
           <div class="form-group">
@@ -6274,7 +6405,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;renderReturns()">+ مردود مبيعات جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;retInvoiceId='';renderReturns()">+ مردود مبيعات جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -6304,11 +6435,14 @@ function rerenderReturnFormKeepFields(){
   if(savedClient){document.getElementById('ret_client').value=savedClient;const st=document.getElementById('ret_client_search');if(st)st.value=savedClientText||'';}
   if(savedDate) document.getElementById('ret_date').value=savedDate;
 }
-// نفس فكرة applyInvClientCashDefault بس لمردود المبيعات (بيتحكم في "مردود نقدي")
+// نفس فكرة applyInvClientCashDefault بس لمردود المبيعات (بيتحكم في "مردود نقدي")؛ وبما إن العميل اتغيّر، لازم نصفّر
+// الفاتورة الأصلية المختارة وأصناف المرتجع (كانت مرتبطة بفاتورة العميل القديم ومبقتش تنفع للعميل الجديد)
 function applyRetClientCashDefault(){
   const cid=document.getElementById('ret_client')?.value;
   const c=clients.find(x=>x.id===cid);
   if(c) retIsCashRefund = c.transType==='cash';
+  retInvoiceId='';
+  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
   rerenderReturnFormKeepFields();
 }
 function addRetLine(){retLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''});renderReturns();}
@@ -6367,6 +6501,8 @@ function saveReturn(){
   const clientId=document.getElementById('ret_client')?.value;
   const date=document.getElementById('ret_date')?.value||businessDate();
   if(!clientId){showToast('اختر عميل');return;}
+  const useInvoiceLink=stock.length>0;
+  if(useInvoiceLink && !retInvoiceId){showToast('اختر الفاتورة الأصلية للمرتجع');return;}
   if(retLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
   // التحقق إن الكمية المرتجعة منطقية (مش أكبر من اللي اتباع فعلاً)
@@ -6375,11 +6511,25 @@ function saveReturn(){
     const qty=Number(l.qty);
     if(!qty||qty<=0){showToast('أدخل كمية صحيحة لكل صنف');return;}
   }
+  // التحقق إن إجمالي الكمية المطلوب إرجاعها لكل صنف (ممكن يبقى موزّع على أكتر من سطر) مش أكبر من المتاح للإرجاع في الفاتورة الأصلية المختارة
+  if(useInvoiceLink && retInvoiceId){
+    const invMap=invoiceReturnableMap(retInvoiceId);
+    const requested={};
+    retLines.forEach(l=>{ if(l.productId) requested[l.productId]=(requested[l.productId]||0)+lineMainQty(l); });
+    for(const pid of Object.keys(requested)){
+      const avail=invMap[pid]?invMap[pid].available:0;
+      if(requested[pid]>avail+0.0001){
+        const p=stock.find(s=>s.id===pid);
+        showToast(`❌ الكمية المتاحة للإرجاع من "${p?.name||'المنتج'}" في الفاتورة الأصلية دي ${fmtQty(avail)} فقط`);
+        return;
+      }
+    }
+  }
   // كومّت الحفظ الفعلي في دالة داخلية عشان نقدر ننفذها فورًا أو بعد تأكيد المرتجع بالتجزئة
   function _commitReturnSave(){
     const cashRefund=document.getElementById('ret_is_cash')?.checked||false;
     const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
-    const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
+    const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,invoiceId:(useInvoiceLink&&retInvoiceId)?retInvoiceId:undefined,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
     if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
     postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
@@ -6400,6 +6550,7 @@ function saveReturn(){
     showRetForm=false;
     retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
     retIsCashRefund=false;
+    retInvoiceId='';
     renderReturns();
   }
   // مرتجع البيع بالتجزئة استثنائي — لازم تأكيد واعي قبل ما يرجع للمخزون كأنه صالح للبيع تاني
@@ -8528,7 +8679,7 @@ function renderClientProfitabilityHtml(fromVal,toVal){
     <div style="font-size:11px;color:#AAB7B8;margin-top:6px">💡 نفس منهجية "ربحية الأصناف" بالظبط (تكلفة بمتوسط الشراء المرجح). تفاصيل ربح كل صنف لوحده تلاقيها في كارت ربحية الأصناف فوق. المرتجعات في نفس الفترة بتتخصم تلقائيًا من عميلها.</div>`;
 }
 
-function renderGeneralLedgerHtml(){
+function renderGeneralLedgerHtml(fromVal,toVal){
   if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
   if(!ledgerAccountId || !chartOfAccounts.find(a=>a.id===ledgerAccountId)) ledgerAccountId=chartOfAccounts[0].id;
   const selectHtml=`
@@ -8538,18 +8689,27 @@ function renderGeneralLedgerHtml(){
         ${chartOfAccounts.map(a=>`<option value="${a.id}" ${a.id===ledgerAccountId?'selected':''}>${a.name}</option>`).join('')}
       </select>
     </div>`;
-  const rows=[];
+  const allRows=[];
   journalEntries.forEach(j=>{
     j.lines.forEach(l=>{
       if(l.accountId===ledgerAccountId && ((Number(l.debit)||0)>0 || (Number(l.credit)||0)>0)){
-        rows.push({date:j.date,createdAt:j.createdAt||'',description:j.description,debit:Number(l.debit)||0,credit:Number(l.credit)||0});
+        allRows.push({date:j.date,createdAt:j.createdAt||'',description:j.description,debit:Number(l.debit)||0,credit:Number(l.credit)||0});
       }
     });
   });
-  if(rows.length===0) return selectHtml+'<div class="empty">مفيش حركات مسجّلة على الحساب ده لسه</div>';
-  rows.sort((a,b)=>((a.date||'')+'|'+a.createdAt).localeCompare((b.date||'')+'|'+b.createdAt));
-  let running=0; // موجب = رصيد مدين، سالب = رصيد دائن — بنفس منطق accountBalance بالظبط عشان الرقم النهائي يطابق ميزان المراجعة
-  const rowsHtml=rows.map(r=>{
+  if(allRows.length===0) return selectHtml+'<div class="empty">مفيش حركات مسجّلة على الحساب ده لسه</div>';
+  allRows.sort((a,b)=>((a.date||'')+'|'+a.createdAt).localeCompare((b.date||'')+'|'+b.createdAt));
+  // رصيد أول المدة: كل الحركات قبل "من تاريخ" مجمّعة في رقم واحد — نفس فكرة "رصيد أول المدة" في كشف حساب العميل/المورد بالظبط
+  const carryForward=allRows.filter(r=>r.date<fromVal).reduce((s,r)=>s+r.debit-r.credit,0);
+  const periodRows=allRows.filter(r=>r.date>=fromVal && r.date<=toVal);
+  let running=carryForward; // موجب = رصيد مدين، سالب = رصيد دائن — بنفس منطق accountBalance بالظبط عشان الرقم النهائي يطابق ميزان المراجعة
+  const openingRowHtml=`<tr style="background:#F4F6F7">
+      <td style="white-space:nowrap">${fromVal}</td>
+      <td><em>رصيد أول المدة</em></td>
+      <td>—</td><td>—</td>
+      <td style="font-weight:bold;white-space:nowrap">${fmt(Math.abs(carryForward))} ${carryForward>=0?'م':'د'}</td>
+    </tr>`;
+  const rowsHtml=openingRowHtml+periodRows.map(r=>{
     running+=r.debit-r.credit;
     return `<tr>
       <td>${r.date}</td>
@@ -8564,19 +8724,20 @@ function renderGeneralLedgerHtml(){
       <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
     </table></div>
-    <div style="font-size:11px;color:#AAB7B8;margin-top:6px">الرصيد بعد آخر حركة المفروض يطابق رصيد نفس الحساب في ميزان المراجعة (م = مدين، د = دائن).</div>`;
+    <div style="font-size:11px;color:#AAB7B8;margin-top:6px">${periodRows.length===0?'مفيش حركات في الفترة دي — الرصيد فوق هو رصيد أول المدة نفسه.':`الرصيد بعد آخر حركة المفروض يطابق رصيد نفس الحساب "كما في ${toVal}" في ميزان المراجعة (م = مدين، د = دائن).`}</div>`;
 }
 
-function renderTrialBalanceHtml(){
+function renderTrialBalanceHtml(toVal){
   if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
   const rows=chartOfAccounts.map(a=>{
-    const b=accountBalance(a.id);
+    const b=accountBalance(a.id, toVal);
     if(b.debit===0 && b.credit===0) return null;
     return {name:a.name, debit:b.debit, credit:b.credit};
   }).filter(Boolean);
   const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
   const totalCredit=rows.reduce((s,r)=>s+r.credit,0);
   return `
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">💡 الأرصدة كما في ${toVal} (حسب "إلى تاريخ" في فلتر فترة التقرير فوق)</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead>
       <tbody>
@@ -8589,20 +8750,21 @@ function renderTrialBalanceHtml(){
     </div>`;
 }
 
-function renderIncomeStatementHtml(){
+function renderIncomeStatementHtml(fromVal,toVal){
   if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
-  const sales=accountBalance('sales').credit;
-  const cogs=accountBalance('cogs').debit;
+  const sales=accountPeriodMovement('sales',fromVal,toVal).credit;
+  const cogs=accountPeriodMovement('cogs',fromVal,toVal).debit;
   const grossProfit=sales-cogs;
-  const directCost=accountBalance('directcost').debit;
-  const opex=accountBalance('opex').debit;
-  const discountAllowed=accountBalance('discountAllowed').debit;
-  const discountEarned=accountBalance('discountEarned').credit;
+  const directCost=accountPeriodMovement('directcost',fromVal,toVal).debit;
+  const opex=accountPeriodMovement('opex',fromVal,toVal).debit;
+  const discountAllowed=accountPeriodMovement('discountAllowed',fromVal,toVal).debit;
+  const discountEarned=accountPeriodMovement('discountEarned',fromVal,toVal).credit;
   const netProfit=grossProfit-directCost-opex-discountAllowed+discountEarned;
   const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${opts.bold?'font-weight:bold;':''}${opts.border?'border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
     <div style="${opts.color?`color:${opts.color}`:''}">${label}</div><div style="${opts.color?`color:${opts.color}`:''}">${fmt(val)} ج</div>
   </div>`;
   return `
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:4px">💡 عن الفترة من ${fromVal} إلى ${toVal}</div>
     ${row('إيرادات المبيعات', sales)}
     ${row('(-) تكلفة البضاعة المباعة', cogs)}
     ${row('= مجمل الربح', grossProfit, {bold:true, border:true, color:grossProfit>=0?'#1E8449':'#C0392B'})}
@@ -8614,22 +8776,23 @@ function renderIncomeStatementHtml(){
     <div style="font-size:11px;color:#AAB7B8;margin-top:8px">💡 تكلفة البضاعة المباعة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف. لو صنف اتباع من غير ما يكون له سعر شراء مسجّل (رصيد افتتاحي أو فاتورة شراء)، تكلفته بتحسب صفر مؤقتًا لحد ما تتسجّل تكلفته — وقتها الأرقام بتتظبط تلقائيًا من غير أي تعديل يدوي.</div>`;
 }
 
-function renderBalanceSheetHtml(){
+function renderBalanceSheetHtml(toVal){
   if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
-  const cash=accountBalance('cash').debit;
-  const bank=accountBalance('bank').debit;
-  const ar=accountBalance('ar').debit;
-  const inventory=accountBalance('inventory').debit;
+  const cash=accountBalance('cash',toVal).debit;
+  const bank=accountBalance('bank',toVal).debit;
+  const ar=accountBalance('ar',toVal).debit;
+  const inventory=accountBalance('inventory',toVal).debit;
   const totalAssets=cash+bank+ar+inventory;
-  const ap=accountBalance('ap').credit;
-  const netIncomeToDate=accountBalance('sales').credit-accountBalance('cogs').debit-accountBalance('directcost').debit-accountBalance('opex').debit-accountBalance('discountAllowed').debit+accountBalance('discountEarned').credit;
-  const eqBal=accountBalance('equity');
+  const ap=accountBalance('ap',toVal).credit;
+  const netIncomeToDate=accountBalance('sales',toVal).credit-accountBalance('cogs',toVal).debit-accountBalance('directcost',toVal).debit-accountBalance('opex',toVal).debit-accountBalance('discountAllowed',toVal).debit+accountBalance('discountEarned',toVal).credit;
+  const eqBal=accountBalance('equity',toVal);
   const equity=(eqBal.totalCredit-eqBal.totalDebit)+netIncomeToDate;
   const totalLiabEquity=ap+equity;
   const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:5px 0;${opts.bold?'font-weight:bold;border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
     <div>${label}</div><div>${fmt(val)} ج</div>
   </div>`;
   return `
+    <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">💡 الأرصدة كما في ${toVal} (حسب "إلى تاريخ" في فلتر فترة التقرير فوق)</div>
     <div style="font-weight:bold;color:#1A5276;margin-bottom:4px">الأصول</div>
     ${row('الخزنة', cash)}
     ${row('البنوك', bank)}
@@ -8658,10 +8821,10 @@ function renderAdvancedReportsBlock(fromVal,toVal){
     </div>`;
   }
   const items=[
-    {id:'trial',icon:'⚖️',title:'ميزان المراجعة',render:()=>renderTrialBalanceHtml()},
-    {id:'income',icon:'📈',title:'قائمة الدخل',render:()=>renderIncomeStatementHtml()},
-    {id:'balance',icon:'🏛️',title:'الميزانية العمومية',render:()=>renderBalanceSheetHtml()},
-    {id:'ledger',icon:'📖',title:'دفتر الأستاذ العام',render:()=>renderGeneralLedgerHtml()},
+    {id:'trial',icon:'⚖️',title:'ميزان المراجعة',render:()=>renderTrialBalanceHtml(toVal)},
+    {id:'income',icon:'📈',title:'قائمة الدخل',render:()=>renderIncomeStatementHtml(fromVal,toVal)},
+    {id:'balance',icon:'🏛️',title:'الميزانية العمومية',render:()=>renderBalanceSheetHtml(toVal)},
+    {id:'ledger',icon:'📖',title:'دفتر الأستاذ العام',render:()=>renderGeneralLedgerHtml(fromVal,toVal)},
     {id:'cashflow',icon:'💧',title:'التدفقات النقدية',render:()=>renderCashFlowHtml(fromVal,toVal)},
   ];
   const cards=items.map(it=>`
@@ -9159,6 +9322,41 @@ function updatePurLine(id,field,value){
   rerenderPurchaseFormKeepFields();
 }
 
+// بيفحص إن تعديل/حذف فاتورة مشتريات (تقليل أو إزالة كمية كانت داخلة "IN" للمخزن) مش هيسبب رصيد مخزون سالب
+// لأي صنف، لو جزء من الكمية دي اتباع أو اتصرف بالفعل من مصادر تانية (فاتورة بيع، مرتجع مشتريات، حركة يدوية...).
+// oldMovements: حركات "IN" الحالية المرتبطة بالفاتورة قبل أي تعديل/حذف — [] لو فاتورة جديدة بالكامل.
+// newLines: سطور الفاتورة بعد التعديل (purchaseLines) — [] لو بنحذف الفاتورة بالكامل.
+// بترجع أول مخالفة لقتها {productId, expiry, minRequired} أو null لو كل حاجة سليمة. الفحص بيقارن برصيد
+// المخزون الحالي الكامل (بيشمل تلقائيًا أي بيع/مرتجع/إنتاج/حركة يدوية تانية)، فمفيش داعي لأي منطق إضافي حسب مصدر الحركة.
+function checkPurchaseStockImpact(oldMovements,newLines){
+  const oldC={}, newC={};
+  oldMovements.forEach(m=>{
+    oldC[m.productId]=oldC[m.productId]||{};
+    const ek=m.expiry||'';
+    oldC[m.productId][ek]=(oldC[m.productId][ek]||0)+m.qty;
+  });
+  newLines.forEach(l=>{
+    if(!l.productId) return;
+    const ek=l.expiry||'';
+    const q=(Number(l.qty)||0)+(Number(l.bonus)||0);
+    newC[l.productId]=newC[l.productId]||{};
+    newC[l.productId][ek]=(newC[l.productId][ek]||0)+q;
+  });
+  const productIds=new Set([...Object.keys(oldC),...Object.keys(newC)]);
+  for(const productId of productIds){
+    const expKeys=new Set([...Object.keys(oldC[productId]||{}),...Object.keys(newC[productId]||{})]);
+    for(const ek of expKeys){
+      const oldQty=(oldC[productId]||{})[ek]||0;
+      const newQty=(newC[productId]||{})[ek]||0;
+      if(newQty>=oldQty-0.0001) continue; // الكمية زادت أو فضلت زي ما هي — مستحيل تسبب رصيد سالب
+      const currentBalance=movements.filter(m=>m.productId===productId&&(m.expiry||'')===ek).reduce((s,m)=>s+(m.type==='in'?m.qty:-m.qty),0);
+      const minRequired=Math.max(0,oldQty-currentBalance);
+      if(newQty<minRequired-0.0001) return {productId,expiry:ek,minRequired};
+    }
+  }
+  return null;
+}
+
 function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
   const date=document.getElementById('pur_date')?.value||businessDate();
@@ -9177,6 +9375,17 @@ function savePurchase(){
   }
   const purOverallDiscountNum=Number(purOverallDiscount)||0;
   if(purOverallDiscountNum<0||purOverallDiscountNum>100){showToast('نسبة الخصم الإجمالي لازم تكون بين 0% و100%');return;}
+
+  // التحقق إن تقليل/إزالة أي كمية في التعديل ده مش هيكسر المخزون — لو جزء منها اتباع أو اتصرف بالفعل من مصادر تانية
+  {
+    const oldMovements=editPurchaseId?movements.filter(m=>m.purchaseId===editPurchaseId):[];
+    const violation=checkPurchaseStockImpact(oldMovements,purchaseLines);
+    if(violation){
+      const p=stock.find(s=>s.id===violation.productId);
+      showToast(`❌ مينفعش تقلل كمية "${p?.name||'المنتج'}"${violation.expiry?' (صلاحية '+violation.expiry+')':''} عن ${fmtQty(violation.minRequired)} دلوقتي — جزء منها اتباع أو اتصرف بالفعل من المخزون`);
+      return;
+    }
+  }
 
   const subtotal=purchaseLines.reduce((s,l)=>{
     const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
@@ -9226,7 +9435,15 @@ function savePurchase(){
 
 function deletePurchase(id){
   const _purItem=purchases.find(p=>p.id===id);
-  showConfirm('هتحذف فاتورة المشتريات دي؟ الكميات هترجع للمخزن.', function(){
+  if(!_purItem) return;
+  // التحقق إن حذف الفاتورة دي مش هيكسر المخزون — لو جزء من كمياتها اتباع أو اتصرف بالفعل من مصادر تانية
+  const violation=checkPurchaseStockImpact(movements.filter(m=>m.purchaseId===id),[]);
+  if(violation){
+    const p=stock.find(s=>s.id===violation.productId);
+    showToast(`❌ مينفعش تحذف الفاتورة دي — جزء من كمية "${p?.name||'المنتج'}"${violation.expiry?' (صلاحية '+violation.expiry+')':''} اتباع أو اتصرف بالفعل من المخزون. سيب على الأقل ${fmtQty(violation.minRequired)} عشان تقدر تحذف`);
+    return;
+  }
+  showConfirm('هتحذف فاتورة المشتريات دي؟ هيتم خصم الكميات اللي فيها من المخزن.', function(){
     logActivity('delete','فاتورة مشتريات','#'+(_purItem?.number||''),(suppliers.find(s=>s.id===_purItem?.supplierId)?.name||'')+' • '+fmt(_purItem?.total||0)+' ج');
     // لو كانت فاتورة مشتريات كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
     const autoPay=supplierPayments.find(p=>p.purchaseId===id&&p.isCashAuto);
