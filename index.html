@@ -3238,7 +3238,7 @@ function startSyncListener(){
           const add={}, upd={};
           if(additions.length) add[key]=additions;
           if(updates.length) upd[key]=updates;
-          applyIncomingChanges(add, upd);
+          applyIncomingChanges(add, upd, firstSnapshotForKey);
         }
         removedIds.forEach(id=>{
           const arr=getSyncArrayMap()[key];
@@ -3314,7 +3314,7 @@ async function _pullAllSyncData(){
     if(newItems.length){ additions[key]=newItems; addCount+=newItems.length; }
     if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
   }
-  if(addCount||updCount) applyIncomingChanges(additions,updates);
+  if(addCount||updCount) applyIncomingChanges(additions,updates,true);
   let metaChanged=false;
   const rootDoc = await wsRef.get();
   if(rootDoc.exists){
@@ -3456,14 +3456,14 @@ function _syncItemLabel(item){
 // أي جهاز) وبيوريك تنبيه واحد مجمّع (مش تنبيه منفصل لكل سجل) - عشان "عدم الكتابة فوق سجل متغير
 // دون تنبيه". السجل اللي كان عندك محليًا بيتستبدل بالنسخة الواصلة برضه (زي أي تحديث تاني) لكن
 // دلوقتي بتنتبه وتقدر تراجع/تعيد تعديلك لو حصل فيه فقد فعلي.
+// اتشال التنبيه اللي كان بيظهر للعميل (showToast) بناءً على طلب صريح - كان بيولّد رعب أكتر
+// من طمأنينة عند العملاء. التسجيل في "سجل الحذف والتعديل" فاضل زي ما هو عشان لو احتجت
+// تراجع تعارض حقيقي حصل فعلًا تلاقيه مسجل، بس من غير أي إزعاج ظاهر على شاشة العميل.
 function _alertSyncConflicts(conflicts){
   conflicts.forEach(({key,item})=>{
     logActivity('edit', SYNC_ARRAY_LABELS[key]||key, _syncItemLabel(item),
       'تعارض تعديل: جهاز تاني عدّل نفس السجل في نفس الوقت تقريبًا، واتطبقت نسخته (آخر نسخة وصلت للسيرفر)');
   });
-  try{
-    showToast('⚠️ تعارض تعديل على '+conflicts.length+' سجل كنت بتعدّله هنا وعدّله جهاز تاني في نفس الوقت تقريبًا. اتطبقت آخر نسخة - راجع "سجل الحذف والتعديل".');
-  }catch(e){}
 }
 // بتحقن العناصر الجديدة وبتستبدل العناصر المعدّلة مباشرة في المصفوفات
 // المحلية (من غير المرور على أي فانكشن إضافة/تعديل عادي) - العناصر دي
@@ -3471,7 +3471,13 @@ function _alertSyncConflicts(conflicts){
 // مخزون أو قيود مرتبطة. التعديل بيستبدل العنصر بالكامل (last-write-wins)،
 // لكن نقطة 11 ضافت خطوة قبلها: لو السجل ده كان اتعدّل هنا في نفس الوقت
 // تقريبًا (_isSyncConflict)، بنسجّل تعارض ونتنبّه قبل الاستبدال.
-function applyIncomingChanges(additions,updates){
+// skipConflictDetection=true بتتبعت لما الاستدعاء يكون "لحاق/تصالح" بيانات (أول تحميل من
+// السيرفر لما التطبيق يفتح، أو الزرار اليدوي لسحب كل البيانات) مش تحديث لحظي حقيقي جاي من
+// جهاز تاني وهو شغال. الحالتين دول بيقارنوا نسخة السيرفر بنسخة محلية ممكن تكون لسه ما
+// اتبعتتش (مثلاً لو قفلت التطبيق قبل ما الإنترنت يخلّص الرفع)، فده كان بيتقرا غلط كإنه
+// "جهاز تاني عدّل نفس السجل في نفس الوقت" مع إن مفيش أي جهاز تاني اتلمس أصلاً - كان بيطلّع
+// تنبيهات تعارض وهمية على المستخدم من غير أي تعارض حقيقي.
+function applyIncomingChanges(additions,updates,skipConflictDetection){
   const map=getSyncArrayMap();
   Object.keys(additions).forEach(key=>{
     if(map[key]) map[key].push(...additions[key]);
@@ -3482,7 +3488,7 @@ function applyIncomingChanges(additions,updates){
     updates[key].forEach(remoteItem=>{
       const idx=arr.findIndex(x=>x&&x.id===remoteItem.id);
       if(idx>-1){
-        if(_isSyncConflict(arr[idx],remoteItem)) _conflicts.push({key,item:arr[idx]});
+        if(!skipConflictDetection && _isSyncConflict(arr[idx],remoteItem)) _conflicts.push({key,item:arr[idx]});
         arr[idx]=remoteItem;
       }
     });
@@ -3912,7 +3918,7 @@ function closeGlobalSearch(){
 function globalSearchGoTo(type,id){
   closeGlobalSearch();
   if(type==='client'){ switchTab('clients'); openClientDetail(id); }
-  else if(type==='supplier'){ switchTab('suppliers'); supplierDetailId=id; renderSuppliers(); }
+  else if(type==='supplier'){ switchTab('suppliers'); openSupplierDetail(id); }
   else if(type==='product'){ switchTab('stock'); stockSubTab='overview'; stockDetailId=id; renderStock(); }
   else if(type==='invoice'){ switchTab('invoices'); invDetailId=id; renderInvoices(); }
   else if(type==='purchase'){ switchTab('purchases'); purDetailId=id; renderPurchases(); }
@@ -8897,6 +8903,10 @@ async function printAgingReportPdf(){
 let supplierSearch='';
 let showSupplierForm=false;
 let supplierDetailId=null;
+// فلتر تاريخ كشف حساب المورد — نفس فكرة clientStmtFromDate/clientStmtToDate بالظبط
+let supplierStmtFromDate='',supplierStmtToDate='';
+// فتح كشف حساب مورد "من الصفر" (بيصفّر فلتر التاريخ) — نفس فكرة openClientDetail بالظبط
+function openSupplierDetail(id){supplierDetailId=id;supplierStmtFromDate='';supplierStmtToDate='';renderSuppliers();}
 
 function renderSuppliers(){
   if(supplierDetailId){renderSupplierDetail();return;}
@@ -8913,7 +8923,7 @@ function renderSuppliers(){
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${balColor}">${fmt(Math.abs(bal))} ج</div><div class="list-item-bal-lbl">${balLbl}</div></div>
       </div>
       <div class="list-item-actions">
-        <button class="btn-sm blue" onclick="supplierDetailId='${s.id}';renderSuppliers()">📋 كشف حساب</button>
+        <button class="btn-sm blue" onclick="openSupplierDetail('${s.id}')">📋 كشف حساب</button>
         <button class="btn-sm" style="background:#D68910;color:#fff" onclick="openOpeningBalanceModal('supplier','${s.id}')">✏️ رصيد افتتاحي</button>
         <button class="btn-sm" style="background:${s.transType==='cash'?'#1E8449':'#8E44AD'};color:#fff" onclick="openTransTypeModal('supplier','${s.id}')">${s.transType==='cash'?'💵 كاش':'🕒 آجل'}</button>
         <button class="btn-sm red" onclick="deleteSupplier('${s.id}')">🗑 حذف</button>
@@ -8997,42 +9007,13 @@ function deleteSupplier(id){
 }
 
 function renderSupplierDetail(){
-  const s=suppliers.find(s=>s.id===supplierDetailId);
-  if(!s){supplierDetailId=null;renderSuppliers();return;}
-  const bal=supplierBalance(s.id);
-  const supPurchases=purchases.filter(p=>p.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
-  const supPayments=supplierPayments.filter(p=>p.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
-  const supPurRet=purchaseReturns.filter(r=>r.supplierId===s.id).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
-  const opening=Number(s.opening||0);
-  const totalPurchased=supPurchases.reduce((acc,p)=>acc+p.total,0);
-  const totalPaid=supPayments.reduce((acc,p)=>acc+p.amount,0);
-  const totalRet=supPurRet.reduce((acc,r)=>acc+r.total,0);
-
-  // سجل الحركات مدمج: مشتريات + سداد + مردود مشتريات + استرداد نقدي (لو المردود كان نقدي)
-  let allMoves=[
-    ...supPurchases.map(p=>({date:p.date,type:'purchase',desc:`فاتورة مشتريات #${p.number}`+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,createdAt:p.createdAt})),
-    ...supPayments.map(p=>({date:p.date,type:'payment',desc:`سداد${p.note?' — '+p.note:''}${p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''}`,amount:p.amount,id:null,createdAt:p.createdAt})),
-    ...supPurRet.map(r=>({date:r.date,type:'return',desc:`مردود مشتريات #${r.number}`+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,createdAt:r.createdAt})),
-    ...supPurRet.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',desc:`استرداد نقدي - مردود مشتريات #${r.number}`,amount:r.total,id:null,createdAt:r.createdAt})),
-  ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
-
-  let runBal=opening;
-  const movRows=allMoves.map(m=>{
-    if(m.type==='purchase'||m.type==='refund') runBal+=m.amount;
-    else runBal-=m.amount;
-    const clickAttr=m.type==='purchase'?`onclick="openPurchaseFromSupplier('${m.id}','${s.id}')" style="cursor:pointer"`
-      :m.type==='return'?`onclick="openPurRetFromSupplier('${m.id}','${s.id}')" style="cursor:pointer"`:'';
-    return `<tr ${clickAttr}>
-      <td>${m.date}${m.type==='purchase'||m.type==='return'?' 👁':''}</td>
-      <td>${esc(m.desc)}</td>
-      <td style="color:#C0392B">${m.type==='purchase'?fmt(m.amount):'—'}</td>
-      <td style="color:#D68910">${m.type==='return'?fmt(m.amount):'—'}</td>
-      <td style="color:#1E8449">${m.type==='refund'?fmt(m.amount):'—'}</td>
-      <td style="color:#1E8449">${m.type==='payment'?fmt(m.amount):'—'}</td>
-      <td style="font-weight:bold;color:${runBal>0?'#C0392B':'#1E8449'}">${fmt(Math.abs(runBal))}</td>
-    </tr>`;
-  }).join('');
-
+  const data=getSupplierStatementData(supplierDetailId, supplierStmtFromDate, supplierStmtToDate);
+  if(!data){supplierDetailId=null;renderSuppliers();return;}
+  const {s,rows,carryForward,totalPur,totalPaid,totalRet,closingBalance,showCarry}=data;
+  const bal=closingBalance;
+  const balLbl=bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي';
+  const hasFilter=!!(supplierStmtFromDate||supplierStmtToDate);
+  const tableRows=(showCarry?carryForwardRowHtml(supplierStmtFromDate,carryForward):'')+rows.map(ev=>supplierStatementRowHtml(ev,s.id,true)).join('');
   document.getElementById('tab-suppliers').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="supplierDetailId=null;renderSuppliers()">← رجوع</button>
@@ -9040,65 +9021,92 @@ function renderSupplierDetail(){
     </div>
     ${s.phone?`<div style="font-size:12px;color:#717D7E;margin-bottom:8px">📞 ${esc(s.phone)}</div>`:''}
     <div class="summary">
-      <div class="sum-card blue"><div class="sum-num">${fmt(totalPurchased)}</div><div class="sum-lbl">إجمالي المشتريات</div></div>
+      <div class="sum-card blue"><div class="sum-num">${fmt(totalPur)}</div><div class="sum-lbl">إجمالي المشتريات</div></div>
       <div class="sum-card green"><div class="sum-num">${fmt(totalPaid)}</div><div class="sum-lbl">إجمالي المدفوع</div></div>
       ${totalRet>0?`<div class="sum-card orange"><div class="sum-num">${fmt(totalRet)}</div><div class="sum-lbl">إجمالي مردود المشتريات</div></div>`:''}
-      <div class="sum-card ${bal>0?'red':'green'}"><div class="sum-num">${fmt(Math.abs(bal))}</div><div class="sum-lbl">${bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي'}</div></div>
+      <div class="sum-card ${bal>0?'red':'green'}"><div class="sum-num">${fmt(Math.abs(bal))}</div><div class="sum-lbl">${balLbl}</div></div>
     </div>
     <div class="btn-row" style="margin-bottom:10px">
       <button class="btn green" onclick="switchTab('suppay')">💵 تسجيل سداد للمورد</button>
       <button class="btn orange" onclick="switchTab('purreturns')">↪️ تسجيل مردود مشتريات</button>
-      <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierStatement('${s.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-body" style="padding-bottom:10px">
+        <div class="form-row date-row" style="align-items:flex-end">
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="sstmt_from_date" value="${supplierStmtFromDate}" onchange="supplierStmtFromDate=this.value;renderSupplierDetail()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="sstmt_to_date" value="${supplierStmtToDate}" onchange="supplierStmtToDate=this.value;renderSupplierDetail()"></div>
+        </div>
+        <div class="btn-row">
+          ${hasFilter?`<button class="btn-outline" onclick="supplierStmtFromDate='';supplierStmtToDate='';renderSupplierDetail()">✖ إلغاء الفلتر</button>`:''}
+          <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierStatement('${s.id}',supplierStmtFromDate,supplierStmtToDate).finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+        </div>
+        ${hasFilter?`<div style="font-size:11px;color:#717D7E;margin-top:6px">💡 الرصيد ده لغاية ${supplierStmtToDate||'النهارده'}، ومش هيبقى نفس رصيد المورد الحالي لو فيه حركات بعد التاريخ ده</div>`:''}
+      </div>
     </div>
     <div class="card">
       <div class="card-head">📋 حركات الحساب</div>
-      ${allMoves.length>0||opening>0?`<div class="tbl-wrap"><table>
-        <thead><tr><th>التاريخ</th><th>البيان</th><th>مشتريات</th><th>مردود</th><th>استرداد نقدي</th><th>مدفوع</th><th>الرصيد</th></tr></thead>
-        <tbody>
-          ${opening>0?`<tr><td>—</td><td><span class="badge orange">رصيد افتتاحي</span></td><td style="color:#C0392B">${fmt(opening)}</td><td>—</td><td>—</td><td>—</td><td style="font-weight:bold">${fmt(opening)}</td></tr>`:''}
-          ${movRows}
-        </tbody>
-      </table></div>`:'<div class="empty">لا توجد حركات</div>'}
+      ${(rows.length===0&&!showCarry)?'<div class="empty">لا توجد حركات</div>':`<div class="tbl-wrap"><table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table></div>`}
     </div>`;
 }
 
-async function printSupplierStatement(sid){
+// نفس getClientStatementData(cid,from,to) بالظبط بس للموردين
+function getSupplierStatementData(sid, from, to){
   const s=suppliers.find(s=>s.id===sid);
-  if(!s)return;
-  const bal=supplierBalance(s.id);
+  if(!s) return null;
   const sPurchases=purchases.filter(p=>p.supplierId===sid);
   const sPayments=supplierPayments.filter(p=>p.supplierId===sid);
   const sReturns=purchaseReturns.filter(r=>r.supplierId===sid);
-  const totalPur=sPurchases.reduce((s,p)=>s+p.total,0);
-  const totalPaid=sPayments.reduce((s,p)=>s+p.amount,0);
-  const totalRet=sReturns.reduce((s,r)=>s+r.total,0);
-  const opening=Number(s.opening||0);
-  const events=[
-    ...(opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:opening,createdAt:''}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,lines:p.lines,createdAt:p.createdAt})),
-    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,createdAt:p.createdAt})),
-    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,lines:r.lines,createdAt:r.createdAt})),
-    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,createdAt:r.createdAt}))
+  const allEvents=[
+    ...(s.opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:s.opening,id:null,createdAt:''}]:[]),
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,lines:p.lines,createdAt:p.createdAt})),
+    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
+    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt})),
+    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
-  let running=0;
-  const rows=events.map(ev=>{
-    const debit=(ev.type==='purchase'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
-    const credit=(ev.type==='payment'||ev.type==='return')?ev.amount:0;
+  const evDebit=ev=>(ev.type==='purchase'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
+  const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
+  const carryForward=from?allEvents.filter(ev=>ev.date<from).reduce((s,ev)=>s+evDebit(ev)-evCredit(ev),0):0;
+  const periodEvents=allEvents.filter(ev=>(!from||ev.date>=from)&&(!to||ev.date<=to));
+  let running=carryForward;
+  const rows=periodEvents.map(ev=>{
+    const debit=evDebit(ev), credit=evCredit(ev);
     running += debit - credit;
-    const detail=(ev.type==='purchase'||ev.type==='return')?linesDetailHtml(ev.lines):'';
-    return `<tr>
-      <td>${ev.date}</td><td>${esc(ev.label)}${detail}</td>
-      <td>${debit?fmt(debit):'—'}</td>
-      <td>${credit?fmt(credit):'—'}</td>
-      <td>${fmt(running)}</td>
-    </tr>`;
-  }).join('');
+    return {...ev, debit, credit, running};
+  });
+  const totalPur=periodEvents.filter(ev=>ev.type==='purchase').reduce((s,ev)=>s+ev.amount,0);
+  const totalPaid=periodEvents.filter(ev=>ev.type==='payment').reduce((s,ev)=>s+ev.amount,0);
+  const totalRet=periodEvents.filter(ev=>ev.type==='return').reduce((s,ev)=>s+ev.amount,0);
+  const closingBalance=rows.length?rows[rows.length-1].running:carryForward;
+  return {s,rows,carryForward,totalPur,totalPaid,totalRet,closingBalance,showCarry:!!from};
+}
+// صف واحد في جدول كشف حساب المورد - نفس clientStatementRowHtml بالظبط بس بيفتح فاتورة/مردود مشتريات
+function supplierStatementRowHtml(ev, sid, clickable){
+  const detail=(ev.type==='purchase'||ev.type==='return')?linesDetailHtml(ev.lines):'';
+  const rowAttr=!clickable?'':ev.type==='purchase'?` onclick="openPurchaseFromSupplier('${ev.id}','${sid}')" style="cursor:pointer"`:ev.type==='return'?` onclick="openPurRetFromSupplier('${ev.id}','${sid}')" style="cursor:pointer"`:'';
+  const eyeMark=clickable&&(ev.type==='purchase'||ev.type==='return')?' 👁':'';
+  const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
+  return `<tr${rowAttr}>
+    <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
+    <td>${label}${detail}</td>
+    <td style="color:#C0392B;font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
+    <td style="color:#1E8449;font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
+    <td style="font-weight:bold">${fmt(ev.running)}</td>
+  </tr>`;
+}
+
+async function printSupplierStatement(sid, from='', to=''){
+  const data=getSupplierStatementData(sid, from, to);
+  if(!data) return;
+  const {s,rows,carryForward,totalPur,totalPaid,totalRet,closingBalance,showCarry}=data;
+  const bal=closingBalance;
   const balLbl=bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي';
+  const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>supplierStatementRowHtml(ev,s.id,false)).join('');
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s.name)}</div>
       ${s.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
       <div><strong>تاريخ الكشف:</strong> ${today()}</div>
+      ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
       <div class="doc-sum-box"><div class="n">${fmt(totalPur)}</div><div class="l">إجمالي المشتريات</div></div>
@@ -9106,9 +9114,10 @@ async function printSupplierStatement(sid){
       ${totalRet>0?`<div class="doc-sum-box"><div class="n">${fmt(totalRet)}</div><div class="l">إجمالي مردود المشتريات</div></div>`:''}
       <div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${balLbl}</div></div>
     </div>
-    ${events.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}</tbody></table>`}
+    ${(rows.length===0&&!showCarry)?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>`}
     <div class="doc-total">${balLbl}: ${fmt(Math.abs(bal))} جنيه</div>`;
-  await sendDocument(`كشف حساب مورد: ${s.name}`, body, `كشف-حساب-مورد-${s.name}.pdf`);
+  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
+  await sendDocument(`كشف حساب مورد: ${s.name}`, body, `كشف-حساب-مورد-${s.name}${suffix}.pdf`);
 }
 
 // ===== PURCHASES =====
