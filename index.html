@@ -4525,9 +4525,9 @@ function renderHome(){
     ${renderDayCloseButton()}
     ${kpiGrid}
     <div class="home-shortcuts">
-      ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;switchTab('invoices')")}
+      ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;invDownPayment=0;switchTab('invoices')")}
       ${shortcut('📈','المبيعات',"_autoHoldInvoiceIfOpen();showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
-      ${shortcut('📥','فاتورة مشتريات',"_autoHoldPurchaseIfOpen();showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;switchTab('purchases')")}
+      ${shortcut('📥','فاتورة مشتريات',"_autoHoldPurchaseIfOpen();showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;purDownPayment=0;switchTab('purchases')")}
       ${shortcut('🛒','المشتريات',"_autoHoldPurchaseIfOpen();showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
       ${shortcut('📦','منتج جديد',"stockSubTab='overview';editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;switchTab('stock')")}
       ${shortcut('💸','مصروف جديد',"showExpenseForm=true;switchTab('expenses')")}
@@ -5361,6 +5361,7 @@ let invDetailFromClient=null;
 let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',saleUnit:''}];
 let invOverallDiscount=0;
 let invIsCash=false;
+let invDownPayment=0; // سداد دفعة أولى اختياري لفاتورة آجل — بينشئ سداد فوري جزئي مرتبط بالفاتورة عند الحفظ، بنفس فكرة isCashAuto بس بمبلغ جزئي
 let showInvForm=false;
 let editInvoiceId=null;
 let invSearch='';
@@ -5601,6 +5602,16 @@ function renderInvoices(){
   const invDiscPct=Number(invOverallDiscount)||0;
   const invDiscAmount=subtotal*invDiscPct/100;
   const total=subtotal-invDiscAmount;
+  // خانة "سداد دفعة أولى" اختياري لفواتير الآجل بس — بتظهر بدل بوكس الكاش، وبتوضّح للمستخدم قد إيه هيتسدد فورًا وقد إيه هيفضل مديونية
+  const invDownPaymentNum=Number(invDownPayment)||0;
+  const invDownPaymentBoxHtml = invIsCash ? '' : `
+        <div class="form-row">
+          <div class="form-group">
+            <div class="lbl">سداد دفعة أولى (اختياري)</div>
+            <input type="number" min="0" step="any" id="inv_down_payment" value="${invDownPaymentNum||''}" placeholder="مثلاً 3000 من غير ما تخرج تعمل تحصيل بعدين" onchange="updateInvDownPayment(this.value)">
+          </div>
+        </div>
+        ${invDownPaymentNum<=0?'':(invDownPaymentNum>total?`<div class="bonus-box" style="background:#FDEDEC;color:#C0392B">⚠️ الدفعة المدخلة (${fmt(invDownPaymentNum)} ج) أكبر من إجمالي الفاتورة (${fmt(total)} ج) — عدّل القيمة، وإلا هيترفض حفظ الفاتورة</div>`:`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري بمبلغ ${fmt(invDownPaymentNum)} ج فور حفظ الفاتورة، والباقي (${fmt(total-invDownPaymentNum)} ج) هيفضل مديونية على العميل في كشف الحساب.</div>`)}`;
   document.getElementById('tab-invoices').innerHTML=`
     ${renderHeldInvoicesBlock()}
     ${showInvForm?`
@@ -5623,12 +5634,12 @@ function renderInvoices(){
         <div class="form-row">
           <div class="form-group">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:bold;color:#1E8449">
-              <input type="checkbox" id="inv_is_cash" ${invIsCash?'checked':''} onchange="invIsCash=this.checked;rerenderInvoiceFormKeepFields()" style="width:auto">
+              <input type="checkbox" id="inv_is_cash" ${invIsCash?'checked':''} onchange="invIsCash=this.checked;if(invIsCash){invDownPayment=0;}rerenderInvoiceFormKeepFields()" style="width:auto">
               💵 فاتورة كاش — تتحصّل بالكامل فورًا عند الحفظ
             </label>
           </div>
         </div>
-        ${invIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(total)} ج فور حفظ الفاتورة، وهتظهر في كشف الحساب كفاتورة كاش متسددة في نفس اللحظة.</div>`:''}
+        ${invIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(total)} ج فور حفظ الفاتورة، وهتظهر في كشف الحساب كفاتورة كاش متسددة في نفس اللحظة.</div>`:invDownPaymentBoxHtml}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
@@ -5642,7 +5653,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(invSearch)}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;invDownPayment=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -5671,6 +5682,9 @@ function editInvoice(id){
   invLines=inv.lines.map(l=>({...l}));
   invOverallDiscount=Number(inv.overallDiscount)||0;
   invIsCash=!!inv.isCash;
+  // لو الفاتورة دي كانت آجل واتسجلها سداد دفعة أولى تلقائي وقت الحفظ، بنرجّع قيمته هنا عشان يظهر في فورم التعديل
+  const existingDownPay=payments.find(p=>p.invoiceId===inv.id&&p.isDownPaymentAuto);
+  invDownPayment=existingDownPay?Number(existingDownPay.amount)||0:0;
   showInvForm=true;
   invDetailId=null;
   renderInvoices();
@@ -5693,12 +5707,13 @@ function rerenderInvoiceFormKeepFields(){
 function applyInvClientCashDefault(){
   const cid=document.getElementById('inv_client')?.value;
   const c=clients.find(x=>x.id===cid);
-  if(c) invIsCash = c.transType==='cash';
+  if(c){ invIsCash = c.transType==='cash'; if(invIsCash) invDownPayment=0; }
   rerenderInvoiceFormKeepFields();
 }
 function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''});rerenderInvoiceFormKeepFields();}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
 function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rerenderInvoiceFormKeepFields();}
+function updateInvDownPayment(value){invDownPayment=Number(value)||0;rerenderInvoiceFormKeepFields();}
 function updateLine(id,field,value){
   invLines=invLines.map(l=>{
     if(l.id!==id)return l;
@@ -5742,14 +5757,17 @@ function saveInvoice(){
   const clientId=document.getElementById('inv_client')?.value;
   const date=document.getElementById('inv_date')?.value||businessDate();
   const isCash=document.getElementById('inv_is_cash')?.checked||false;
-  return _saveInvoiceCore(clientId, date, isCash);
+  // سداد دفعة أولى بيتقرا من الفورم بس لو الفاتورة آجل (مش كاش) — فاتورة الكاش أصلاً بتتحصّل بالكامل
+  const downPayment=isCash?0:(Number(document.getElementById('inv_down_payment')?.value)||0);
+  return _saveInvoiceCore(clientId, date, isCash, downPayment);
 }
 
 // نفس منطق حفظ فاتورة المبيعات بالظبط (فحوصات، خصم مخزون، قيود يومية، تسوية تكلفة، ميموري سعر...)
 // اتفصل هنا عن saveInvoice() اللي فوق عشان أي طريقة تانية لإنشاء فاتورة (زي الكاشير السريع) تقدر
 // تستخدم نفس المحرك الموحّد من غير ما تعتمد على وجود عناصر فورم الفاتورة اليدوية في الصفحة.
+// downPayment: سداد دفعة أولى اختياري (بيتجاهل لو isCash=true) — بيتسجل كسداد فوري جزئي بنفس فكرة سداد فاتورة الكاش الكامل
 // بيرجّع الفاتورة المحفوظة عند النجاح، أو null/undefined عند أي فشل (نفس التوست بيتعرض زي الأول)
-function _saveInvoiceCore(clientId, date, isCash){
+function _saveInvoiceCore(clientId, date, isCash, downPayment=0){
   if(!clientId){showToast('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -5815,12 +5833,18 @@ function _saveInvoiceCore(clientId, date, isCash){
   },0);
   const overallDiscount=Number(invOverallDiscount)||0;
   const total=subtotal-(subtotal*overallDiscount/100);
+  // التحقق من سداد الدفعة الأولى (لو الفاتورة آجل): مينفعش تكون سالبة ولا أكبر من إجمالي الفاتورة
+  const downPay=Number(downPayment)||0;
+  if(!isCash && downPay>0){
+    if(downPay<0){ rollbackEdit(); showToast('قيمة الدفعة الأولى غير صحيحة'); return; }
+    if(downPay>total){ rollbackEdit(); showToast(`❌ الدفعة الأولى (${fmt(downPay)} ج) مينفعش تكون أكبر من إجمالي الفاتورة (${fmt(total)} ج)`); return; }
+  }
   const invId = editInvoiceId || uid();
   const invNumber = removedInv ? removedInv.number : nextDocNumber(invoices,'invoice');
   const createdAt = removedInv ? removedInv.createdAt : new Date().toISOString();
   removedMovements.forEach(m=>recordDeletion('movements',m.id)); // وصلنا هنا يبقى التعديل هيتحفظ فعلاً (بعد كل فحوصات الرصيد) - الحركات القديمة دي هتتشال نهائيًا ومحتاجة تتزامن
-  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
-  const oldAutoPay = payments.find(p=>p.invoiceId===invId && p.isCashAuto);
+  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش أو فاتورة آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
+  const oldAutoPay = payments.find(p=>p.invoiceId===invId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
   const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
@@ -5847,10 +5871,15 @@ function _saveInvoiceCore(clientId, date, isCash){
     const cashPay={id:uid(),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+inv.number,isCashAuto:true,createdAt:new Date().toISOString()};
     payments.push(cashPay);
     postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+inv.number, [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
+  } else if(!isCash && downPay>0){
+    // فاتورة آجل بسداد دفعة أولى: بتسجل سداد فوري جزئي بمبلغ الدفعة بس، والباقي يفضل مديونية عادية على العميل
+    const downPayRec={id:uid(),clientId,invoiceId:inv.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة #'+inv.number,isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    payments.push(downPayRec);
+    postJournal('payment', downPayRec.id, date, 'تحصيل دفعة أولى - فاتورة #'+inv.number, [{accountId:'cash',debit:downPay,credit:0},{accountId:'ar',debit:0,credit:downPay}]);
   }
   // ميموري آخر سعر بيع لكل صنف — بتاخد بالتاريخ الفعلي للفاتورة، مش بترتيب الحفظ، عشان تعديل فاتورة قديمة متبوظش سعر أحدث منها
   invLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSalePriceDate || date>=p.lastSalePriceDate)){ p.lastSalePrice=Number(l.price); p.lastSalePriceDate=date; } } });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invIsCash=false;invDownPayment=0;renderInvoices();
   return inv;
 }
 
@@ -5859,8 +5888,8 @@ function deleteInvoice(id){
   if(isRestrictedRole() && (!invToDelete||!roleCanModify(invToDelete)))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
     logActivity('delete','فاتورة مبيعات','#'+invToDelete.number,(clients.find(c=>c.id===invToDelete.clientId)?.name||'')+' • '+fmt(invToDelete.total)+' ج');
-    // لو كانت فاتورة كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
-    const autoPay=payments.find(p=>p.invoiceId===id&&p.isCashAuto);
+    // لو كانت فاتورة كاش أو فيها سداد دفعة أولى تلقائي، بنشيل السداد الفوري المرتبط بيها كمان
+    const autoPay=payments.find(p=>p.invoiceId===id&&(p.isCashAuto||p.isDownPaymentAuto));
     if(autoPay){ recordDeletion('payments',autoPay.id); payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
     recordDeletion('invoices',id);
     invoices=invoices.filter(i=>i.id!==id);
@@ -5891,6 +5920,7 @@ function _captureCurrentDraft(){
     isCash:document.getElementById('inv_is_cash')?.checked||false,
     lines:JSON.parse(JSON.stringify(invLines)),
     overallDiscount:Number(invOverallDiscount)||0,
+    downPayment:Number(invDownPayment)||0,
     ...(isRestrictedRole()?{createdBy:currentRole}:{}) // صاحب المسودة - عشان مسودة جهاز/شخص متظهرش لشخص تاني بصلاحيات مختلفة بعد المزامنة
   };
 }
@@ -5906,7 +5936,7 @@ function _heldVisibleToCurrentRole(h){
 function _resetInvoiceFormState(){
   showInvForm=false;editInvoiceId=null;
   invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
-  invOverallDiscount=0;invIsCash=false;
+  invOverallDiscount=0;invIsCash=false;invDownPayment=0;
 }
 
 // شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة جديدة مفتوحة (زرار من الرئيسية،
@@ -5945,6 +5975,7 @@ function resumeHeldInvoice(id){
   invLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
   invOverallDiscount=Number(held.overallDiscount)||0;
   invIsCash=!!held.isCash;
+  invDownPayment=Number(held.downPayment)||0;
   editInvoiceId=null;
   showInvForm=true;
   const clientStillExists=!!(held.clientId && clients.some(c=>c.id===held.clientId));
@@ -9223,6 +9254,7 @@ async function printSupplierStatement(sid, from='', to=''){
 let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
 let purOverallDiscount=0;
 let purIsCash=false;
+let purDownPayment=0; // سداد دفعة أولى اختياري لفاتورة مشتريات آجلة — نفس فكرة invDownPayment بالظبط بس للمورد
 let showPurForm=false;
 let purDetailId=null;
 let editPurchaseId=null;
@@ -9323,6 +9355,16 @@ function renderPurchases(){
     const purDiscPct=Number(purOverallDiscount)||0;
     const purDiscAmount=purSubtotal*purDiscPct/100;
     const purTotal=purSubtotal-purDiscAmount;
+    // خانة "سداد دفعة أولى" اختياري لفواتير المشتريات الآجلة بس — بتظهر بدل بوكس الكاش، ونفس فكرة invDownPaymentBoxHtml بالظبط
+    const purDownPaymentNum=Number(purDownPayment)||0;
+    const purDownPaymentBoxHtml = purIsCash ? '' : `
+        <div class="form-row">
+          <div class="form-group">
+            <div class="lbl">سداد دفعة أولى (اختياري)</div>
+            <input type="number" min="0" step="any" id="pur_down_payment" value="${purDownPaymentNum||''}" placeholder="مثلاً 3000 من غير ما تخرج تعمل سداد بعدين" onchange="updatePurDownPayment(this.value)">
+          </div>
+        </div>
+        ${purDownPaymentNum<=0?'':(purDownPaymentNum>purTotal?`<div class="bonus-box" style="background:#FDEDEC;color:#C0392B">⚠️ الدفعة المدخلة (${fmt(purDownPaymentNum)} ج) أكبر من إجمالي الفاتورة (${fmt(purTotal)} ج) — عدّل القيمة، وإلا هيترفض حفظ الفاتورة</div>`:`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري بمبلغ ${fmt(purDownPaymentNum)} ج للمورد فور حفظ الفاتورة، والباقي (${fmt(purTotal-purDownPaymentNum)} ج) هيفضل مستحق عليه في كشف حساب المورد.</div>`)}`;
     formHtml=`<div class="card">
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
@@ -9342,12 +9384,12 @@ function renderPurchases(){
         <div class="form-row">
           <div class="form-group">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:bold;color:#1E8449">
-              <input type="checkbox" id="pur_is_cash" ${purIsCash?'checked':''} onchange="purIsCash=this.checked;rerenderPurchaseFormKeepFields()" style="width:auto">
+              <input type="checkbox" id="pur_is_cash" ${purIsCash?'checked':''} onchange="purIsCash=this.checked;if(purIsCash){purDownPayment=0;}rerenderPurchaseFormKeepFields()" style="width:auto">
               💵 فاتورة مشتريات كاش — تتسدد بالكامل فورًا عند الحفظ
             </label>
           </div>
         </div>
-        ${purIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(purTotal)} ج للمورد فور حفظ الفاتورة، وهتظهر في كشف حساب المورد كفاتورة كاش متسددة في نفس اللحظة.</div>`:''}
+        ${purIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(purTotal)} ج للمورد فور حفظ الفاتورة، وهتظهر في كشف حساب المورد كفاتورة كاش متسددة في نفس اللحظة.</div>`:purDownPaymentBoxHtml}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
@@ -9366,7 +9408,7 @@ function renderPurchases(){
     ${formHtml}
     <div class="search-row">
       <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(purSearch)}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
-      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;purDownPayment=0;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -9394,6 +9436,9 @@ function editPurchase(id){
   purchaseLines=(pur.lines||[]).map(l=>({...l}));
   purOverallDiscount=Number(pur.overallDiscount)||0;
   purIsCash=!!pur.isCash;
+  // لو الفاتورة دي كانت آجل واتسجلها سداد دفعة أولى تلقائي وقت الحفظ، بنرجّع قيمته هنا عشان يظهر في فورم التعديل
+  const existingDownPay=supplierPayments.find(p=>p.purchaseId===pur.id&&p.isDownPaymentAuto);
+  purDownPayment=existingDownPay?Number(existingDownPay.amount)||0:0;
   showPurForm=true;
   purDetailId=null;
   renderPurchases();
@@ -9415,12 +9460,13 @@ function rerenderPurchaseFormKeepFields(){
 function applyPurSupplierCashDefault(){
   const sid=document.getElementById('pur_supplier')?.value;
   const s=suppliers.find(x=>x.id===sid);
-  if(s) purIsCash = s.transType==='cash';
+  if(s){ purIsCash = s.transType==='cash'; if(purIsCash) purDownPayment=0; }
   rerenderPurchaseFormKeepFields();
 }
 function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderPurchaseFormKeepFields();}
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);rerenderPurchaseFormKeepFields();}
 function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rerenderPurchaseFormKeepFields();}
+function updatePurDownPayment(value){purDownPayment=Number(value)||0;rerenderPurchaseFormKeepFields();}
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
     if(l.id!==id)return l;
@@ -9469,6 +9515,8 @@ function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
   const date=document.getElementById('pur_date')?.value||businessDate();
   const isCash=document.getElementById('pur_is_cash')?.checked||false;
+  // سداد دفعة أولى بيتقرا من الفورم بس لو الفاتورة آجل (مش كاش) — فاتورة الكاش أصلاً بتتسدد بالكامل
+  const downPayment=isCash?0:(Number(document.getElementById('pur_down_payment')?.value)||0);
   if(!supplierId){showToast('اختر مورد');return;}
   if(purchaseLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -9501,6 +9549,12 @@ function savePurchase(){
   },0);
   const overallDiscount=Number(purOverallDiscount)||0;
   const total=subtotal-(subtotal*overallDiscount/100);
+  // التحقق من سداد الدفعة الأولى (لو الفاتورة آجل): مينفعش تكون سالبة ولا أكبر من إجمالي فاتورة المشتريات
+  const downPay=Number(downPayment)||0;
+  if(!isCash && downPay>0){
+    if(downPay<0){ showToast('قيمة الدفعة الأولى غير صحيحة'); return; }
+    if(downPay>total){ showToast(`❌ الدفعة الأولى (${fmt(downPay)} ج) مينفعش تكون أكبر من إجمالي الفاتورة (${fmt(total)} ج)`); return; }
+  }
 
   let removedPur=null;
   if(editPurchaseId){
@@ -9513,8 +9567,8 @@ function savePurchase(){
   const purId = editPurchaseId || uid();
   const purNum = removedPur ? removedPur.number : nextDocNumber(purchases,'purchase');
   const createdAt = removedPur ? removedPur.createdAt : new Date().toISOString();
-  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش)، بنشيله الأول وهنعيد إنشاؤه لو لسه كاش
-  const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && p.isCashAuto);
+  // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش أو آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
+  const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
   const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,total,isCash,createdAt};
   purchases.push(pur);
@@ -9535,10 +9589,15 @@ function savePurchase(){
     const cashPay={id:uid(),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+pur.number,isCashAuto:true,createdAt:new Date().toISOString()};
     supplierPayments.push(cashPay);
     postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+pur.number, [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
+  } else if(!isCash && downPay>0){
+    // فاتورة مشتريات آجلة بسداد دفعة أولى: بتسجل سداد فوري جزئي للمورد بمبلغ الدفعة بس، والباقي يفضل مستحق عادي عليه
+    const downPayRec={id:uid(),supplierId,purchaseId:pur.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة مشتريات #'+pur.number,isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    supplierPayments.push(downPayRec);
+    postJournal('supplierPayment', downPayRec.id, date, 'سداد دفعة أولى - فاتورة مشتريات #'+pur.number, [{accountId:'ap',debit:downPay,credit:0},{accountId:'cash',debit:0,credit:downPay}]);
   }
   // ميموري آخر سعر شراء لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
   purchaseLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchasePriceDate || date>=p.lastPurchasePriceDate)){ p.lastPurchasePrice=Number(l.price); p.lastPurchasePriceDate=date; } } });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purIsCash=false;purDownPayment=0;renderPurchases();
 }
 
 function deletePurchase(id){
@@ -9553,8 +9612,8 @@ function deletePurchase(id){
   }
   showConfirm('هتحذف فاتورة المشتريات دي؟ هيتم خصم الكميات اللي فيها من المخزن.', function(){
     logActivity('delete','فاتورة مشتريات','#'+(_purItem?.number||''),(suppliers.find(s=>s.id===_purItem?.supplierId)?.name||'')+' • '+fmt(_purItem?.total||0)+' ج');
-    // لو كانت فاتورة مشتريات كاش، بنشيل السداد الفوري التلقائي المرتبط بيها كمان
-    const autoPay=supplierPayments.find(p=>p.purchaseId===id&&p.isCashAuto);
+    // لو كانت فاتورة مشتريات كاش أو فيها سداد دفعة أولى تلقائي، بنشيل السداد الفوري المرتبط بيها كمان
+    const autoPay=supplierPayments.find(p=>p.purchaseId===id&&(p.isCashAuto||p.isDownPaymentAuto));
     if(autoPay){ recordDeletion('supplierPayments',autoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==autoPay.id); removeJournalBySource('supplierPayment', autoPay.id); }
     movements.filter(m=>m.purchaseId===id).forEach(m=>recordDeletion('movements',m.id));
     movements=movements.filter(m=>m.purchaseId!==id);
@@ -9582,14 +9641,15 @@ function _capturePurchaseDraft(){
     date:document.getElementById('pur_date')?.value||businessDate(),
     isCash:document.getElementById('pur_is_cash')?.checked||false,
     lines:JSON.parse(JSON.stringify(purchaseLines)),
-    overallDiscount:Number(purOverallDiscount)||0
+    overallDiscount:Number(purOverallDiscount)||0,
+    downPayment:Number(purDownPayment)||0
   };
 }
 
 function _resetPurchaseFormState(){
   showPurForm=false;editPurchaseId=null;
   purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
-  purOverallDiscount=0;purIsCash=false;
+  purOverallDiscount=0;purIsCash=false;purDownPayment=0;
 }
 
 // شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة مشتريات جديدة مفتوحة
@@ -9626,6 +9686,7 @@ function resumeHeldPurchase(id){
   purchaseLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
   purOverallDiscount=Number(held.overallDiscount)||0;
   purIsCash=!!held.isCash;
+  purDownPayment=Number(held.downPayment)||0;
   editPurchaseId=null;
   showPurForm=true;
   const supplierStillExists=!!(held.supplierId && suppliers.some(s=>s.id===held.supplierId));
