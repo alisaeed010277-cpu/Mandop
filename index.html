@@ -2698,15 +2698,18 @@ function resolveOutBatches(productId, chosenExpiry, qtyNeeded){
   const undated=rawBatches.filter(([exp])=>exp==='—');
   const batches=[...dated,...undated];
   if(batches.length===0) return [{expiry:'', qty:qtyNeeded}];
+  // تقريب لـ 6 خانات عشرية بس، محلي جوه الدالة دي بالظبط — بيمسح ضوضاء الفاصلة العائمة (زي 0.3-0.1) وقت توزيع
+  // الكمية على أكتر من تشغيلة صلاحية، من غير ما يأثر على أي كمية حقيقية (6 خانات أدق بكتير من أي وحدة بيع فعلية)
+  const r6=(n)=>Math.round(n*1e6)/1e6;
   const out=[];
-  let remaining=qtyNeeded;
+  let remaining=r6(qtyNeeded);
   for(const [exp,avail] of batches){
     if(remaining<=0) break;
-    const take=Math.min(avail, remaining);
-    if(take>0){ out.push({expiry: exp==='—'?'':exp, qty:take}); remaining-=take; }
+    const take=r6(Math.min(avail, remaining));
+    if(take>0){ out.push({expiry: exp==='—'?'':exp, qty:take}); remaining=r6(remaining-take); }
   }
   if(remaining>0){ // احتياط أخير (مايفترضش يحصل - رصيد الصنف الكلي اتفحص قبل النداء على الدالة دي)
-    if(out.length>0) out[out.length-1].qty+=remaining;
+    if(out.length>0) out[out.length-1].qty=r6(out[out.length-1].qty+remaining);
     else out.push({expiry:'', qty:remaining});
   }
   return out;
