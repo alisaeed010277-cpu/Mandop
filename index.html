@@ -2025,7 +2025,7 @@ function postJournal(sourceType, sourceId, date, description, lines){
     console.error('قيد غير متوازن (مدين ≠ دائن)، تم تجاهله:',sourceType,sourceId,totalDebit,totalCredit);
     return;
   }
-  if(totalDebit===0) return; // مفيش داعي نسجل قيد بصفر
+  if(Math.abs(totalDebit)<0.01) return; // مفيش داعي نسجل قيد بصفر (بتسامح زي فحص التوازن فوق، عشان فروق فاصلة عائمة صغيرة جدًا ماتسجلش قيد وهمي)
   journalEntries.push({id:uid(),date,description,sourceType,sourceId,lines,createdAt:new Date().toISOString()});
 }
 // مسح كل القيود المرتبطة بحركة معينة (بيتستخدم قبل إعادة الترحيل عند التعديل، أو عند الحذف)
@@ -6721,7 +6721,7 @@ async function printStockSummaryPdf(){
   const rows=stock.map(p=>{
     const qty=_stockIdx.qty(p.id);
     const batches=_stockIdx.batches(p.id);
-    const batchTxt=batches.length>0?batches.map(([exp,q])=>`${exp}: ${q}`).join(' | '):'—';
+    const batchTxt=batches.length>0?batches.map(([exp,q])=>`${exp}: ${fmtQty(q)}`).join(' | '):'—';
     return `<tr>
       <td>${esc(p.name)}</td>
       <td>${p.unit}</td>
@@ -6756,7 +6756,7 @@ function renderStockOverview(){
     const qtyColor=qty<lowStockThresholdFor(p)?'#C0392B':'#1E8449';
     const batches=fieldsCfg().expiry?_stockIdx.batches(p.id):[];
     const batchHtml=batches.length>0
-      ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${q}</b></span>`).join('')
+      ?batches.map(([exp,q])=>`<span style="background:#EBF5FB;border:1px solid #AED6F1;border-radius:4px;padding:2px 6px;font-size:10px;color:#1A5276;margin-left:4px">📅 ${exp}: <b>${fmtQty(q)}</b></span>`).join('')
       :'';
     return `<div class="list-item">
       <div class="list-item-head">
