@@ -2005,8 +2005,10 @@ const DEFAULT_CHART_OF_ACCOUNTS=[
   {id:'cash',    code:'1110', name:'الخزنة',                     type:'asset'},
   {id:'bank',    code:'1120', name:'البنوك',                     type:'asset'},
   {id:'ar',      code:'1200', name:'العملاء',                     type:'asset'},
+  {id:'notesReceivable',code:'1210',name:'أوراق القبض',           type:'asset'},
   {id:'inventory',code:'1300',name:'المخزون',                    type:'asset'},
   {id:'ap',      code:'2100', name:'الموردون',                    type:'liability'},
+  {id:'notesPayable',code:'2110',name:'أوراق الدفع',              type:'liability'},
   {id:'equity',  code:'3100', name:'رأس المال وأرباح مرحّلة',      type:'equity'},
   {id:'sales',   code:'4100', name:'إيرادات المبيعات',            type:'revenue'},
   {id:'cogs',    code:'5200', name:'تكلفة البضاعة المباعة',       type:'expense'},
@@ -2274,23 +2276,62 @@ function backfillReturnJournals(){
   });
   return changed;
 }
-// ترحيل قيود الشيكات المُحصّلة/المصروفة الناقصة (زي شيكات كانت متسجلة "تم التحصيل/الصرف" قبل ما الربط ده يتضاف).
-// القيد بيحرّك الخزنة أو البنك بس، ومقابله حساب "رأس المال" (نفس أسلوب الأرصدة الافتتاحية) — عمدًا من غير أي مساس بحساب العميل/المورد، بناءً على تأكيد صريح إن الشيك يفضل منفصل عن رصيدهم
+// ترحيل قيود تسوية الشيكات (تحصيل/صرف) الناقصة أو الغلط. القيد بيحرّك الخزنة أو البنك بس، ومقابله
+// "أوراق القبض"/"أوراق الدفع" (بيقفل الورقة التجارية اللي اتسجلت وقت إضافة الشيك — شوف reconcileCheckNoteJournals) —
+// عمدًا من غير أي مساس بحساب العميل/المورد نفسه في كشف حسابه، بناءً على تأكيد صريح إن الشيك يفضل منفصل عن رصيدهم.
+// ملحوظة: أي قيد قديم كان اتسجل غلط بحساب "equity" (قبل تصحيح المشكلة المحاسبية دي) بيتصحح هنا تلقائيًا كمان.
 function backfillCheckJournals(){
   let changed=false;
-  const postIfMissing=(c,isPayable)=>{
+  const postIfMissingOrWrong=(c,isPayable)=>{
     if(c.status!=='done') return;
-    if(journalEntries.some(j=>j.sourceType==='check'&&j.sourceId===c.id)) return;
+    const existing=journalEntries.find(j=>j.sourceType==='check'&&j.sourceId===c.id);
+    const wantAcct=isPayable?'notesPayable':'notesReceivable';
+    if(existing){
+      const isCorrect=existing.lines.some(l=>l.accountId===wantAcct);
+      if(isCorrect) return; // القيد موجود وصح، مفيش داعي نلمسه
+      removeJournalBySource('check',c.id); // قيد قديم غلط (بحساب equity) — بيتشال عشان نرحّله صح تحت
+    }
     const acct=c.destination==='bank'?'bank':'cash';
     const desc=(isPayable?'صرف شيك #':'تحصيل شيك #')+c.number+' - '+checkHolderDisplay(c);
     const lines=isPayable
-      ? [{accountId:'equity',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
-      : [{accountId:acct,debit:c.amount,credit:0},{accountId:'equity',debit:0,credit:c.amount}];
+      ? [{accountId:'notesPayable',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
+      : [{accountId:acct,debit:c.amount,credit:0},{accountId:'notesReceivable',debit:0,credit:c.amount}];
     postJournal('check',c.id,c.settledDate||c.dueDate||today(),desc,lines);
     changed=true;
   };
-  checksPayable.forEach(c=>postIfMissing(c,true));
-  checksReceivable.forEach(c=>postIfMissing(c,false));
+  checksPayable.forEach(c=>postIfMissingOrWrong(c,true));
+  checksReceivable.forEach(c=>postIfMissingOrWrong(c,false));
+  return changed;
+}
+// قيد "الورقة التجارية" نفسها — بيتسجل من ساعة ما الشيك يتضاف (لسه pending) لحد ما يترفض (bounced)، وبيفضل
+// موجود وقت التسوية كمان (علشان قيد backfillCheckJournals فوق يقفله على "أوراق القبض/الدفع" مش على حساب تاني).
+// شيك دفع: مدين "الموردون" (بيقل الدين المفتوح) / دائن "أوراق الدفع" (بيتسجل كورقة تجارية).
+// شيك قبض: مدين "أوراق القبض" (بيتسجل كورقة تجارية) / دائن "العملاء" (بيقل الدين المفتوح).
+// ده بيأثر على حساب "العملاء"/"الموردون" في دفتر اليومية (ميزان المراجعة/الميزانية) بس — مش في كشف حساب
+// العميل/المورد الفعلي (ده محسوب مباشرة من الفواتير/المدفوعات في مكان تاني، ومنفصل تمامًا عن دفتر اليومية)
+function reconcileCheckNoteJournals(){
+  let changed=false;
+  const syncOne=(c,isPayable)=>{
+    const noteAmt=Number(c.amount)||0;
+    const existing=journalEntries.find(j=>j.sourceType==='checkNote'&&j.sourceId===c.id);
+    if(c.status==='bounced'||!noteAmt){
+      if(existing){ removeJournalBySource('checkNote',c.id); changed=true; }
+      return;
+    }
+    const noteAccountId=isPayable?'notesPayable':'notesReceivable';
+    const isCorrect=existing && existing.lines.some(l=>l.accountId===noteAccountId && Math.abs((isPayable?l.credit:l.debit)-noteAmt)<0.01);
+    if(isCorrect) return;
+    if(existing) removeJournalBySource('checkNote',c.id);
+    const desc=(isPayable?'قيد شيك دفع #':'قيد شيك قبض #')+c.number+' - '+checkHolderDisplay(c);
+    const date=c.createdDate||c.dueDate||today();
+    const lines=isPayable
+      ? [{accountId:'ap',debit:noteAmt,credit:0},{accountId:'notesPayable',debit:0,credit:noteAmt}]
+      : [{accountId:'notesReceivable',debit:noteAmt,credit:0},{accountId:'ar',debit:0,credit:noteAmt}];
+    postJournal('checkNote',c.id,date,desc,lines);
+    changed=true;
+  };
+  checksPayable.forEach(c=>syncOne(c,true));
+  checksReceivable.forEach(c=>syncOne(c,false));
   return changed;
 }
 // ترحيل/تصحيح قيد الرصيد الافتتاحي لعميل أو مورد — بيمسح القيد القديم (لو موجود) وبيسجله من جديد بالقيمة الحالية،
@@ -2378,7 +2419,7 @@ function cleanupOrphanJournals(){
       case 'purchase': return purchaseIds.has(j.sourceId);
       case 'purReturn': case 'purReturnRefund': case 'purReturnCogsAdj': return purReturnIds.has(j.sourceId);
       case 'supplierPayment': return supplierPaymentIds.has(j.sourceId);
-      case 'check': return checkIds.has(j.sourceId);
+      case 'check': case 'checkNote': return checkIds.has(j.sourceId);
       case 'stockOpening': return stockIds.has(j.sourceId);
       case 'production': return productionIds.has(j.sourceId);
       case 'expense': return expenseIds.has(j.sourceId);
@@ -2425,6 +2466,7 @@ function seedAccountingIfNeeded(){
     backfillReturnJournals();
     reconcileCogsJournals();
     backfillCheckJournals();
+    reconcileCheckNoteJournals();
     backfillOpeningBalanceJournals(); // إصلاح رجعي: عملاء/موردين/خزنة برصيد افتتاحي اتسجل قبل ما ترحيله للقيود يتضاف
     cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
     save();
@@ -2476,6 +2518,7 @@ function seedAccountingIfNeeded(){
   backfillReturnJournals();
   reconcileCogsJournals();
   backfillCheckJournals();
+  reconcileCheckNoteJournals();
   save();
 }
 // ====================================================================
@@ -8051,6 +8094,7 @@ function saveCheck(){
   }else{
     arr.push({id:uid(),number,amount,holderType,holderId:holderId||null,holderName,bank,dueDate,note,status:'pending',settledDate:null,createdDate:today()});
   }
+  reconcileCheckNoteJournals();
   save();
   resetCheckForm();
 }
@@ -8060,6 +8104,7 @@ function deleteCheck(id){
   showConfirm('متأكد من حذف الشيك ده؟', function(){
     logActivity('delete','شيك','#'+(_chkItem?.number||''),(_chkItem?.holderName||'')+' • '+fmt(_chkItem?.amount||0)+' ج');
     removeJournalBySource('check',id);
+    removeJournalBySource('checkNote',id);
     if(banksSubView==='payable'){ recordDeletion('checksPayable',id); checksPayable=checksPayable.filter(c=>c.id!==id); }
     else{ recordDeletion('checksReceivable',id); checksReceivable=checksReceivable.filter(c=>c.id!==id); }
     save();
@@ -8091,13 +8136,14 @@ function confirmSettleCheck(id){
   if(!c)return;
   const isPayable=banksSubView==='payable';
   c.status='done'; c.settledDate=dateVal; c.destination=destination; c.bankAccountId=destination==='bank'?bankAccountId:null;
-  // ترحيل الشيك في القيود: بيحرّك الخزنة أو البنك بس، من غير أي تأثير على رصيد العميل/المورد
+  // ترحيل الشيك في القيود: بيحرّك الخزنة أو البنك بس، مقابل "أوراق القبض/الدفع" (بيقفل الورقة التجارية اللي
+  // اتسجلت وقت إضافة الشيك)، من غير أي تأثير مباشر تاني على كشف حساب العميل/المورد وقت التحصيل نفسه
   removeJournalBySource('check',c.id);
   const acct=destination==='bank'?'bank':'cash';
   const desc=(isPayable?'صرف شيك #':'تحصيل شيك #')+c.number+' - '+checkHolderDisplay(c);
   const lines=isPayable
-    ? [{accountId:'equity',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
-    : [{accountId:acct,debit:c.amount,credit:0},{accountId:'equity',debit:0,credit:c.amount}];
+    ? [{accountId:'notesPayable',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
+    : [{accountId:acct,debit:c.amount,credit:0},{accountId:'notesReceivable',debit:0,credit:c.amount}];
   postJournal('check',c.id,dateVal,desc,lines);
   save();
   settlingCheckId=null;
@@ -8108,6 +8154,7 @@ function markCheckBounced(id){
     const c=currentChecksArr().find(x=>x.id===id);
     if(!c)return;
     removeJournalBySource('check',c.id); // احتياطي لو كان له قيد تسوية سابق
+    removeJournalBySource('checkNote',c.id); // الشيك ارتد يعني الورقة التجارية بطلت، والدين يرجع مفتوح زي ما كان
     c.status='bounced'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
     save();
     renderBanks();
@@ -8917,13 +8964,15 @@ function renderBalanceSheetHtml(toVal){
   const cash=accountBalance('cash',toVal).debit;
   const bank=accountBalance('bank',toVal).debit;
   const ar=accountBalance('ar',toVal).debit;
+  const notesReceivable=accountBalance('notesReceivable',toVal).debit;
   const inventory=accountBalance('inventory',toVal).debit;
-  const totalAssets=cash+bank+ar+inventory;
+  const totalAssets=cash+bank+ar+notesReceivable+inventory;
   const ap=accountBalance('ap',toVal).credit;
+  const notesPayable=accountBalance('notesPayable',toVal).credit;
   const netIncomeToDate=accountBalance('sales',toVal).credit-accountBalance('cogs',toVal).debit-accountBalance('directcost',toVal).debit-accountBalance('opex',toVal).debit-accountBalance('discountAllowed',toVal).debit+accountBalance('discountEarned',toVal).credit;
   const eqBal=accountBalance('equity',toVal);
   const equity=(eqBal.totalCredit-eqBal.totalDebit)+netIncomeToDate;
-  const totalLiabEquity=ap+equity;
+  const totalLiabEquity=ap+notesPayable+equity;
   const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:5px 0;${opts.bold?'font-weight:bold;border-top:1px solid #D5D8DC;margin-top:4px;padding-top:8px;':''}">
     <div>${label}</div><div>${fmt(val)} ج</div>
   </div>`;
@@ -8933,10 +8982,12 @@ function renderBalanceSheetHtml(toVal){
     ${row('الخزنة', cash)}
     ${row('البنوك', bank)}
     ${row('العملاء', ar)}
+    ${row('أوراق القبض', notesReceivable)}
     ${row('المخزون', inventory)}
     ${row('إجمالي الأصول', totalAssets, {bold:true})}
     <div style="font-weight:bold;color:#1A5276;margin:12px 0 4px">الخصوم وحقوق الملكية</div>
     ${row('الموردون', ap)}
+    ${row('أوراق الدفع', notesPayable)}
     ${row('حقوق الملكية (شامل صافي الربح المتراكم)', equity)}
     ${row('إجمالي الخصوم وحقوق الملكية', totalLiabEquity, {bold:true})}
     <div style="font-size:11px;color:${Math.abs(totalAssets-totalLiabEquity)<0.01?'#1E8449':'#C0392B'};margin-top:8px">
