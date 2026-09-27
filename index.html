@@ -772,7 +772,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',expenseCategories:'vs_expense_categories',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1486,6 +1486,11 @@ let expiryAlertMonths=2; // عدد الشهور قبل تاريخ الصلاحي
 let docNumberCounters={invoice:0, purchase:0, return:0, purchaseReturn:0};
 let repNotes=[];
 let clientNotes=[];
+// قائمة بنود المصاريف الجاهزة (تُختار من قايمة منسدلة بدل الكتابة الحرة) — بتتزود تلقائيًا
+// بأي بند جديد يضيفه صاحب النشاط، وكمان بأي بند قديم كان مكتوب يدوي في مصاريف مسجلة فعلاً
+// (شوف seedExpenseCategoriesIfNeeded تحت)
+let expenseCategories=[];
+const DEFAULT_EXPENSE_CATEGORIES=['إيجار','مرتبات وأجور','بنزين ومواصلات','صيانة (سيارات/معدات)','كهرباء ومياه وغاز','اتصالات وإنترنت','دعاية وتسويق','نقل وشحن البضاعة','عمولات المندوبين','ضرائب ورسوم حكومية'];
 let companyProfile={name:'',phone:'',businessType:''};
 // سجل الحذف والتعديل — بيتعرض في شاشة "سجل الحذف والتعديل" آخر المزيد. الأحدث في المقدمة
 // (unshift)، ومحدود بآخر 500 عملية بس عشان الحجم مايكبرش من غير داعي. راجع logActivity() تحت.
@@ -1855,6 +1860,7 @@ const save=()=>{
   idbSet(KEYS.purchaseReturns,purchaseReturns);
   idbSet(KEYS.companyProfile,companyProfile);
   idbSet(KEYS.expenses,expenses);
+  idbSet(KEYS.expenseCategories,expenseCategories);
   idbSet(KEYS.treasuryOpening,treasuryOpening);
   idbSet(KEYS.lowStockDefault,lowStockDefault);
   idbSet(KEYS.expiryAlertMonths,expiryAlertMonths);
@@ -1876,8 +1882,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog,KEYS.expenseCategories];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog,expCats]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1890,6 +1896,7 @@ async function loadAllData(){
   purchaseReturns=pret||[];
   companyProfile=comp||{name:'',phone:'',businessType:''};
   expenses=exp||[];
+  expenseCategories=expCats||[];
   treasuryOpening=Number(tOpen)||0;
   repNotes=rNotes||[];
   clientNotes=cNotes||[];
@@ -1935,6 +1942,8 @@ async function loadAllData(){
 
   // المرحلة الأولى من نظام الحسابات: تجهيز دليل الحسابات + ترحيل كل الحركات القديمة لقيود يومية (مرة واحدة بس أول ما التحديث ده يشتغل)
   seedAccountingIfNeeded();
+  // تجهيز قائمة بنود المصاريف الجاهزة (أول مرة) + استرجاع أي بند قديم كان متسجل يدوي
+  seedExpenseCategoriesIfNeeded();
 
   // تحديث تلقائي وذاتي الإصلاح: يملأ "آخر سعر بيع/شراء/مردود مبيعات/مردود مشتريات" لكل صنف
   // من الفواتير والمشتريات والمرتجعات القديمة اللي كانت متسجلة بالفعل قبل إضافة ميزة تذكر آخر سعر.
@@ -2389,6 +2398,20 @@ function cleanupOrphanJournals(){
   const orphanIdSet=new Set(orphans.map(j=>j.id));
   journalEntries=journalEntries.filter(j=>!orphanIdSet.has(j.id));
   return orphans.length;
+}
+
+// تجهيز قائمة بنود المصاريف الجاهزة أول مرة (أو لو فضلت فاضية لأي سبب)، وكمان إضافة أي بند
+// كان العميل بيكتبه يدوي في مصاريف مسجلة فعلاً من قبل ومش موجود في القائمة الجاهزة — عشان
+// مصاريفه القديمة تفضل متعرّفة زي ما هي من غير ما يحتاج يضيفها تاني بنفسه بعد التحديث ده.
+// دالة آمنة تتنادى في كل تحميل (idempotent) — مبتمسحش ولا بتكرر أي بند موجود بالفعل.
+function seedExpenseCategoriesIfNeeded(){
+  if(!Array.isArray(expenseCategories)) expenseCategories=[];
+  if(expenseCategories.length===0) expenseCategories=[...DEFAULT_EXPENSE_CATEGORIES];
+  const existing=new Set(expenseCategories.map(c=>String(c).trim().toLowerCase()));
+  expenses.forEach(e=>{
+    const lbl=String(e.label||'').trim();
+    if(lbl && !existing.has(lbl.toLowerCase())){ expenseCategories.push(lbl); existing.add(lbl.toLowerCase()); }
+  });
 }
 
 function seedAccountingIfNeeded(){
@@ -2912,7 +2935,7 @@ function pushSilentBackup(force){
   const payload = {
     clients, invoices, payments, stock, movements, returns,
     suppliers, purchases, supplierPayments, purchaseReturns,
-    expenses, treasuryOpening, repNotes, clientNotes,
+    expenses, expenseCategories, treasuryOpening, repNotes, clientNotes,
     checksPayable, checksReceivable, bankAccounts,
     chartOfAccounts, journalEntries, productions,
     companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
@@ -2945,12 +2968,13 @@ async function _tryAutoRecover(key){
     if(!data || !Array.isArray(data.clients)) return false;
     clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
     returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
-    purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];treasuryOpening=Number(data.treasuryOpening)||0;
+    purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];expenseCategories=data.expenseCategories||[];treasuryOpening=Number(data.treasuryOpening)||0;
     repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
     bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
     productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
     deletedIds=data.deletedIds||{};
     docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
+    seedExpenseCategoriesIfNeeded(); // احتياطًا لو النسخة المسترجعة قديمة ومفيهاش قائمة البنود لسه
     save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
     return true;
   }catch(e){
@@ -3002,7 +3026,8 @@ function _metaGroups(){
     company:{companyProfile},
     settings:{lowStockDefault,expiryAlertMonths},
     counters:{docNumberCounters},
-    treasury:{treasuryOpening:Number(treasuryOpening)||0}
+    treasury:{treasuryOpening:Number(treasuryOpening)||0},
+    categories:{expenseCategories}
   };
 }
 // حفظ بروفايل الشركة محليًا + دفعه للمزامنة فورًا. (قبل كده الأماكن اللي بتعدّل بروفايل الشركة كانت بتحفظ
@@ -3048,6 +3073,19 @@ function _applyRootMeta(rd){
     // مفيش قيمة على السيرفر (نسخة تطبيق أقدم كتبت المستند من غيرها): لو عندنا رصيد فعلي هيتبعت، لو صفر مفيش داعي
     G.treasury=Number(treasuryOpening)?null:_stableJson({treasuryOpening:0});
   }
+  // بنود المصاريف الجاهزة: دمج (union) مش استبدال - أي بند ضافه أي جهاز يفضل موجود حتى لو
+  // جهاز تاني حدّث في نفس اللحظة تقريبًا وعنده نسخة أقدم من القائمة (نفس فلسفة عدّادات الترقيم
+  // فوق: بنجمع مش بنستبدل، عشان محدش يخسر بند حد تاني ضافه من جهاز مختلف)
+  if(Array.isArray(rd.expenseCategories)){
+    const merged=[...expenseCategories];
+    const existing=new Set(merged.map(c=>String(c).trim().toLowerCase()));
+    rd.expenseCategories.forEach(c=>{
+      const v=String(c).trim();
+      if(v && !existing.has(v.toLowerCase())){ merged.push(v); existing.add(v.toLowerCase()); }
+    });
+    if(_stableJson(merged)!==_stableJson(expenseCategories)){ expenseCategories=merged; changed=true; }
+    G.categories=_stableJson({expenseCategories:rd.expenseCategories});
+  }else{ G.categories=null; }
   return changed;
 }
 // تحديث أجزاء الشاشة اللي بتتأثر ببيانات الشركة/الإعدادات بعد ما توصل من جهاز تاني (شريط بيانات الشركة،
@@ -3121,6 +3159,9 @@ function pushSyncSnapshot(){
       // رصيد افتتاحي صفر ولسه مفيش حاجة اتستلمت/اتبعتت بخصوصه = مفيش داعي نكتب صفر على السيرفر
       // (الغياب هناك معناه صفر)، ده بيمنع جهاز جديد يمسح رصيد جهاز تاني بالغلط.
       if(g==='treasury' && __syncPushedMetaGroups[g]==null && !Number(treasuryOpening)){ __syncPushedMetaGroups[g]=json; return; }
+      // قائمة بنود فاضية (حالة نادرة جدًا: جهاز لسه ما خلصش تجهيز أول تحميل) ولسه مفيش
+      // كاش محلي معروف = مفيش داعي نمسح قائمة جهاز تاني على السيرفر بقائمة فاضية بالغلط
+      if(g==='categories' && __syncPushedMetaGroups[g]==null && (!Array.isArray(expenseCategories)||expenseCategories.length===0)){ __syncPushedMetaGroups[g]=json; return; }
       Object.assign(metaData, metaGroups[g]);
       Object.keys(metaGroups[g]).forEach(f=>metaFields.push(f));
       metaChanged.push([g,json]);
@@ -7314,7 +7355,7 @@ function buildExportBlob(){
   // إصلاح: كان الملف ده ناقص repNotes/clientNotes/deletedIds مقارنة بنسخة المزامنة
   // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
   // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
-  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,
+  const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,expenseCategories,
     treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -7435,6 +7476,7 @@ function importData(){
           if(Array.isArray(data.supplierPayments)){supplierPayments=data.supplierPayments;}else{oldFileWarning=true;}
           if(Array.isArray(data.purchaseReturns)){purchaseReturns=data.purchaseReturns;}else{oldFileWarning=true;}
           if(Array.isArray(data.expenses)){expenses=data.expenses;}
+          if(Array.isArray(data.expenseCategories)){expenseCategories=data.expenseCategories;}
           if(Array.isArray(data.productions)){productions=data.productions;}
           // إصلاح: استيراد ملاحظات المندوب/العملاء وسجل الحذف لو موجودين في الملف (نسخة بعد الإصلاح) —
           // ملفات قديمة اتصدّرت قبل الإصلاح ده مش هيبقى فيها الحقول دي، فبنسيب البيانات المحلية زي ما هي بدل ما نمسحها بالغلط
@@ -7460,6 +7502,7 @@ function importData(){
           }
           if(oldFileWarning) showToast('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجعات أو الموردين أو الشيكات أو الحسابات) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
           seedAccountingIfNeeded();
+          seedExpenseCategoriesIfNeeded();
           showToast('✅ تم استيراد البيانات بنجاح!');render();
         });
       }catch(err){showToast('حصل خطأ في قراءة الملف!');}
@@ -7490,6 +7533,11 @@ function renderExpenses(){
     fromVal=toLocalDateStr(d); toVal=today();
   }
   else if(expenseQuickFilter==='month'){ fromVal=defFrom; toVal=defTo; }
+  else if(expenseQuickFilter==='last6m'){
+    const d=new Date(); d.setMonth(d.getMonth()-6);
+    fromVal=toLocalDateStr(d); toVal=today();
+  }
+  else if(expenseQuickFilter==='year'){ fromVal=now.getFullYear()+'-01-01'; toVal=today(); }
   else if(expenseQuickFilter==='all'){ fromVal='0000-01-01'; toVal='9999-12-31'; }
   else{
     fromVal=document.getElementById('exp_from')?.value||defFrom;
@@ -7498,6 +7546,23 @@ function renderExpenses(){
 
   const filtered=[...expenses].filter(e=>(!isRestrictedRole()||roleCanSee(e))&&e.date>=fromVal&&e.date<=toVal).sort((a,b)=>b.date.localeCompare(a.date));
   const total=filtered.reduce((s,e)=>s+Number(e.amount),0);
+
+  // توزيع المصاريف حسب البند للفترة المختارة (نفس الـ filtered فوق) — عشان يعرف كل بند خد كام
+  // بالظبط في الفترة دي (مثلاً: الإيجار خد كام في آخر 6 شهور)، مرتبة من الأكبر للأصغر
+  const catTotals={};
+  filtered.forEach(e=>{
+    const k=String(e.label||'غير مصنّف').trim()||'غير مصنّف';
+    catTotals[k]=(catTotals[k]||0)+Number(e.amount);
+  });
+  const catRows=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).map(([label,amt])=>`
+    <div class="list-item" style="padding:9px 12px">
+      <div class="list-item-head" style="align-items:center">
+        <div class="list-item-name">${esc(label)}</div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:#1A5276;font-size:14px">${fmt(amt)} ج</div>${total?`<div style="color:#AAB7B8;font-size:10.5px">${((amt/total)*100).toFixed(1)}%</div>`:''}</div>
+      </div>
+    </div>`).join('');
+
+  const periodLabelMap={today:'اليوم',week:'آخر 7 أيام',month:'الشهر ده',last6m:'آخر 6 شهور',year:'السنة دي',all:'كل الفترات',custom:'الفترة المخصصة'};
 
   const filterBtn=(key,label)=>`<button class="btn-sm" style="background:${expenseQuickFilter===key?'#1A5276':'#D5D8DC'};color:${expenseQuickFilter===key?'#fff':'#333'}" onclick="expenseQuickFilter='${key}';renderExpenses()">${label}</button>`;
 
@@ -7526,8 +7591,17 @@ function renderExpenses(){
         <div class="card-head green">➕ إضافة مصروف جديد</div>
         <div class="card-body">
           <div class="form-row">
-            <div class="form-group" style="flex:2"><div class="lbl">بند المصروف *</div><input type="text" id="exp_label" placeholder="مثال: بنزين، صيانة عربية..."></div>
+            <div class="form-group" style="flex:2"><div class="lbl">بند المصروف *</div>
+              <select id="exp_category" onchange="document.getElementById('exp_new_category_wrap').style.display=(this.value==='__new__'?'block':'none')">
+                <option value="" disabled selected>— اختار البند —</option>
+                ${expenseCategories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+                <option value="__new__">➕ إضافة بند جديد...</option>
+              </select>
+            </div>
             <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="exp_amount" min="0" placeholder="0"></div>
+          </div>
+          <div class="form-row" id="exp_new_category_wrap" style="display:none">
+            <div class="form-group" style="flex:2"><div class="lbl">اسم البند الجديد *</div><input type="text" id="exp_new_category" placeholder="مثال: تأمينات اجتماعية"></div>
           </div>
           <div class="form-row">
             <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${businessDate()}"></div>
@@ -7561,6 +7635,8 @@ function renderExpenses(){
           ${filterBtn('today','اليوم')}
           ${filterBtn('week','آخر 7 أيام')}
           ${filterBtn('month','الشهر ده')}
+          ${filterBtn('last6m','آخر 6 شهور')}
+          ${filterBtn('year','السنة دي')}
           ${filterBtn('all','كل الفترات')}
           ${filterBtn('custom','فترة مخصصة')}
         </div>
@@ -7572,10 +7648,18 @@ function renderExpenses(){
       </div>
 
       <div class="card" style="border-right:4px solid #C0392B;margin-bottom:14px">
-        <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المصاريف للفترة المختارة</div>
+        <div style="font-size:12px;color:#717D7E;margin-bottom:4px">إجمالي المصاريف — ${periodLabelMap[expenseQuickFilter]||''}</div>
         <div style="font-size:28px;font-weight:bold;color:#C0392B">${fmt(total)} ج</div>
         <div style="font-size:11px;color:#AAB7B8;margin-top:2px">${filtered.length} بند مصروف</div>
       </div>
+
+      ${filtered.length>0?`
+      <div class="card" style="margin-bottom:14px;padding:0;overflow:hidden">
+        <div class="card-head" style="background:#1A5276;color:#fff">📊 توزيع المصاريف حسب البند — ${periodLabelMap[expenseQuickFilter]||''}</div>
+        <div class="card-body" style="padding:0">
+          ${catRows}
+        </div>
+      </div>`:''}
 
       ${filtered.length===0?'<div class="empty">لا توجد مصاريف في الفترة دي</div>':rows}
 
@@ -7633,12 +7717,24 @@ function deleteRepNote(id){
 }
 
 function addExpense(){
-  const label=document.getElementById('exp_label')?.value?.trim();
+  const catSel=document.getElementById('exp_category')?.value||'';
+  let label='';
+  if(catSel==='__new__'){
+    label=document.getElementById('exp_new_category')?.value?.trim();
+    if(!label){showToast('اكتب اسم البند الجديد');return;}
+    // نضيف البند الجديد لقائمة البنود الجاهزة عشان يبقى متاح كخيار جاهز من تاني مرة
+    if(!expenseCategories.some(c=>String(c).trim().toLowerCase()===label.toLowerCase())){
+      expenseCategories.push(label);
+      idbSet(KEYS.expenseCategories,expenseCategories);
+    }
+  }else{
+    label=catSel.trim();
+  }
   const amount=Number(document.getElementById('exp_amount')?.value||0);
   const date=document.getElementById('exp_date')?.value||businessDate();
   const costType=document.getElementById('exp_cost_type')?.value||'';   // '' | 'direct' | 'indirect'
   const costNature=document.getElementById('exp_cost_nature')?.value||''; // '' | 'fixed' | 'variable'
-  if(!label){showToast('اكتب بند المصروف');return;}
+  if(!label){showToast('اختار بند المصروف');return;}
   if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
   const exp={id:uid(),label,amount,date,costType,costNature};
   if(isRestrictedRole()) exp.createdBy=currentRole;
