@@ -134,6 +134,7 @@ tr:nth-child(odd) td{background:#FDFEFE;}
 .page-title{font-weight:bold;font-size:16px;}
 .section-title{font-weight:bold;margin-bottom:8px;font-size:13px;}
 .line-box{background:#F0F4F8;border-radius:8px;padding:10px;margin-bottom:8px;}
+.line-num{display:inline-block;min-width:18px;height:16px;line-height:16px;padding:0 5px;margin:-2px 0 -2px 6px;border-radius:9px;background:#1A5276;color:#fff;font-size:10.5px;font-weight:bold;text-align:center;box-sizing:border-box;vertical-align:middle;}
 .warn-box{border:1px solid #D68910;}
 .home-alerts-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;}
 .home-alerts-row>.card{flex:1 1 280px;margin-bottom:0;}
@@ -1696,6 +1697,43 @@ function _sselKeydown(ev, fieldId){
     ev.preventDefault();
     _sselPick(fieldId, exact.id);
   }
+}
+
+// ====== مساعدات مشتركة لفواتير المبيعات والمشتريات: تنبيه الصنف المتكرر + النزول للسطر الجديد ======
+// أرقام السطور (من 1) اللي فيها نفس الصنف بتاع السطر ده، من غير السطر نفسه — [] لو مفيش تكرار
+function lineDupNums(lines, line){
+  if(!line.productId) return [];
+  const out=[];
+  lines.forEach((x,i)=>{ if(x.id!==line.id && x.productId===line.productId) out.push(i+1); });
+  return out;
+}
+// عدد الأصناف المختلفة اللي ظاهرة أكتر من مرة في الفاتورة
+function dupProductsCount(lines){
+  const seen={}, dups={};
+  lines.forEach(x=>{ if(!x.productId) return; if(seen[x.productId]) dups[x.productId]=1; seen[x.productId]=1; });
+  return Object.keys(dups).length;
+}
+function lineDupWarnHtml(lines, line){
+  const nums=lineDupNums(lines,line);
+  if(!nums.length) return '';
+  return `<div class="bonus-box" style="background:#FEF9E7;border-color:#D68910;color:#9C640C">🔁 الصنف ده مكتوب كمان في سطر رقم ${nums.join('، ')} — لو مقصود (دفعة أو وحدة أو سعر تاني) عادي، وإلا احذف أحد السطرين</div>`;
+}
+// بعد إضافة سطر جديد: ينزّل الصفحة للسطر ويحط المؤشر في خانة البحث عن الصنف (لو لقيها) — كله best-effort ومش بيكسر أي حاجة لو فشل
+function focusNewLineField(searchId, tabId){
+  setTimeout(()=>{
+    try{
+      let el=document.getElementById(searchId);
+      if(!el){
+        const boxes=document.querySelectorAll('#'+tabId+' .line-box');
+        const last=boxes[boxes.length-1];
+        el=last?last.querySelector('input[type=text]'):null;
+      }
+      if(!el) return;
+      const box=el.closest('.line-box')||el;
+      box.scrollIntoView({behavior:'smooth',block:'center'});
+      el.focus({preventScroll:true});
+    }catch(e){}
+  },60);
 }
 
 // ============================================================
@@ -5648,7 +5686,9 @@ function renderInvoices(){
   // من الصفر (بمسح كل الحركات لكل صنف) في كل سطر على حدة - نفس المحتوى بالظبط لكل سطر أصلًا
   const _stockIdx4619=buildStockIndexes();
   const stockOptsArrShared=stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx4619.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
-  let linesHtml=invLines.map(l=>{
+  const invItemsCount=invLines.filter(l=>l.productId||(l.productName&&String(l.productName).trim())).length;
+  const invDupCount=dupProductsCount(invLines);
+  let linesHtml=invLines.map((l,_li)=>{
     const stockOptsArr=stockOptsArrShared;
     const afterDiscount=l.price*(1-(Number(l.discount)||0)/100);
     const lineTotal=Number(l.qty)*afterDiscount;
@@ -5669,7 +5709,7 @@ function renderInvoices(){
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
-          <div class="lbl">المنتج</div>
+          <div class="lbl"><span class="line-num">${_li+1}</span>المنتج</div>
           ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
         ${fieldsCfg().expiry&&l.productId&&stockBatches(l.productId).length>0?`
@@ -5723,6 +5763,7 @@ function renderInvoices(){
         ${l.discount>0?`✂️ خصم ${l.discount}% على السعر`:''}
         ${bonusQty>0?` &nbsp;🎁 ${bonusQty} ${lineUnitLabel(l)||'وحدة'} هدية (تُخصم من المخزن بدون حساب)`:''}
       </div>`:''}
+      ${lineDupWarnHtml(invLines,l)}
       ${marginWarningHtml}
     </div>`;
   }).join('');
@@ -5754,7 +5795,7 @@ function renderInvoices(){
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
-        <div class="section-title">📦 أصناف الفاتورة</div>
+        <div class="section-title">📦 أصناف الفاتورة ${invItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${invItemsCount} ${invItemsCount===1?'صنف':(invItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
         ${linesHtml}
         <button class="btn-outline" style="margin-bottom:10px" onclick="addLine()">+ إضافة صنف</button>
         <div class="divider"></div>
@@ -5773,7 +5814,7 @@ function renderInvoices(){
         ${invIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(total)} ج فور حفظ الفاتورة، وهتظهر في كشف الحساب كفاتورة كاش متسددة في نفس اللحظة.</div>`:invDownPaymentBoxHtml}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div>
+          <div><div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(total)} جنيه</div><div style="font-size:12px;color:#717D7E;margin-top:2px">📦 عدد الأصناف: <b>${invItemsCount}</b>${invDupCount>0?` <span style="color:#9C640C;font-weight:bold">• 🔁 ${invDupCount} ${invDupCount===1?'صنف متكرر':'أصناف متكررة'}</span>`:''}</div></div>
           <div class="btn-row">
             <button class="btn ${editingInv?'orange':'green'}" onclick="saveInvoice()">${editingInv?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
             ${!editingInv?`<button class="btn-outline" style="border-color:#D68910;color:#D68910" onclick="holdCurrentInvoice()">⏸️ علّق الفاتورة</button>`:''}
@@ -5841,7 +5882,7 @@ function applyInvClientCashDefault(){
   if(c){ invIsCash = c.transType==='cash'; if(invIsCash) invDownPayment=0; }
   rerenderInvoiceFormKeepFields();
 }
-function addLine(){invLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''});rerenderInvoiceFormKeepFields();}
+function addLine(){const nl={id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''};invLines.push(nl);rerenderInvoiceFormKeepFields();focusNewLineField('invline_'+nl.id+'_search','tab-invoices');}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
 function updateInvOverallDiscount(value){invOverallDiscount=Number(value)||0;rerenderInvoiceFormKeepFields();}
 function updateInvDownPayment(value){invDownPayment=Number(value)||0;rerenderInvoiceFormKeepFields();}
@@ -9773,14 +9814,16 @@ function renderPurchases(){
 
   let formHtml='';
   if(showPurForm){
-    let linesHtml=purchaseLines.map(l=>{
+    const purItemsCount=purchaseLines.filter(l=>l.productId||(l.productName&&String(l.productName).trim())).length;
+    const purDupCount=dupProductsCount(purchaseLines);
+    let linesHtml=purchaseLines.map((l,_li)=>{
       const stockOptsArr=stock.map(p=>({id:p.id,label:p.name,sub:p.barcode?`🏷️ ${p.barcode}`:'',code:p.barcode||''}));
       const afterDiscount=Number(l.price)*(1-(Number(l.discount)||0)/100);
       const lineTotal=Number(l.qty)*afterDiscount;
       const bonusQty=Number(l.bonus)||0;
       return `<div class="line-box">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">المنتج</div>
+          <div class="form-group" style="flex:2"><div class="lbl"><span class="line-num">${_li+1}</span>المنتج</div>
             ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
           ${fieldsCfg().expiry?`<div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>`:''}
@@ -9808,6 +9851,7 @@ function renderPurchases(){
           ${l.discount>0?`✂️ خصم ${l.discount}% على السعر`:''}
           ${bonusQty>0?` &nbsp;🎁 ${bonusQty} وحدة هدية من المورد (بتتضاف للمخزن من غير حساب)`:''}
         </div>`:''}
+        ${lineDupWarnHtml(purchaseLines,l)}
       </div>`;
     }).join('');
 
@@ -9836,7 +9880,7 @@ function renderPurchases(){
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||purResumeDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
-        <div class="section-title">📦 أصناف فاتورة المشتريات</div>
+        <div class="section-title">📦 أصناف فاتورة المشتريات ${purItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${purItemsCount} ${purItemsCount===1?'صنف':(purItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
         ${linesHtml}
         <button class="btn-outline" style="margin-bottom:10px" onclick="addPurLine()">+ إضافة صنف</button>
         <div class="divider"></div>
@@ -9855,7 +9899,7 @@ function renderPurchases(){
         ${purIsCash?`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري تلقائيًا بمبلغ ${fmt(purTotal)} ج للمورد فور حفظ الفاتورة، وهتظهر في كشف حساب المورد كفاتورة كاش متسددة في نفس اللحظة.</div>`:purDownPaymentBoxHtml}
         <div class="divider"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div>
+          <div><div style="font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(purTotal)} جنيه</div><div style="font-size:12px;color:#717D7E;margin-top:2px">📦 عدد الأصناف: <b>${purItemsCount}</b>${purDupCount>0?` <span style="color:#9C640C;font-weight:bold">• 🔁 ${purDupCount} ${purDupCount===1?'صنف متكرر':'أصناف متكررة'}</span>`:''}</div></div>
           <div class="btn-row">
             <button class="btn ${editingPur?'orange':'green'}" onclick="savePurchase()">${editingPur?'✓ حفظ التعديل':'✓ حفظ الفاتورة'}</button>
             ${!editingPur?`<button class="btn-outline" style="border-color:#D68910;color:#D68910" onclick="holdCurrentPurchase()">⏸️ علّق الفاتورة</button>`:''}
@@ -9926,7 +9970,7 @@ function applyPurSupplierCashDefault(){
   if(s){ purIsCash = s.transType==='cash'; if(purIsCash) purDownPayment=0; }
   rerenderPurchaseFormKeepFields();
 }
-function addPurLine(){purchaseLines.push({id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''});rerenderPurchaseFormKeepFields();}
+function addPurLine(){const nl={id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''};purchaseLines.push(nl);rerenderPurchaseFormKeepFields();focusNewLineField('purline_'+nl.id+'_search','tab-purchases');}
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);rerenderPurchaseFormKeepFields();}
 function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rerenderPurchaseFormKeepFields();}
 function updatePurDownPayment(value){purDownPayment=Number(value)||0;rerenderPurchaseFormKeepFields();}
