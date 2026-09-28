@@ -772,7 +772,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',expenseCategories:'vs_expense_categories',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',expenseCategories:'vs_expense_categories',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',bankTransactions:'vs_bank_transactions',subStock:'vs_sub_stock',subTransfers:'vs_sub_transfers',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1476,6 +1476,8 @@ function _applyRoleUI(){
 let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],suppliers=[],purchases=[],supplierPayments=[],purchaseReturns=[],expenses=[],productions=[];
 let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
 let bankAccounts=[]; // حسابات الشركة البنكية
+let subStock=[],subTransfers=[]; // المخزن الفرعي (اختياري): أرصدة أصناف مش في المخزن الرئيسي + سجل تحويلاتها للرئيسي
+let bankTransactions=[]; // حركات البنك: إيداع نقدي من الخزنة / سحب من البنك للخزنة (المصاريف المدفوعة من البنك بتتسجل في expenses بعلامة paidFrom:'bank')
 let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأولى من نظام المحاسبة)
 let journalEntries=[]; // القيود اليومية (دفتر الأستاذ الخفي وراء كل حركة)
 let treasuryOpening=0;
@@ -1870,6 +1872,9 @@ const save=()=>{
   idbSet(KEYS.checksPayable,checksPayable);
   idbSet(KEYS.checksReceivable,checksReceivable);
   idbSet(KEYS.bankAccounts,bankAccounts);
+  idbSet(KEYS.bankTransactions,bankTransactions);
+  idbSet(KEYS.subStock,subStock);
+  idbSet(KEYS.subTransfers,subTransfers);
   idbSet(KEYS.chartOfAccounts,chartOfAccounts);
   idbSet(KEYS.journalEntries,journalEntries);
   idbSet(KEYS.productions,productions);
@@ -1882,8 +1887,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog,KEYS.expenseCategories];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog,expCats]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog,KEYS.expenseCategories,KEYS.bankTransactions,KEYS.subStock,KEYS.subTransfers];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog,expCats,bTx,sStock,sTrans]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -1903,6 +1908,9 @@ async function loadAllData(){
   checksPayable=chkPay||[];
   checksReceivable=chkRec||[];
   bankAccounts=bAcc||[];
+  bankTransactions=bTx||[];
+  subStock=sStock||[];
+  subTransfers=sTrans||[];
   chartOfAccounts=coa||[];
   journalEntries=jrnl||[];
   productions=prod||[];
@@ -2096,6 +2104,11 @@ function buildProductLedger(productId, ledgerCache, visiting){
   if(openingMov && p.costPrice>0){
     events.push({sortKey:'', kind:'in', qty:Number(openingMov.qty)||0, value:(Number(openingMov.qty)||0)*p.costPrice});
   }
+  subTransfers.forEach(t=>{
+    if(t.productId!==productId) return;
+    const tq=Number(t.qty)||0, tc=Number(t.cost)||0;
+    if(tq>0 && tc>0) events.push({sortKey:(t.date||'')+'|'+(t.createdAt||''), kind:'in', qty:tq, value:tq*tc});
+  });
   purchases.forEach(pur=>{
     (pur.lines||[]).forEach(l=>{
       if(l.productId!==productId) return;
@@ -2363,6 +2376,64 @@ function postTreasuryOpeningJournal(){
     amt>=0 ? [{accountId:'cash',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
            : [{accountId:'equity',debit:-amt,credit:0},{accountId:'cash',debit:0,credit:-amt}]);
 }
+// ===== حركات البنك: إيداع نقدي (خزنة -> بنك) / سحب (بنك -> خزنة) / رصيد افتتاحي للحساب البنكي =====
+// إيداع: مدين البنوك / دائن الخزنة — سحب: مدين الخزنة / دائن البنوك (تحويل داخلي، مفيش أي مساس بالأرباح)
+function bankTxJournalLines(t){
+  const amt=Number(t.amount)||0;
+  return t.kind==='deposit'
+    ? [{accountId:'bank',debit:amt,credit:0},{accountId:'cash',debit:0,credit:amt}]
+    : [{accountId:'cash',debit:amt,credit:0},{accountId:'bank',debit:0,credit:amt}];
+}
+function postBankTxJournal(t){
+  removeJournalBySource('bankTx',t.id);
+  postJournal('bankTx',t.id,t.date,(t.kind==='deposit'?'إيداع نقدي في البنك':'سحب من البنك إلى الخزنة')+(t.note?' - '+t.note:''),bankTxJournalLines(t));
+}
+// نفس أسلوب رصيد افتتاحي الخزنة/العملاء/الموردين بالظبط، عشان رصيد "البنوك" في الميزانية يطابق رصيد الحساب البنكي في شاشته
+function postBankOpeningJournal(acc){
+  const sourceId='bank-opening-'+acc.id;
+  removeJournalBySource('opening',sourceId);
+  const amt=Number(acc.opening)||0;
+  if(!amt) return;
+  const date=acc.openingDate||acc.createdDate||today();
+  postJournal('opening',sourceId,date,'رصيد افتتاحي - '+acc.bankName,
+    amt>=0 ? [{accountId:'bank',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+           : [{accountId:'equity',debit:-amt,credit:0},{accountId:'bank',debit:0,credit:-amt}]);
+}
+// إصلاح/ترحيل ناقص (idempotent — مبيلمسش أي قيد صح): رصيد افتتاحي حساب بنكي، حركة بنك، أو مصروف مدفوع من البنك قيده لسه على الخزنة
+// ترحيل تحويل المخزن الفرعي -> الرئيسي: مدين المخزون / دائن رأس المال (نفس معاملة الرصيد الافتتاحي للمخزون بالظبط، لأن رصيد المخزن الفرعي نفسه خارج الدفاتر لحد ما يتحوّل). بس لو فيه سعر تكلفة.
+function postSubTransferJournal(t){
+  removeJournalBySource('stockTransfer',t.id);
+  const amt=(Number(t.qty)||0)*(Number(t.cost)||0);
+  if(!t.productId||amt<=0) return;
+  postJournal('stockTransfer',t.id,t.date,'تحويل من المخزن الفرعي - '+(t.subItemName||''),[{accountId:'inventory',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]);
+}
+function backfillSubTransferJournals(){
+  let changed=false;
+  subTransfers.forEach(t=>{
+    if(!t.productId||!((Number(t.qty)||0)*(Number(t.cost)||0)>0)) return;
+    if(!journalEntries.some(j=>j.sourceType==='stockTransfer'&&j.sourceId===t.id)){ postSubTransferJournal(t); changed=true; }
+  });
+  return changed;
+}
+function backfillBankJournals(){
+  let changed=false;
+  bankAccounts.forEach(a=>{
+    if(Number(a.opening) && !journalEntries.some(j=>j.sourceType==='opening'&&j.sourceId==='bank-opening-'+a.id)){ postBankOpeningJournal(a); changed=true; }
+  });
+  bankTransactions.forEach(t=>{
+    if(!journalEntries.some(j=>j.sourceType==='bankTx'&&j.sourceId===t.id)){ postBankTxJournal(t); changed=true; }
+  });
+  expenses.forEach(e=>{
+    if(e.paidFrom!=='bank') return;
+    const j=journalEntries.find(x=>x.sourceType==='expense'&&x.sourceId===e.id);
+    if(j && j.lines.some(l=>l.accountId==='cash')){
+      removeJournalBySource('expense',e.id);
+      postJournal('expense',e.id,e.date,'مصروف: '+e.label,[{accountId:e.costType==='direct'?'directcost':'opex',debit:e.amount,credit:0},{accountId:'bank',debit:0,credit:e.amount}]);
+      changed=true;
+    }
+  });
+  return changed;
+}
 // إصلاح رجعي لعملاء شغالين بالبرنامج بالفعل: عميل/مورد اتضاف برصيد افتتاحي أو اتعدّل رصيده الافتتاحي من قبل ما الترحيل
 // ده يتضاف (سهو كان موجود في addClient/addSupplier/saveOpeningBalance/saveTreasuryOpening) هيبقى قيده ناقص —
 // بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يلمس قيود صحيحة أصلاً (نفس أسلوب backfillReturnJournals بالظبط)
@@ -2408,6 +2479,8 @@ function cleanupOrphanJournals(){
   const stockIds=new Set(stock.map(p=>p.id));
   const productionIds=new Set(productions.map(op=>op.id));
   const expenseIds=new Set(expenses.map(e=>e.id));
+  const bankTxIds=new Set(bankTransactions.map(t=>t.id));
+  const subTransferIds=new Set(subTransfers.map(t=>t.id));
   const clientOpeningIds=new Set(clients.map(c=>'client-opening-'+c.id));
   const supplierOpeningIds=new Set(suppliers.map(s=>'supplier-opening-'+s.id));
 
@@ -2423,6 +2496,8 @@ function cleanupOrphanJournals(){
       case 'stockOpening': return stockIds.has(j.sourceId);
       case 'production': return productionIds.has(j.sourceId);
       case 'expense': return expenseIds.has(j.sourceId);
+      case 'bankTx': return bankTxIds.has(j.sourceId);
+      case 'stockTransfer': return subTransferIds.has(j.sourceId);
       case 'opening':
         if(j.sourceId==='treasury-opening') return true; // ده مالوش عنصر مصدر منفصل، دايمًا صالح
         if(clientOpeningIds.has(j.sourceId)) return true;
@@ -2468,6 +2543,8 @@ function seedAccountingIfNeeded(){
     backfillCheckJournals();
     reconcileCheckNoteJournals();
     backfillOpeningBalanceJournals(); // إصلاح رجعي: عملاء/موردين/خزنة برصيد افتتاحي اتسجل قبل ما ترحيله للقيود يتضاف
+    backfillBankJournals(); // ترحيل رصيد افتتاحي الحسابات البنكية + حركات البنك (لو ناقصين)
+    backfillSubTransferJournals(); // تحويلات المخزن الفرعي (لو قيدها ناقص)
     cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
     save();
     return;
@@ -2513,12 +2590,14 @@ function seedAccountingIfNeeded(){
   expenses.forEach(e=>{
     const expAccount=e.costType==='direct'?'directcost':'opex';
     postJournal('expense',e.id,e.date,'مصروف: '+e.label,
-      [{accountId:expAccount,debit:e.amount,credit:0},{accountId:'cash',debit:0,credit:e.amount}]);
+      [{accountId:expAccount,debit:e.amount,credit:0},{accountId:(e.paidFrom==='bank'?'bank':'cash'),debit:0,credit:e.amount}]);
   });
   backfillReturnJournals();
   reconcileCogsJournals();
   backfillCheckJournals();
   reconcileCheckNoteJournals();
+  backfillBankJournals();
+  backfillSubTransferJournals();
   save();
 }
 // ====================================================================
@@ -2982,7 +3061,7 @@ function pushSilentBackup(force){
     clients, invoices, payments, stock, movements, returns,
     suppliers, purchases, supplierPayments, purchaseReturns,
     expenses, expenseCategories, treasuryOpening, repNotes, clientNotes,
-    checksPayable, checksReceivable, bankAccounts,
+    checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers,
     chartOfAccounts, journalEntries, productions,
     companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
     _deviceId: __deviceId,
@@ -3016,7 +3095,7 @@ async function _tryAutoRecover(key){
     returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
     purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];expenseCategories=data.expenseCategories||[];treasuryOpening=Number(data.treasuryOpening)||0;
     repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
-    bankAccounts=data.bankAccounts||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
+    bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
     productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
     deletedIds=data.deletedIds||{};
     docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
@@ -3440,14 +3519,14 @@ async function _pullAllSyncData(){
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
-const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases','auditLog'];
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','bankTransactions','subStock','subTransfers','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases','auditLog'];
 
 const SYNC_ARRAY_LABELS={
   clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
   movements:'حركات مخزون', returns:'مرتجعات مبيعات', suppliers:'موردين',
   purchases:'فواتير مشتريات', supplierPayments:'مدفوعات موردين',
   purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
-  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية',
+  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية', bankTransactions:'حركات بنكية', subStock:'أصناف المخزن الفرعي', subTransfers:'تحويلات المخزن الفرعي',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
   clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة', heldPurchases:'مشتريات معلقة',
   auditLog:'سجل حذف وتعديل'
@@ -3476,7 +3555,7 @@ function logActivity(action, entityLabel, itemName, detail){
 function getSyncArrayMap(){
   return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
     supplierPayments,purchaseReturns,expenses,productions,checksPayable,
-    checksReceivable,bankAccounts,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases,auditLog};
+    checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases,auditLog};
 }
 
 // بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
@@ -4094,7 +4173,7 @@ function openCompanyModal(){
   modal.id='companyModal';
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
   modal.innerHTML=`
-    <div class="cm-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div class="cm-card" style="background:#fff;border-radius:14px;padding:22px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);max-height:100%;overflow-y:auto">
       <div class="cm-title" style="font-weight:bold;color:#1A5276;margin-bottom:14px;text-align:center">🏢 بيانات شركتك</div>
       <div style="text-align:center;margin-bottom:12px">
         <img id="logoPreview" src="${companyProfile.logo||''}" class="cm-logo" style="border-radius:10px;object-fit:cover;background:#F2F3F4;display:${companyProfile.logo?'inline-block':'none'}">
@@ -4124,6 +4203,13 @@ function openCompanyModal(){
           <span style="display:block;font-size:10.5px;color:#AAB7B8;margin-top:2px">اختياري بالكامل — بيضيف تاب "كاشير سريع" للمسح والبيع السريع بالباركود، مناسب للسوبر ماركت/الهايبر. لو سبته زي ما هو، مفيش أي تغيير في البرنامج عندك.</span>
         </span>
         <input type="checkbox" id="companyPosModeInput" ${companyProfile.posModeEnabled?'checked':''} style="width:auto;flex-shrink:0">
+      </label>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:#F8F9F9;border:1px solid #D5D8DC;border-radius:8px;padding:10px 12px;margin-bottom:16px;cursor:pointer">
+        <span style="flex:1">
+          <span style="font-size:12.5px;color:#333">🏬 تفعيل مخزن فرعي</span>
+          <span style="display:block;font-size:10.5px;color:#AAB7B8;margin-top:2px">اختياري بالكامل — أرصدة وتحويلات بس: بتسجّل أصناف مش موجودة في المخزن الرئيسي وتحوّلها له وقت ما تحتاج. لو سبته زي ما هو، مفيش أي تغيير في البرنامج.
+        </span>
+        <input type="checkbox" id="companySubWarehouseInput" ${companyProfile.subWarehouseEnabled?'checked':''} style="width:auto;flex-shrink:0">
       </label>
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('companyModal').remove()" class="cm-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
@@ -4169,14 +4255,16 @@ function saveCompanyProfile(){
   const taxNumber=document.getElementById('companyTaxInput').value.trim();
   const businessDayStartHour=Number(document.getElementById('companyBizDayInput')?.value)||0;
   const posModeEnabled=document.getElementById('companyPosModeInput')?.checked||false;
+  const subWarehouseEnabled=document.getElementById('companySubWarehouseInput')?.checked||false;
   // ملحوظة: بنعمل spread على companyProfile الحالي قبل الكتابة فوقه، عشان أي حقل
   // إضافي (زي businessType) اتحفظ قبل كده متتمسحش لما المستخدم يحفظ اسم/تليفون/شعار بس
-  companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, posModeEnabled, logo:_tempLogoDataUrl||''};
+  companyProfile={...companyProfile, name, phone, taxNumber, businessDayStartHour, posModeEnabled, subWarehouseEnabled, logo:_tempLogoDataUrl||''};
   persistCompanyProfile();
   document.getElementById('companyModal').remove();
   renderCompanyBar();
   syncTabsBarStickyTop();
   renderMoreTabsList(); // عشان تاب الكاشير يظهر/يختفي فورًا لو حد فعّل أو ألغى الخاصية من غير ما يعمل تحديث للصفحة
+  if(currentTab==='stock') renderStock(); // تبويب المخزن الفرعي يظهر/يختفي فورًا
 }
 
 // شاشة اختيار نوع النشاط — 4 اختيارات ظاهرة، بترجم لنمطين تقنيين بس (medical/simple)
@@ -6718,16 +6806,209 @@ let prodInputLines=[{id:uid(),productId:'',qty:''}];
 function renderStock(){
   if(stockDetailId){renderStockDetail();return;}
   if(stockSubTab==='production'&&!fieldsCfg().manufacturing) stockSubTab='overview'; // النمط اتغيّر والمستخدم كان واقف في تبويب مخفي
+  if(stockSubTab==='sub'&&(!companyProfile.subWarehouseEnabled||isRestrictedRole())) stockSubTab='overview'; // المخزن الفرعي اتقفل والمستخدم كان واقف فيه
   document.getElementById('tab-stock').innerHTML=`
     <div class="sub-tabs">
       <button class="btn ${stockSubTab==='overview'?'blue':'btn-outline'}" onclick="stockSubTab='overview';renderStock()">📦 المنتجات</button>
       <button class="${stockSubTab==='movements'?'btn blue':'btn-outline'}" onclick="stockSubTab='movements';renderStock()">🔄 الحركات</button>
       ${fieldsCfg().manufacturing?`<button class="${stockSubTab==='production'?'btn blue':'btn-outline'}" onclick="stockSubTab='production';renderStock()">🏭 التصنيع</button>`:''}
+      ${(companyProfile.subWarehouseEnabled&&!isRestrictedRole())?`<button class="${stockSubTab==='sub'?'btn blue':'btn-outline'}" onclick="stockSubTab='sub';renderStock()">🏬 المخزن الفرعي</button>`:''}
     </div>
     <div id="stock-content"></div>`;
   if(stockSubTab==='overview')renderStockOverview();
   else if(stockSubTab==='movements')renderStockMovements();
+  else if(stockSubTab==='sub')renderSubWarehouse();
   else renderProduction();
+}
+
+
+// ===== المخزن الفرعي (اختياري) — أرصدة وتحويلات بس =====
+// أصناف مش موجودة في المخزن الرئيسي، بتتسجل هنا برصيدها، وبتتحوّل للرئيسي كلها أو جزء منها.
+// مفيش بيع/شراء/فواتير على المخزن الفرعي. أول تحويل لصنف مش موجود في الرئيسي بيعمله هناك تلقائي (بنفس الاسم والوحدة والتكلفة)،
+// وأي تحويل بعده لنفس الصنف بيزوّد رصيده في الرئيسي. حركة الوارد بتتسجل في المخزن الرئيسي بنفس طريقة أي حركة تانية (ورصيدها بيدخل في تكلفة المتوسط المرجح لو فيه تكلفة).
+let subWhForm=null;      // null | {mode:'add'} | {mode:'edit',id}
+let subWhTransferId=null; // الصنف الفرعي اللي فورم التحويل مفتوح عليه
+let subWhDraft={};
+function subWhFind(name,excludeId){
+  const n=normalizeAr(name);
+  return subStock.find(x=>x.id!==excludeId&&normalizeAr(x.name)===n);
+}
+function saveSubItem(){
+  if(isRestrictedRole()) return;
+  const name=(document.getElementById('sub_name')?.value||'').trim();
+  const unit=(document.getElementById('sub_unit')?.value||'').trim()||'وحدة';
+  const qty=Number(document.getElementById('sub_qty')?.value||0);
+  const costPrice=Number(document.getElementById('sub_cost')?.value||0);
+  const expiry=document.getElementById('sub_expiry')?.value||'';
+  const editId=(subWhForm&&subWhForm.mode==='edit')?subWhForm.id:null;
+  if(!name){showToast('أدخل اسم الصنف');return;}
+  if(!(qty>=0)||(!editId&&qty<=0)){showToast('أدخل رصيد صحيح');return;}
+  if(costPrice<0){showToast('سعر التكلفة مينفعش يبقى بالسالب');return;}
+  if(subWhFind(name,editId)){showToast('الصنف ده متسجل بالفعل في المخزن الفرعي — عدّل رصيده بدل ما تضيفه تاني');return;}
+  const linkedId=editId?(subStock.find(x=>x.id===editId)?.mainProductId||null):null;
+  const clash=stock.find(p=>normalizeAr(p.name)===normalizeAr(name)&&p.id!==linkedId);
+  if(clash){showToast('الصنف ده موجود بالفعل في المخزن الرئيسي — المخزن الفرعي للأصناف اللي مش في الرئيسي بس');return;}
+  if(editId){
+    const it=subStock.find(x=>x.id===editId);
+    if(!it){subWhForm=null;renderStock();return;}
+    it.name=name; it.unit=unit; it.qty=qty;
+    if(costPrice>0)it.costPrice=costPrice; else delete it.costPrice;
+    if(fieldsCfg().expiry){ if(expiry)it.expiry=expiry; else delete it.expiry; }
+    logActivity('edit','صنف مخزن فرعي',name,fmtQty(qty)+' '+unit);
+  }else{
+    const it={id:uid(),name,unit,qty,createdDate:today()};
+    if(costPrice>0)it.costPrice=costPrice;
+    if(fieldsCfg().expiry&&expiry)it.expiry=expiry;
+    subStock.push(it);
+  }
+  subWhForm=null; subWhDraft={};
+  save(); renderStock();
+}
+function deleteSubItem(id){
+  if(isRestrictedRole()) return;
+  const it=subStock.find(x=>x.id===id);
+  if(!it) return;
+  showConfirm('هتحذف "'+it.name+'" من المخزن الفرعي؟ (اللي اتحوّل قبل كده للمخزن الرئيسي هيفضل زي ما هو)', function(){
+    logActivity('delete','صنف مخزن فرعي',it.name,fmtQty(it.qty)+' '+it.unit);
+    recordDeletion('subStock',id);
+    subStock=subStock.filter(x=>x.id!==id);
+    if(subWhTransferId===id) subWhTransferId=null;
+    save(); renderStock();
+  });
+}
+function saveSubTransfer(){
+  if(isRestrictedRole()) return;
+  const it=subStock.find(x=>x.id===subWhTransferId);
+  if(!it){subWhTransferId=null;renderStock();return;}
+  const qty=Number(document.getElementById('subtr_qty')?.value||0);
+  const date=document.getElementById('subtr_date')?.value||businessDate();
+  const note=(document.getElementById('subtr_note')?.value||'').trim();
+  if(!(qty>0)){showToast('أدخل كمية تحويل صحيحة');return;}
+  if(qty>Number(it.qty)+1e-9){showToast('الرصيد المتاح في المخزن الفرعي '+fmtQty(it.qty)+' بس');return;}
+  // الصنف المقابل في الرئيسي: المربوط بالفعل (لو لسه موجود)، وإلا بنعمل واحد جديد بنفس الاسم
+  let prod=it.mainProductId?stock.find(p=>p.id===it.mainProductId):null;
+  let createdMain=false;
+  if(!prod){
+    const sameName=stock.find(p=>normalizeAr(p.name)===normalizeAr(it.name));
+    if(sameName){showToast('في صنف بنفس الاسم "'+sameName.name+'" اتضاف في المخزن الرئيسي بعد تسجيل الصنف ده هنا — غيّر اسم أحدهم قبل التحويل');return;}
+    prod={id:uid(),name:it.name,unit:it.unit,category:'finished'};
+    if(Number(it.costPrice)>0) prod.costPrice=Number(it.costPrice);
+    stock.push(prod);
+    createdMain=true;
+  }
+  const cost=Number(it.costPrice)>0?Number(it.costPrice):0;
+  const expiry=fieldsCfg().expiry?(it.expiry||''):'';
+  const t={id:uid(),subItemId:it.id,subItemName:it.name,unit:it.unit,productId:prod.id,qty,cost,date,note,expiry,createdMain,createdDate:today(),createdAt:new Date().toISOString()};
+  subTransfers.push(t);
+  movements.push({id:uid(),productId:prod.id,type:'in',qty,date,note:'تحويل من المخزن الفرعي'+(note?' - '+note:''),expiry,transferId:t.id});
+  postSubTransferJournal(t);
+  it.qty=Math.round((Number(it.qty)-qty)*1e6)/1e6;
+  it.mainProductId=prod.id;
+  logActivity('edit','تحويل مخزن فرعي',it.name,fmtQty(qty)+' '+it.unit+' → المخزن الرئيسي');
+  subWhTransferId=null;
+  save(); renderStock();
+  showToast('اتحوّل '+fmtQty(qty)+' '+it.unit+' للمخزن الرئيسي');
+}
+function deleteSubTransfer(id){
+  if(isRestrictedRole()) return;
+  const t=subTransfers.find(x=>x.id===id);
+  if(!t) return;
+  if(t.productId && stockQty(t.productId)<Number(t.qty)-1e-9){
+    showToast('مينفعش تلغي التحويل ده — جزء من الكمية اتباع/اتصرف من المخزن الرئيسي');
+    return;
+  }
+  showConfirm('تلغي تحويل '+fmtQty(t.qty)+' '+(t.unit||'')+' من "'+(t.subItemName||'')+'"؟ الكمية هترجع للمخزن الفرعي وتتشال من الرئيسي.', function(){
+    logActivity('delete','تحويل مخزن فرعي',t.subItemName||'',fmtQty(t.qty)+' '+(t.unit||''));
+    movements.filter(m=>m.transferId===id).forEach(m=>recordDeletion('movements',m.id));
+    movements=movements.filter(m=>m.transferId!==id);
+    removeJournalBySource('stockTransfer',id);
+    recordDeletion('subTransfers',id);
+    subTransfers=subTransfers.filter(x=>x.id!==id);
+    const it=subStock.find(x=>x.id===t.subItemId);
+    if(it){ it.qty=Math.round((Number(it.qty)+Number(t.qty))*1e6)/1e6; }
+    else{
+      // الصنف الفرعي اتمسح بعد التحويل: بنرجّعه برصيد الكمية دي عشان الكمية ماتضيعش
+      const back={id:t.subItemId||uid(),name:t.subItemName||'صنف',unit:t.unit||'وحدة',qty:Number(t.qty),createdDate:today()};
+      if(Number(t.cost)>0) back.costPrice=Number(t.cost);
+      subStock.push(back);
+    }
+    save(); renderStock();
+  });
+}
+function renderSubWarehouse(){
+  const showExpiry=fieldsCfg().expiry;
+  const editing=(subWhForm&&subWhForm.mode==='edit')?subStock.find(x=>x.id===subWhForm.id):null;
+  const dv=(k,d)=>(subWhDraft&&subWhDraft[k]!==undefined)?subWhDraft[k]:d;
+  const items=[...subStock].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  const trItem=subWhTransferId?subStock.find(x=>x.id===subWhTransferId):null;
+  const totalValue=subStock.reduce((s,x)=>s+(Number(x.qty)||0)*(Number(x.costPrice)||0),0);
+  const rows=items.map(x=>`
+    <div class="list-item">
+      <div class="list-item-head">
+        <div style="flex:1"><div class="list-item-name">${esc(x.name)}</div>
+          <div class="list-item-sub">${esc(x.unit||'')}${Number(x.costPrice)>0?` · تكلفة ${fmt(x.costPrice)} ج`:''}${showExpiry&&x.expiry?` · 📅 ${esc(x.expiry)}`:''}${x.mainProductId&&stock.find(p=>p.id===x.mainProductId)?' · 🔗 موجود في الرئيسي':''}</div></div>
+        <div class="list-item-bal"><div class="list-item-bal-num" style="color:${Number(x.qty)>0?'#1A5276':'#AAB7B8'}">${fmtQty(x.qty)}</div></div>
+      </div>
+      <div class="list-item-actions">
+        ${Number(x.qty)>0?`<button class="btn-sm green" onclick="subWhTransferId='${x.id}';subWhForm=null;renderStock()">↪ تحويل للرئيسي</button>`:''}
+        <button class="btn-sm blue" onclick="subWhForm={mode:'edit',id:'${x.id}'};subWhDraft={};subWhTransferId=null;renderStock()">✏️ تعديل</button>
+        <button class="btn-sm red" onclick="deleteSubItem('${x.id}')">🗑 حذف</button>
+      </div>
+    </div>`).join('');
+  const trHist=[...subTransfers].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||'').localeCompare(a.createdAt||'')).slice(0,30).map(t=>`
+    <div class="tr-item">
+      <div class="tr-date">${t.date}</div>
+      <div class="tr-label">${esc(t.subItemName||'')}<span class="tr-note"> (${t.mainDeleted?'الصنف اتحذف من الرئيسي':'→ الرئيسي'}${t.note?' - '+esc(t.note):''})</span>${t.mainDeleted?'':` <span style="cursor:pointer;color:#C0392B;font-size:12px" title="إلغاء التحويل" onclick="deleteSubTransfer('${t.id}')">🗑</span>`}</div>
+      <div class="tr-amount in">${fmtQty(t.qty)} ${esc(t.unit||'')}</div>
+    </div>`).join('');
+  document.getElementById('stock-content').innerHTML=`
+    <div class="card" style="margin-bottom:12px;border-right:4px solid #2E86C1">
+      <div style="font-size:12.5px;color:#333;line-height:1.7">🏬 <strong>المخزن الفرعي</strong> — أرصدة أصناف مش موجودة في المخزن الرئيسي، وتقدر تحوّلها له كلها أو جزء منها. مفيش بيع أو شراء على المخزن الفرعي.</div>
+      ${subStock.length>0&&totalValue>0?`<div style="font-size:11px;color:#AAB7B8;margin-top:4px">قيمة الأرصدة بسعر التكلفة (خارج الميزانية لحد ما تتحوّل): ${fmt(totalValue)} ج</div>`:''}
+    </div>
+    ${(!subWhForm&&!trItem)?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn green" onclick="subWhForm={mode:'add'};subWhDraft={};renderStock()">+ صنف / رصيد جديد</button></div>`:''}
+    ${subWhForm?`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head ${editing?'orange':'green'}">${editing?'✏️ تعديل صنف في المخزن الفرعي':'➕ رصيد جديد في المخزن الفرعي'}</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">اسم الصنف *</div><input type="text" id="sub_name" value="${esc(dv('name',editing?editing.name:''))}" oninput="subWhDraft.name=this.value"></div>
+          <div class="form-group"><div class="lbl">الوحدة</div><input type="text" id="sub_unit" placeholder="مثال: علبة، كجم" value="${esc(dv('unit',editing?(editing.unit||''):''))}" oninput="subWhDraft.unit=this.value"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">${editing?'الرصيد الحالي *':'الرصيد *'}</div><input type="number" id="sub_qty" min="0" placeholder="0" value="${esc(dv('qty',editing?editing.qty:''))}" oninput="subWhDraft.qty=this.value"></div>
+          <div class="form-group"><div class="lbl">سعر التكلفة (اختياري)</div><input type="number" id="sub_cost" min="0" placeholder="0" value="${esc(dv('cost',editing?(editing.costPrice||''):''))}" oninput="subWhDraft.cost=this.value"></div>
+        </div>
+        ${showExpiry?`<div class="form-row"><div class="form-group"><div class="lbl">📅 تاريخ الصلاحية (اختياري)</div><input type="month" id="sub_expiry" value="${esc(dv('expiry',editing?(editing.expiry||''):''))}" onchange="subWhDraft.expiry=this.value"></div></div>`:''}
+        <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">💡 من غير سعر تكلفة، الكمية هتتحوّل للرئيسي بس مش هتظهر في التقارير المالية (زي الرصيد الافتتاحي بالظبط).</div>
+        <div class="btn-row">
+          <button class="btn ${editing?'orange':'green'}" onclick="saveSubItem()">${editing?'✓ حفظ التعديل':'✓ حفظ'}</button>
+          <button class="btn-outline" onclick="subWhForm=null;subWhDraft={};renderStock()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:''}
+    ${trItem?`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head green">↪ تحويل "${esc(trItem.name)}" للمخزن الرئيسي</div>
+      <div class="card-body">
+        <div style="font-size:12px;color:#717D7E;margin-bottom:8px">المتاح في المخزن الفرعي: <strong>${fmtQty(trItem.qty)} ${esc(trItem.unit||'')}</strong>${trItem.mainProductId&&stock.find(p=>p.id===trItem.mainProductId)?' — هيتضاف على رصيده الموجود في الرئيسي':' — هيتعمل في المخزن الرئيسي كصنف جديد'}</div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">الكمية المحوّلة *</div><input type="number" id="subtr_qty" min="0" placeholder="0" value="${esc(trItem.qty)}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="subtr_date" value="${businessDate()}"></div>
+        </div>
+        <div class="form-row"><div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="subtr_note" placeholder=""></div></div>
+        <div class="btn-row">
+          <button class="btn green" onclick="saveSubTransfer()">✓ تأكيد التحويل</button>
+          <button class="btn-outline" onclick="subWhTransferId=null;renderStock()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:''}
+    ${items.length===0?'<div class="empty">لسه مفيش أرصدة في المخزن الفرعي</div>':rows}
+    ${subTransfers.length>0?`
+    <div class="card" style="margin-top:14px">
+      <div class="card-head">📋 آخر التحويلات للمخزن الرئيسي</div>
+      <div class="card-body"><div class="treasury-list">${trHist}</div></div>
+    </div>`:''}`;
 }
 
 // تقرير قيمة المخزون: لكل صنف الكمية الحالية × متوسط تكلفته المرجح (نفس
@@ -7130,6 +7411,9 @@ function deleteProduct(id){
     movements.filter(m=>m.productId===id).forEach(m=>recordDeletion('movements',m.id));
     movements=movements.filter(m=>m.productId!==id);
     removeJournalBySource('stockOpening', id);
+    // المخزن الفرعي (لو مستخدم): تحويلات كانت داخلة على الصنف ده بيتشال قيدها (لأن حركاته اتمسحت)، وسجلها بيفضل للمراجعة، وأي صنف فرعي كان مربوط بيه بيتفك ارتباطه
+    subTransfers.filter(t=>t.productId===id).forEach(t=>{ removeJournalBySource('stockTransfer',t.id); t.productId=null; t.mainDeleted=true; });
+    subStock.filter(x=>x.mainProductId===id).forEach(x=>{ delete x.mainProductId; });
     save();renderStock();
   });
 }
@@ -7413,7 +7697,7 @@ function _signOutGoogleAccount(){
           clients, invoices, payments, stock, movements, returns,
           suppliers, purchases, supplierPayments, purchaseReturns,
           expenses, treasuryOpening, repNotes, clientNotes,
-          checksPayable, checksReceivable, bankAccounts,
+          checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers,
           chartOfAccounts, journalEntries, productions,
           companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
           _deviceId: __deviceId,
@@ -7433,7 +7717,7 @@ function buildExportBlob(){
   // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
   // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,expenseCategories,
-    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
+    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -7567,6 +7851,8 @@ function importData(){
           if(Array.isArray(data.checksPayable)){checksPayable=data.checksPayable;}else{oldFileWarning=true;}
           if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
           if(Array.isArray(data.bankAccounts)){bankAccounts=data.bankAccounts;}else{oldFileWarning=true;}
+          subStock=Array.isArray(data.subStock)?data.subStock:[]; subTransfers=Array.isArray(data.subTransfers)?data.subTransfers:[]; // ملف قديم من غير المخزن الفرعي = مفيش مخزن فرعي (نفس منطق الحركات البنكية)
+          bankTransactions=Array.isArray(data.bankTransactions)?data.bankTransactions:[]; // استيراد كامل: ملف قديم من غير الحركات البنكية = مفيش حركات (مش بنسيب حركات محلية قديمة متطابقة مع بيانات مستوردة)
           if(data.companyProfile&&typeof data.companyProfile==='object'){companyProfile=data.companyProfile;}else{oldFileWarning=true;}
           if(Array.isArray(data.chartOfAccounts)&&Array.isArray(data.journalEntries)){
             chartOfAccounts=data.chartOfAccounts;
@@ -7598,6 +7884,7 @@ let clientProfitFilterIds=[]; // فلتر اختياري على كذا عميل 
 
 let showNoteForm=false;
 let showExpenseForm=false;
+let expensePresetBankId=''; // بيتحط من زرار "مصروف من البنك" في شاشة الحساب البنكي عشان فورم المصروف يفتح على البنك مختار (استخدام مرة واحدة)
 function renderExpenses(){
   const now=new Date();
   const defFrom=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
@@ -7648,7 +7935,7 @@ function renderExpenses(){
   const rows=filtered.map(e=>`
     <div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${esc(e.label)}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}</div></div>
+        <div><div class="list-item-name">${esc(e.label)}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}${e.paidFrom==='bank'?` · 🏦 ${esc(bankAccountLabel(e.bankAccountId))}`:''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:#C0392B">${fmt(e.amount)} ج</div></div>
       </div>
       <div class="list-item-actions">
@@ -7656,6 +7943,7 @@ function renderExpenses(){
       </div>
     </div>`).join('');
 
+  const _presetBank=showExpenseForm?expensePresetBankId:''; expensePresetBankId=''; // استخدام مرة واحدة عشان مايفضلش متسجل لفورم بعد كده
   document.getElementById('tab-expenses').innerHTML=`
     <div style="padding:14px">
       <div class="page-title" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
@@ -7683,6 +7971,21 @@ function renderExpenses(){
           <div class="form-row">
             <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${businessDate()}"></div>
           </div>
+          ${(!isRestrictedRole()&&bankAccounts.length>0)?`
+          <div class="form-row">
+            <div class="form-group"><div class="lbl">اتدفع من</div>
+              <select id="exp_paid_from" onchange="const w=document.getElementById('exp_bank_wrap');if(w)w.style.display=(this.value==='bank'?'block':'none')">
+                <option value="cash"${_presetBank?'':' selected'}>💵 الخزنة (كاش)</option>
+                <option value="bank"${_presetBank?' selected':''}>🏦 حساب بنكي</option>
+              </select>
+            </div>
+            ${bankAccounts.length>1?`<div class="form-group" id="exp_bank_wrap" style="display:${_presetBank?'block':'none'}"><div class="lbl">الحساب البنكي</div>
+              <select id="exp_bank_account">
+                <option value="" disabled${_presetBank?'':' selected'}>— اختار الحساب —</option>
+                ${bankAccounts.map(a=>`<option value="${a.id}"${a.id===_presetBank?' selected':''}>${esc(bankAccountLabel(a.id))}</option>`).join('')}
+              </select>
+            </div>`:''}
+          </div>`:''}
           <div class="form-row">
             <div class="form-group"><div class="lbl">نوع المصروف (اختياري)</div>
               <select id="exp_cost_type">
@@ -7813,11 +8116,19 @@ function addExpense(){
   const costNature=document.getElementById('exp_cost_nature')?.value||''; // '' | 'fixed' | 'variable'
   if(!label){showToast('اختار بند المصروف');return;}
   if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
+  // مصدر الدفع: الخزنة (الافتراضي، زي ما كان بالظبط) أو حساب بنكي (الدور المقيّد ملوش الخيار ده)
+  const paidFromBank=(!isRestrictedRole() && document.getElementById('exp_paid_from')?.value==='bank');
+  let expBankAccountId='';
+  if(paidFromBank){
+    expBankAccountId=bankAccounts.length===1?bankAccounts[0].id:(document.getElementById('exp_bank_account')?.value||'');
+    if(!expBankAccountId||!bankAccounts.find(a=>a.id===expBankAccountId)){showToast('اختار الحساب البنكي اللي اتدفع منه');return;}
+  }
   const exp={id:uid(),label,amount,date,costType,costNature};
+  if(paidFromBank){ exp.paidFrom='bank'; exp.bankAccountId=expBankAccountId; }
   if(isRestrictedRole()) exp.createdBy=currentRole;
   expenses.push(exp);
   const expAccount=costType==='direct'?'directcost':'opex';
-  postJournal('expense', exp.id, date, 'مصروف: '+label, [{accountId:expAccount,debit:amount,credit:0},{accountId:'cash',debit:0,credit:amount}]);
+  postJournal('expense', exp.id, date, 'مصروف: '+label, [{accountId:expAccount,debit:amount,credit:0},{accountId:(paidFromBank?'bank':'cash'),debit:0,credit:amount}]);
   save();
   showExpenseForm=false;
   renderExpenses();
@@ -7851,28 +8162,35 @@ function treasuryData(day){
     return {date:r.date,label:s?.name||'مورد',note:`استرداد نقدي #${r.number}`,amount:r.total};
   });
   incoming.push(...inPurRetRefunds);
+  // سحب من البنك للخزنة = وارد للخزنة
+  const inBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
+  incoming.push(...inBankWd);
   incoming.sort((a,b)=>a.date.localeCompare(b.date));
   const outSup=supplierPayments.filter(p=>p.date===day).map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:p.amount};
   });
-  const outExp=expenses.filter(e=>e.date===day).map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
+  const outExp=expenses.filter(e=>e.date===day&&e.paidFrom!=='bank').map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
   const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
   const outRetRefunds=returns.filter(r=>r.cashRefund&&r.date===day).map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return {date:r.date,label:c?.name||'عميل',note:`مردود نقدي #${r.number}`,amount:r.total};
   });
-  const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds].sort((a,b)=>a.date.localeCompare(b.date));
+  // إيداع نقدي في البنك = صادر من الخزنة (والمصروف المدفوع من البنك مش بيدخل هنا خالص)
+  const outBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'إيداع في البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
+  const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds,...outBankDep].sort((a,b)=>a.date.localeCompare(b.date));
 
   // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً والمردودات النقدية؛ شيكات البنك ليها حساباتها الخاصة)
   const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
   const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorInPurRetRefunds=purchaseReturns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
   const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
-  const priorOutExp=expenses.filter(e=>e.date<day).reduce((s,e)=>s+e.amount,0);
+  const priorOutExp=expenses.filter(e=>e.date<day&&e.paidFrom!=='bank').reduce((s,e)=>s+e.amount,0);
   const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutRetRefunds=returns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
-  const dayOpening=treasuryOpening+priorIn+priorInChecks+priorInPurRetRefunds-priorOutSup-priorOutExp-priorOutChecks-priorOutRetRefunds;
+  const priorInBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
+  const priorOutBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
+  const dayOpening=treasuryOpening+priorIn+priorInChecks+priorInPurRetRefunds+priorInBankWd-priorOutSup-priorOutExp-priorOutChecks-priorOutRetRefunds-priorOutBankDep;
 
   const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
   const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
@@ -8179,12 +8497,46 @@ function bankAccountBalance(id){
   if(!acc) return 0;
   const inSum=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).reduce((s,c)=>s+c.amount,0);
   const outSum=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).reduce((s,c)=>s+c.amount,0);
-  return Number(acc.opening||0)+inSum-outSum;
+  const depSum=bankTransactions.filter(t=>t.bankAccountId===id&&t.kind==='deposit').reduce((s,t)=>s+Number(t.amount),0);
+  const wdSum=bankTransactions.filter(t=>t.bankAccountId===id&&t.kind==='withdraw').reduce((s,t)=>s+Number(t.amount),0);
+  const expSum=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).reduce((s,e)=>s+Number(e.amount),0);
+  return Number(acc.opening||0)+inSum-outSum+depSum-wdSum-expSum;
 }
 function bankAccountTransactions(id){
   const inTx=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'in',label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   const outTx=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'out',label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
-  return [...inTx,...outTx].sort((a,b)=>a.date.localeCompare(b.date));
+  const movTx=bankTransactions.filter(t=>t.bankAccountId===id).map(t=>({date:t.date,type:t.kind==='deposit'?'in':'out',label:t.kind==='deposit'?'إيداع نقدي من الخزنة':'سحب إلى الخزنة',note:t.note||(t.kind==='deposit'?'إيداع':'سحب'),amount:t.amount,txId:t.id}));
+  const expTx=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).map(e=>({date:e.date,type:'out',label:e.label,note:'مصروف مدفوع من البنك',amount:e.amount}));
+  return [...inTx,...outTx,...movTx,...expTx].sort((a,b)=>a.date.localeCompare(b.date));
+}
+// إيداع نقدي من الخزنة / سحب من البنك للخزنة — من شاشة الحساب البنكي
+let bankTxForm='', bankTxFormAcc='';
+function saveBankTransaction(accId){
+  const kind=bankTxForm;
+  if(kind!=='deposit'&&kind!=='withdraw') return;
+  if(!bankAccounts.find(a=>a.id===accId)){showToast('الحساب البنكي مش موجود');return;}
+  const amount=Number(document.getElementById('banktx_amount')?.value||0);
+  const date=document.getElementById('banktx_date')?.value||businessDate();
+  const note=(document.getElementById('banktx_note')?.value||'').trim();
+  if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
+  const t={id:uid(),bankAccountId:accId,kind,amount,date,note,createdDate:today()};
+  bankTransactions.push(t);
+  postBankTxJournal(t);
+  save();
+  bankTxForm=''; bankTxFormAcc='';
+  renderBanks();
+}
+function deleteBankTransaction(id){
+  const t=bankTransactions.find(x=>x.id===id);
+  if(!t) return;
+  showConfirm('متأكد من حذف الحركة دي؟ رصيد الخزنة والحساب البنكي هيترجعوا تلقائي.', function(){
+    logActivity('delete','حركة بنكية',t.kind==='deposit'?'إيداع نقدي':'سحب إلى الخزنة',fmt(t.amount)+' ج');
+    recordDeletion('bankTransactions',id);
+    bankTransactions=bankTransactions.filter(x=>x.id!==id);
+    removeJournalBySource('bankTx',id);
+    save();
+    renderBanks();
+  });
 }
 function openAddAccountForm(){ editBankAccId=null; bankAccUseCustomName=false; showAddAccountForm=true; renderBanks(); }
 function cancelAddAccountForm(){ editBankAccId=null; showAddAccountForm=false; renderBanks(); }
@@ -8203,21 +8555,26 @@ function saveBankAccount(){
   if(!accountNumber){showToast('اكتب رقم الحساب');return;}
   if(editBankAccId){
     const a=bankAccounts.find(x=>x.id===editBankAccId);
-    if(a){ a.bankName=bankName; a.accountNumber=accountNumber; a.opening=opening; logActivity('edit','حساب بنكي',bankName,accountNumber); }
+    if(a){ a.bankName=bankName; a.accountNumber=accountNumber; a.opening=opening; logActivity('edit','حساب بنكي',bankName,accountNumber); postBankOpeningJournal(a); }
   }else{
-    bankAccounts.push({id:uid(),bankName,accountNumber,opening,createdDate:today()});
+    const _na={id:uid(),bankName,accountNumber,opening,createdDate:today()};
+    bankAccounts.push(_na);
+    postBankOpeningJournal(_na);
   }
   save();
   editBankAccId=null; showAddAccountForm=false; bankAccUseCustomName=false;
   renderBanks();
 }
 function deleteBankAccount(id){
-  const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id);
-  const msg=hasTx?'الحساب ده متسجل عليه حركات شيكات فعلية. حذفه هيمسح بياناته بس الشيكات هتفضل موجودة في سجلها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
+  const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id)
+    ||bankTransactions.some(t=>t.bankAccountId===id)
+    ||expenses.some(e=>e.paidFrom==='bank'&&e.bankAccountId===id);
+  const msg=hasTx?'الحساب ده متسجل عليه حركات فعلية (شيكات / إيداع / سحب / مصاريف). حذفه هيمسح بياناته بس الحركات هتفضل موجودة في سجلاتها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
   showConfirm(msg, function(){
     const _acc=bankAccounts.find(a=>a.id===id);
     logActivity('delete','حساب بنكي',_acc?_acc.bankName:'',_acc?_acc.accountNumber:'');
     recordDeletion('bankAccounts',id);
+    if(!hasTx) removeJournalBySource('opening','bank-opening-'+id); // حساب من غير حركات: نشيل قيد رصيده الافتتاحي كمان (لو عليه حركات بنسيبه عشان الدفاتر تفضل متوازنة)
     bankAccounts=bankAccounts.filter(a=>a.id!==id);
     if(bankAccountDetailId===id) bankAccountDetailId=null;
     save();
@@ -8266,7 +8623,7 @@ function renderAccountDetail(acc){
   const tx=bankAccountTransactions(acc.id);
   const rows=tx.map(t=>`<div class="tr-item">
       <div class="tr-date">${t.date}</div>
-      <div class="tr-label">${esc(t.label)}<span class="tr-note"> (${esc(t.note)})</span></div>
+      <div class="tr-label">${esc(t.label)}<span class="tr-note"> (${esc(t.note)})</span>${t.txId?` <span style="cursor:pointer;color:#C0392B;font-size:12px" title="حذف الحركة" onclick="deleteBankTransaction('${t.txId}')">🗑</span>`:''}</div>
       <div class="tr-amount ${t.type==='in'?'in':'out'}">${t.type==='in'?'+':'-'} ${fmt(t.amount)}</div>
     </div>`).join('');
   const balance=bankAccountBalance(acc.id);
@@ -8278,6 +8635,11 @@ function renderAccountDetail(acc){
           <div><div style="font-size:12px;color:#717D7E">رصيد أول المدة</div><div style="font-weight:bold">${fmt(acc.opening||0)} ج</div></div>
           <div><div style="font-size:12px;color:#717D7E">الرصيد الحالي</div><div style="font-size:22px;font-weight:bold;color:${balance>=0?'#1E8449':'#C0392B'}">${fmt(balance)} ج</div></div>
         </div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn-sm green" onclick="bankTxForm='deposit';bankTxFormAcc='${acc.id}';renderBanks()">⬇️ إيداع نقدي من الخزنة</button>
+          <button class="btn-sm orange" onclick="bankTxForm='withdraw';bankTxFormAcc='${acc.id}';renderBanks()">⬆️ سحب إلى الخزنة</button>
+          <button class="btn-sm purple" onclick="expensePresetBankId='${acc.id}';showExpenseForm=true;switchTab('expenses')">💸 مصروف من البنك</button>
+        </div>
         <div class="btn-row" style="margin-top:10px">
           <button class="btn-sm blue" onclick="editBankAccount('${acc.id}')">✏️ تعديل بيانات الحساب</button>
           <button class="btn-sm red" onclick="deleteBankAccount('${acc.id}')">🗑 حذف الحساب</button>
@@ -8285,6 +8647,24 @@ function renderAccountDetail(acc){
       </div>
     </div>
     ${bankAccounts.length>1?`<button class="btn-outline" style="margin-bottom:12px" onclick="bankAccountDetailId=null;renderBanks()">→ كل الحسابات</button>`:''}
+    ${(bankTxForm&&bankTxFormAcc===acc.id)?`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head ${bankTxForm==='deposit'?'green':'orange'}">${bankTxForm==='deposit'?'⬇️ إيداع نقدي من الخزنة في البنك':'⬆️ سحب من البنك إلى الخزنة'}</div>
+      <div class="card-body">
+        <div style="font-size:12px;color:#717D7E;margin-bottom:8px">${bankTxForm==='deposit'?`رصيد الخزنة النهارده: <strong>${fmt(treasuryData(today()).closing)} ج</strong>`:`رصيد الحساب البنكي: <strong>${fmt(balance)} ج</strong>`}</div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="banktx_amount" min="0" placeholder="0"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="banktx_date" value="${businessDate()}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="banktx_note" placeholder="مثال: إيداع إيراد آخر اليوم"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn green" onclick="saveBankTransaction('${acc.id}')">✓ حفظ</button>
+          <button class="btn-outline" onclick="bankTxForm='';bankTxFormAcc='';renderBanks()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:''}
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">📋 كشف الحساب</div>
       <div class="card-body">${tx.length===0?'<div class="empty">لسه مفيش حركات على الحساب ده</div>':`<div class="treasury-list">${rows}</div>`}</div>
