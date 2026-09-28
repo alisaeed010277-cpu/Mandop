@@ -6833,30 +6833,47 @@ function subWhFind(name,excludeId){
   const n=normalizeAr(name);
   return subStock.find(x=>x.id!==excludeId&&normalizeAr(x.name)===n);
 }
+function subWhView(x){
+  const p=x.mainProductId?stock.find(q=>q.id===x.mainProductId):null;
+  return {name:p?p.name:x.name, unit:p?(p.unit||x.unit||''):(x.unit||''), linked:!!p, prod:p||null};
+}
 function saveSubItem(){
   if(isRestrictedRole()) return;
-  const name=(document.getElementById('sub_name')?.value||'').trim();
-  const unit=(document.getElementById('sub_unit')?.value||'').trim()||'وحدة';
-  const qty=Number(document.getElementById('sub_qty')?.value||0);
-  const costPrice=Number(document.getElementById('sub_cost')?.value||0);
-  const expiry=document.getElementById('sub_expiry')?.value||'';
   const editId=(subWhForm&&subWhForm.mode==='edit')?subWhForm.id:null;
-  if(!name){showToast('أدخل اسم الصنف');return;}
+  const editIt=editId?subStock.find(x=>x.id===editId):null;
+  if(editId&&!editIt){subWhForm=null;renderStock();return;}
+  const linkedProd=editIt&&editIt.mainProductId?stock.find(p=>p.id===editIt.mainProductId):null;
+  const mode=editId?(linkedProd?'main':'new'):(subWhDraft.mode||(stock.length?'main':'new'));
+  const qty=Number(document.getElementById('sub_qty')?.value||0);
+  const expiry=document.getElementById('sub_expiry')?.value||'';
   if(!(qty>=0)||(!editId&&qty<=0)){showToast('أدخل رصيد صحيح');return;}
-  if(costPrice<0){showToast('سعر التكلفة مينفعش يبقى بالسالب');return;}
-  if(subWhFind(name,editId)){showToast('الصنف ده متسجل بالفعل في المخزن الفرعي — عدّل رصيده بدل ما تضيفه تاني');return;}
-  const linkedId=editId?(subStock.find(x=>x.id===editId)?.mainProductId||null):null;
-  const clash=stock.find(p=>normalizeAr(p.name)===normalizeAr(name)&&p.id!==linkedId);
-  if(clash){showToast('الصنف ده موجود بالفعل في المخزن الرئيسي — المخزن الفرعي للأصناف اللي مش في الرئيسي بس');return;}
+  let name,unit,costPrice=0,mainId=null;
+  if(mode==='main'){
+    // صنف مربوط بصنف موجود في الرئيسي: الاسم والوحدة بييجوا من الرئيسي، والرصيد هنا للتذكير بس (مش داخل في أي حسابات)
+    mainId=linkedProd?linkedProd.id:(document.getElementById('sub_main')?.value||'');
+    const prod=stock.find(p=>p.id===mainId);
+    if(!prod){showToast('اختار الصنف من قايمة المخزن الرئيسي');return;}
+    if(subStock.some(x=>x.id!==editId&&(x.mainProductId===mainId||normalizeAr(x.name)===normalizeAr(prod.name)))){showToast('الصنف ده متسجل بالفعل في المخزن الفرعي — عدّل رصيده بدل ما تضيفه تاني');return;}
+    name=prod.name; unit=prod.unit||'وحدة';
+  }else{
+    name=(document.getElementById('sub_name')?.value||'').trim();
+    unit=(document.getElementById('sub_unit')?.value||'').trim()||'وحدة';
+    costPrice=Number(document.getElementById('sub_cost')?.value||0);
+    if(!name){showToast('أدخل اسم الصنف');return;}
+    if(costPrice<0){showToast('سعر التكلفة مينفعش يبقى بالسالب');return;}
+    if(subWhFind(name,editId)){showToast('الصنف ده متسجل بالفعل في المخزن الفرعي — عدّل رصيده بدل ما تضيفه تاني');return;}
+    const clash=stock.find(p=>normalizeAr(p.name)===normalizeAr(name));
+    if(clash){showToast('الصنف ده موجود في المخزن الرئيسي — اختاره من القايمة (صنف من الرئيسي) بدل ما تكتب اسمه');return;}
+  }
   if(editId){
-    const it=subStock.find(x=>x.id===editId);
-    if(!it){subWhForm=null;renderStock();return;}
+    const it=editIt;
     it.name=name; it.unit=unit; it.qty=qty;
-    if(costPrice>0)it.costPrice=costPrice; else delete it.costPrice;
+    if(mode==='new'){ if(costPrice>0)it.costPrice=costPrice; else delete it.costPrice; }
     if(fieldsCfg().expiry){ if(expiry)it.expiry=expiry; else delete it.expiry; }
     logActivity('edit','صنف مخزن فرعي',name,fmtQty(qty)+' '+unit);
   }else{
     const it={id:uid(),name,unit,qty,createdDate:today()};
+    if(mainId) it.mainProductId=mainId;
     if(costPrice>0)it.costPrice=costPrice;
     if(fieldsCfg().expiry&&expiry)it.expiry=expiry;
     subStock.push(it);
@@ -6885,6 +6902,9 @@ function saveSubTransfer(){
   const note=(document.getElementById('subtr_note')?.value||'').trim();
   if(!(qty>0)){showToast('أدخل كمية تحويل صحيحة');return;}
   if(qty>Number(it.qty)+1e-9){showToast('الرصيد المتاح في المخزن الفرعي '+fmtQty(it.qty)+' بس');return;}
+  // سعر الشراء إجباري: هو اللي بيزوّد قيمة المخزون ومتوسط التكلفة في الرئيسي
+  const cost=Number(document.getElementById('subtr_cost')?.value||0);
+  if(!(cost>0)){showToast('أدخل سعر الشراء للوحدة — لازم عشان قيمة المخزون تتحسب صح');return;}
   // الصنف المقابل في الرئيسي: المربوط بالفعل (لو لسه موجود)، وإلا بنعمل واحد جديد بنفس الاسم
   let prod=it.mainProductId?stock.find(p=>p.id===it.mainProductId):null;
   let createdMain=false;
@@ -6892,18 +6912,17 @@ function saveSubTransfer(){
     const sameName=stock.find(p=>normalizeAr(p.name)===normalizeAr(it.name));
     if(sameName){showToast('في صنف بنفس الاسم "'+sameName.name+'" اتضاف في المخزن الرئيسي بعد تسجيل الصنف ده هنا — غيّر اسم أحدهم قبل التحويل');return;}
     prod={id:uid(),name:it.name,unit:it.unit,category:'finished'};
-    if(Number(it.costPrice)>0) prod.costPrice=Number(it.costPrice);
+    prod.costPrice=cost;
     stock.push(prod);
     createdMain=true;
   }
-  const cost=Number(it.costPrice)>0?Number(it.costPrice):0;
   const expiry=fieldsCfg().expiry?(it.expiry||''):'';
-  const t={id:uid(),subItemId:it.id,subItemName:it.name,unit:it.unit,productId:prod.id,qty,cost,date,note,expiry,createdMain,createdDate:today(),createdAt:new Date().toISOString()};
+  const t={id:uid(),subItemId:it.id,subItemName:prod.name,unit:prod.unit||it.unit,productId:prod.id,qty,cost,date,note,expiry,createdMain,createdDate:today(),createdAt:new Date().toISOString()};
   subTransfers.push(t);
   movements.push({id:uid(),productId:prod.id,type:'in',qty,date,note:'تحويل من المخزن الفرعي'+(note?' - '+note:''),expiry,transferId:t.id});
   postSubTransferJournal(t);
   it.qty=Math.round((Number(it.qty)-qty)*1e6)/1e6;
-  it.mainProductId=prod.id;
+  it.mainProductId=prod.id; it.name=prod.name; it.unit=prod.unit||it.unit;
   logActivity('edit','تحويل مخزن فرعي',it.name,fmtQty(qty)+' '+it.unit+' → المخزن الرئيسي');
   subWhTransferId=null;
   save(); renderStock();
@@ -6929,7 +6948,7 @@ function deleteSubTransfer(id){
     else{
       // الصنف الفرعي اتمسح بعد التحويل: بنرجّعه برصيد الكمية دي عشان الكمية ماتضيعش
       const back={id:t.subItemId||uid(),name:t.subItemName||'صنف',unit:t.unit||'وحدة',qty:Number(t.qty),createdDate:today()};
-      if(Number(t.cost)>0) back.costPrice=Number(t.cost);
+      if(t.productId&&stock.find(p=>p.id===t.productId)) back.mainProductId=t.productId;
       subStock.push(back);
     }
     save(); renderStock();
@@ -6939,14 +6958,18 @@ function renderSubWarehouse(){
   const showExpiry=fieldsCfg().expiry;
   const editing=(subWhForm&&subWhForm.mode==='edit')?subStock.find(x=>x.id===subWhForm.id):null;
   const dv=(k,d)=>(subWhDraft&&subWhDraft[k]!==undefined)?subWhDraft[k]:d;
-  const items=[...subStock].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  const items=[...subStock].sort((a,b)=>String(subWhView(a).name).localeCompare(String(subWhView(b).name),'ar'));
+  const linkedEditProd=editing&&editing.mainProductId?stock.find(p=>p.id===editing.mainProductId):null;
+  const formMode=editing?(linkedEditProd?'main':'new'):((subWhDraft&&subWhDraft.mode)||(stock.length?'main':'new'));
+  const mainOpts=stock.filter(p=>!subStock.some(x=>x.mainProductId===p.id||normalizeAr(x.name)===normalizeAr(p.name))).map(p=>({id:p.id,label:p.name,sub:'الرصيد في الرئيسي: '+fmtQty(stockQty(p.id))+' '+(p.unit||'')}));
+  const pickedMain=stock.find(p=>p.id===(subWhDraft&&subWhDraft.mainId));
   const trItem=subWhTransferId?subStock.find(x=>x.id===subWhTransferId):null;
   const totalValue=subStock.reduce((s,x)=>s+(Number(x.qty)||0)*(Number(x.costPrice)||0),0);
   const rows=items.map(x=>`
     <div class="list-item">
       <div class="list-item-head">
-        <div style="flex:1"><div class="list-item-name">${esc(x.name)}</div>
-          <div class="list-item-sub">${esc(x.unit||'')}${Number(x.costPrice)>0?` · تكلفة ${fmt(x.costPrice)} ج`:''}${showExpiry&&x.expiry?` · 📅 ${esc(x.expiry)}`:''}${x.mainProductId&&stock.find(p=>p.id===x.mainProductId)?' · 🔗 موجود في الرئيسي':''}</div></div>
+        <div style="flex:1"><div class="list-item-name">${esc(subWhView(x).name)}</div>
+          <div class="list-item-sub">${esc(subWhView(x).unit)}${Number(x.costPrice)>0?` · تكلفة ${fmt(x.costPrice)} ج`:''}${showExpiry&&x.expiry?` · 📅 ${esc(x.expiry)}`:''}${subWhView(x).linked?' · 🔗 موجود في الرئيسي':''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:${Number(x.qty)>0?'#1A5276':'#AAB7B8'}">${fmtQty(x.qty)}</div></div>
       </div>
       <div class="list-item-actions">
@@ -6963,7 +6986,7 @@ function renderSubWarehouse(){
     </div>`).join('');
   document.getElementById('stock-content').innerHTML=`
     <div class="card" style="margin-bottom:12px;border-right:4px solid #2E86C1">
-      <div style="font-size:12.5px;color:#333;line-height:1.7">🏬 <strong>المخزن الفرعي</strong> — أرصدة أصناف مش موجودة في المخزن الرئيسي، وتقدر تحوّلها له كلها أو جزء منها. مفيش بيع أو شراء على المخزن الفرعي.</div>
+      <div style="font-size:12.5px;color:#333;line-height:1.7">🏬 <strong>المخزن الفرعي</strong> — سجّل رصيد أي صنف (من الرئيسي أو صنف جديد) وحوّل منه للرئيسي كلها أو جزء منها. الرصيد هنا خارج الحسابات، وبيدخل الدفاتر وقيمة المخزون وقت التحويل بسعر الشراء. مفيش بيع أو شراء على المخزن الفرعي.</div>
       ${subStock.length>0&&totalValue>0?`<div style="font-size:11px;color:#AAB7B8;margin-top:4px">قيمة الأرصدة بسعر التكلفة (خارج الميزانية لحد ما تتحوّل): ${fmt(totalValue)} ج</div>`:''}
     </div>
     ${(!subWhForm&&!trItem)?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn green" onclick="subWhForm={mode:'add'};subWhDraft={};renderStock()">+ صنف / رصيد جديد</button></div>`:''}
@@ -6971,16 +6994,23 @@ function renderSubWarehouse(){
     <div class="card" style="margin-bottom:14px">
       <div class="card-head ${editing?'orange':'green'}">${editing?'✏️ تعديل صنف في المخزن الفرعي':'➕ رصيد جديد في المخزن الفرعي'}</div>
       <div class="card-body">
+${formMode==='main'?`
+        ${editing?`<div class="form-row"><div class="form-group" style="flex:2"><div class="lbl">الصنف (من المخزن الرئيسي)</div><div style="font-weight:bold;color:#1A5276;padding:6px 0">${esc(linkedEditProd?linkedEditProd.name:'')} <span style="font-weight:normal;color:#717D7E;font-size:12px">· ${esc(linkedEditProd?(linkedEditProd.unit||'وحدة'):'')}</span></div></div></div>`:`
+        ${stock.length>0?`<div style="display:flex;gap:6px;margin-bottom:10px"><button class="btn-sm green" style="flex:1">📦 صنف من الرئيسي</button><button class="btn-sm" style="flex:1;background:#fff;color:#717D7E;border:1px solid #D5D8DC" onclick="subWhDraft.mode='new';renderStock()">✏️ صنف جديد مش في الرئيسي</button></div>`:''}
+        <div class="form-row"><div class="form-group" style="flex:2"><div class="lbl">اختار الصنف من المخزن الرئيسي *</div>${searchableSelectHtml('sub_main',mainOpts,'ابحث عن صنف...',dv('mainId',''),"subWhDraft.mainId=document.getElementById('sub_main').value;var p=stock.find(function(x){return x.id===subWhDraft.mainId});var e=document.getElementById('sub_main_unit');if(e)e.textContent=p?('الوحدة: '+(p.unit||'وحدة')):'';")}<div id="sub_main_unit" style="font-size:11px;color:#717D7E;margin-top:3px">${pickedMain?'الوحدة: '+esc(pickedMain.unit||'وحدة'):''}</div></div></div>`}
+      `:`
+        ${(!editing&&stock.length>0)?`<div style="display:flex;gap:6px;margin-bottom:10px"><button class="btn-sm" style="flex:1;background:#fff;color:#717D7E;border:1px solid #D5D8DC" onclick="subWhDraft.mode='main';renderStock()">📦 صنف من الرئيسي</button><button class="btn-sm green" style="flex:1">✏️ صنف جديد مش في الرئيسي</button></div>`:''}
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">اسم الصنف *</div><input type="text" id="sub_name" value="${esc(dv('name',editing?editing.name:''))}" oninput="subWhDraft.name=this.value"></div>
           <div class="form-group"><div class="lbl">الوحدة</div><input type="text" id="sub_unit" placeholder="مثال: علبة، كجم" value="${esc(dv('unit',editing?(editing.unit||''):''))}" oninput="subWhDraft.unit=this.value"></div>
         </div>
+      `}
         <div class="form-row">
           <div class="form-group"><div class="lbl">${editing?'الرصيد الحالي *':'الرصيد *'}</div><input type="number" id="sub_qty" min="0" placeholder="0" value="${esc(dv('qty',editing?editing.qty:''))}" oninput="subWhDraft.qty=this.value"></div>
-          <div class="form-group"><div class="lbl">سعر التكلفة (اختياري)</div><input type="number" id="sub_cost" min="0" placeholder="0" value="${esc(dv('cost',editing?(editing.costPrice||''):''))}" oninput="subWhDraft.cost=this.value"></div>
+          ${formMode==='new'?`<div class="form-group"><div class="lbl">سعر التكلفة (اختياري)</div><input type="number" id="sub_cost" min="0" placeholder="0" value="${esc(dv('cost',editing?(editing.costPrice||''):''))}" oninput="subWhDraft.cost=this.value"></div>`:''}
         </div>
         ${showExpiry?`<div class="form-row"><div class="form-group"><div class="lbl">📅 تاريخ الصلاحية (اختياري)</div><input type="month" id="sub_expiry" value="${esc(dv('expiry',editing?(editing.expiry||''):''))}" onchange="subWhDraft.expiry=this.value"></div></div>`:''}
-        <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">💡 من غير سعر تكلفة، الكمية هتتحوّل للرئيسي بس مش هتظهر في التقارير المالية (زي الرصيد الافتتاحي بالظبط).</div>
+        <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">${formMode==='main'?'💡 الرصيد هنا للتذكير بس — مش داخل في أي حسابات ولا مخزون الرئيسي. سعر الشراء بيتطلب منك وقت التحويل للرئيسي.':'💡 صنف جديد مش في الرئيسي: هيتعمل في الرئيسي أول ما تحوّل منه. سعر الشراء هيتطلب وقت التحويل.'}</div>
         <div class="btn-row">
           <button class="btn ${editing?'orange':'green'}" onclick="saveSubItem()">${editing?'✓ حفظ التعديل':'✓ حفظ'}</button>
           <button class="btn-outline" onclick="subWhForm=null;subWhDraft={};renderStock()">إلغاء</button>
@@ -6996,6 +7026,8 @@ function renderSubWarehouse(){
           <div class="form-group"><div class="lbl">الكمية المحوّلة *</div><input type="number" id="subtr_qty" min="0" placeholder="0" value="${esc(trItem.qty)}"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="subtr_date" value="${businessDate()}"></div>
         </div>
+        <div class="form-row"><div class="form-group"><div class="lbl">سعر الشراء للوحدة (ج) *</div><input type="number" id="subtr_cost" min="0" step="any" placeholder="0" value="${Number(trItem.costPrice)>0?esc(trItem.costPrice):''}"></div></div>
+        ${(()=>{const tp=trItem.mainProductId?stock.find(p=>p.id===trItem.mainProductId):null;let avg=0;if(tp){try{avg=productAvgCost(tp.id,new Map())||0;}catch(e){}}return avg>0?`<div style="font-size:11px;color:#717D7E;margin:-4px 0 8px">متوسط التكلفة الحالي في الرئيسي: ${fmt(avg)} ج — سعر التحويلة هيدخل في المتوسط المرجح.</div>`:'';})()}
         <div class="form-row"><div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="subtr_note" placeholder=""></div></div>
         <div class="btn-row">
           <button class="btn green" onclick="saveSubTransfer()">✓ تأكيد التحويل</button>
