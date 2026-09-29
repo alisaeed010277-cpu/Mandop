@@ -6529,6 +6529,9 @@ function applyRetInvoicePick(){
 function renderReturns(){
   if(retDetailId){renderReturnDetail();return;}
   const currentRetClientId=document.getElementById('ret_client')?.value||'';
+  // إصلاح: أي إعادة رسم للفورم (اختيار فاتورة / إضافة أو حذف صنف / ...) لازم تحافظ على العميل والتاريخ المختارين، بدل ما ترجّعهم فاضيين
+  const currentRetDate=document.getElementById('ret_date')?.value||'';
+  const retClientSelected=clients.some(c=>c.id===currentRetClientId)?currentRetClientId:'';
   const sorted=[...returns].filter(r=>(!isRestrictedRole()||roleCanSee(r))&&(!retFromDate||r.date>=retFromDate)&&(!retToDate||r.date<=retToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const retPeriodTotal=sorted.reduce((s,r)=>s+r.total,0);
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
@@ -6613,11 +6616,11 @@ function renderReturns(){
         <div class="form-row">
           <div class="form-group" style="flex:2">
             <div class="lbl">العميل *</div>
-            ${searchableSelectHtml('ret_client', clientOptsArr, '🔍 دور على العميل...', '', 'applyRetClientCashDefault()')}
+            ${searchableSelectHtml('ret_client', clientOptsArr, '🔍 دور على العميل...', retClientSelected, 'applyRetClientCashDefault()')}
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
-            <input type="date" id="ret_date" value="${businessDate()}">
+            <input type="date" id="ret_date" value="${currentRetDate||businessDate()}">
           </div>
         </div>
         ${useInvoiceLink?`
@@ -10508,6 +10511,10 @@ function goBackFromPurRetDetail(){
 
 function renderPurReturns(){
   if(purRetDetailId){renderPurRetDetail();return;}
+  // إصلاح: إضافة/حذف صنف كانت بتمسح المورد والتاريخ المختارين — بنقراهم من الفورم الحالي ونرجّعهم عند إعادة الرسم
+  const currentPretSup=document.getElementById('pret_supplier')?.value||'';
+  const currentPretDate=document.getElementById('pret_date')?.value||'';
+  const pretSupSelected=suppliers.some(s=>s.id===currentPretSup)?currentPretSup:'';
   const sorted=[...purchaseReturns].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=sorted.map(r=>{
@@ -10567,11 +10574,11 @@ function renderPurReturns(){
         <div class="form-row">
           <div class="form-group" style="flex:2">
             <div class="lbl">المورد *</div>
-            ${searchableSelectHtml('pret_supplier', supOptsArr, '🔍 دور على المورد...', '', 'applyPretSupplierCashDefault()')}
+            ${searchableSelectHtml('pret_supplier', supOptsArr, '🔍 دور على المورد...', pretSupSelected, 'applyPretSupplierCashDefault()')}
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
-            <input type="date" id="pret_date" value="${today()}">
+            <input type="date" id="pret_date" value="${currentPretDate||today()}">
           </div>
         </div>
         <div class="divider"></div>
