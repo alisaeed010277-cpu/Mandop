@@ -5598,7 +5598,7 @@ function renderReturnDetail(){
   if(!ret){retDetailId=null;renderReturns();return;}
   if(isRestrictedRole() && !roleCanSee(ret)){retDetailId=null;renderReturns();return;}
   const c=clients.find(c=>c.id===ret.clientId);
-  const linkedInv=ret.invoiceId?invoices.find(i=>i.id===ret.invoiceId):null;
+  const linkedInvs=((ret.invoiceIds&&ret.invoiceIds.length)?ret.invoiceIds:(ret.invoiceId?[ret.invoiceId]:[])).map(id=>invoices.find(i=>i.id===id)).filter(Boolean);
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
@@ -5612,7 +5612,7 @@ function renderReturnDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-        ${linkedInv?`<div style="margin-bottom:10px"><strong>الفاتورة الأصلية:</strong> <a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${linkedInv.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline">🧾 فاتورة #${linkedInv.number}</a></div>`:''}
+        ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline;margin-left:10px">🧾 فاتورة #${li.number}</a>`).join(' ')}</div>`:''}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
@@ -5627,7 +5627,7 @@ async function printReturn(retId){
   const ret=returns.find(r=>r.id===retId);
   if(!ret)return;
   const c=clients.find(c=>c.id===ret.clientId);
-  const linkedInv=ret.invoiceId?invoices.find(i=>i.id===ret.invoiceId):null;
+  const linkedInvs=((ret.invoiceIds&&ret.invoiceIds.length)?ret.invoiceIds:(ret.invoiceId?[ret.invoiceId]:[])).map(id=>invoices.find(i=>i.id===id)).filter(Boolean);
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
@@ -5637,7 +5637,7 @@ async function printReturn(retId){
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
-      ${linkedInv?`<div><strong>الفاتورة الأصلية:</strong> #${linkedInv.number}</div>`:''}
+      ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+li.number).join('، ')}</div>`:''}
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
@@ -6521,7 +6521,7 @@ let showRetForm=false;
 let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];
 let retFromDate='',retToDate='';
 let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل كاش فورًا من الخزنة عند الحفظ
-let retInvoiceId=''; // الفاتورة الأصلية المختارة للمرتجع الجاري تسجيله — لازم تتحدد الأول (لما فيه مخزون فعلي) قبل إضافة أي صنف
+let retInvoiceIds=[]; // الفواتير الأصلية المختارة للمرتجع الجاري تسجيله (واحدة أو أكتر لنفس العميل) — لازم تتحدد الأول (لما فيه مخزون فعلي) قبل إضافة أي صنف
 
 // بيرجّع لفاتورة بيع معينة خريطة كل صنف فيها -> {sold: الكمية المباعة فيها (شامل البونص) بالوحدة الأساسية،
 // returned: اللي اترجع منها فعلاً في مرتجعات سابقة مرتبطة بنفس الفاتورة دي بالتحديد، available: المتبقي المسموح إرجاعه}
@@ -6535,10 +6535,18 @@ function invoiceReturnableMap(invoiceId){
     if(!map[l.productId]) map[l.productId]={sold:0,returned:0,available:0};
     map[l.productId].sold+=lineMainQty(l)+lineMainBonus(l);
   });
-  returns.filter(r=>r.invoiceId===invoiceId).forEach(r=>{
+  returns.forEach(r=>{
+    const linked=(r.invoiceIds&&r.invoiceIds.length)?r.invoiceIds:(r.invoiceId?[r.invoiceId]:[]);
+    if(!linked.includes(invoiceId)) return;
     (r.lines||[]).forEach(l=>{
       if(!l.productId||!map[l.productId]) return;
-      map[l.productId].returned+=lineMainQty(l);
+      if(Array.isArray(l.alloc)){
+        // مرتجع جديد: كل سطر متوزع صراحةً على الفواتير اللي اترجع منها — بنحسب نصيب الفاتورة دي بس
+        l.alloc.forEach(a=>{ if(a.invoiceId===invoiceId) map[l.productId].returned+=Number(a.qty)||0; });
+      } else if(r.invoiceId===invoiceId){
+        // مرتجع قديم (قبل دعم أكتر من فاتورة): مربوط بفاتورة واحدة وكل أسطره تخصها
+        map[l.productId].returned+=lineMainQty(l);
+      }
     });
   });
   Object.values(map).forEach(v=>{ v.available=Math.max(0,v.sold-v.returned); });
@@ -6574,12 +6582,72 @@ function clientInvoicesForReturn(clientId){
     .sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
 }
 // بيتنفّذ لما يتم اختيار فاتورة أصلية للمرتجع — بيصفّر أصناف المرتجع (عشان مكانش فيه أي التزام بأصناف الفاتورة القديمة) ويحافظ على التاريخ المكتوب
-function applyRetInvoicePick(){
-  retInvoiceId=document.getElementById('ret_invoice')?.value||'';
-  retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
-  const savedDate=document.getElementById('ret_date')?.value;
-  renderReturns();
-  if(savedDate){const el=document.getElementById('ret_date');if(el)el.value=savedDate;}
+// الفواتير المختارة مرتبة من الأقدم للأحدث — توزيع الكميات على الفواتير بيبدأ بالأقدم (FIFO) زي باقي البرنامج (المدفوعات والمرتجعات بتقفل أقدم مستحقات الأول)
+function retSelectedInvoicesSorted(){
+  return retInvoiceIds.map(id=>invoices.find(i=>i.id===id)).filter(Boolean).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
+}
+// المتاح للإرجاع لكل صنف مجمّع على كل الفواتير المختارة
+function retCombinedMap(){
+  const map={};
+  retInvoiceIds.forEach(id=>{
+    const m=invoiceReturnableMap(id);
+    Object.keys(m).forEach(pid=>{
+      if(!map[pid]) map[pid]={sold:0,returned:0,available:0};
+      map[pid].sold+=m[pid].sold; map[pid].returned+=m[pid].returned; map[pid].available+=m[pid].available;
+    });
+  });
+  return map;
+}
+// بيوزّع كمية كل سطر مرتجع على الفواتير المختارة (الأقدم أولًا، وكل فاتورة بحد المتاح فيها) ويحسب سعر السطر
+// كمتوسط مرجّح بأسعار الفواتير اللي اتوزع عليها. الأسطر بتتحسب بالترتيب (سطر بياخد من اللي فضل بعد السطور اللي قبله).
+// لو الكمية لسه فاضية بيرجّع سعر أول فاتورة فيها رصيد. السعر المرجَّع للوحدة الأساسية للصنف.
+function retComputeAllocations(){
+  const invs=retSelectedInvoicesSorted();
+  const rem={}, prices={};
+  invs.forEach(inv=>{ rem[inv.id]=invoiceReturnableMap(inv.id); prices[inv.id]=invoiceNetPriceMap(inv.id); });
+  return retLines.map(l=>{
+    const res={alloc:[],price:undefined};
+    if(!l.productId) return res;
+    let need=lineMainQty(l), val=0, got=0, firstPrice;
+    for(const inv of invs){
+      const r=rem[inv.id][l.productId], pr=prices[inv.id][l.productId];
+      if(!r||pr===undefined) continue;
+      if(firstPrice===undefined && r.available>0.0001) firstPrice=pr;
+      if(need<=0.0001) continue;
+      const take=Math.min(need,r.available);
+      if(take>0.000001){ res.alloc.push({invoiceId:inv.id,qty:take}); r.available-=take; need-=take; val+=take*pr; got+=take; }
+    }
+    res.price=got>0?Math.round(val/got*10000)/10000:firstPrice;
+    return res;
+  });
+}
+// بيعيد تسعير أسطر المرتجع اللي السعر بتاعها تلقائي (المستخدم ما عدّلش سعرها بإيده) حسب توزيعها على الفواتير المختارة
+function retRepriceAuto(){
+  if(!retInvoiceIds.length) return;
+  const comp=retComputeAllocations();
+  retLines=retLines.map((l,i)=>{
+    if(!l.productId||l.priceManual) return l;
+    const mp=comp[i].price;
+    if(mp===undefined) return l;
+    return {...l,price:Math.round(mp/lineUnitFactor(l)*10000)/10000};
+  });
+}
+// بيتنفّذ لما تختار فاتورة (تانية) من القايمة — بيضيفها للمختارين ويحافظ على الأصناف اللي اتكتبت
+function addRetInvoice(){
+  const id=document.getElementById('ret_invoice')?.value||'';
+  if(!id||retInvoiceIds.includes(id)) return;
+  retInvoiceIds.push(id);
+  retRepriceAuto();
+  rerenderReturnFormKeepFields();
+}
+function removeRetInvoice(id){
+  retInvoiceIds=retInvoiceIds.filter(x=>x!==id);
+  // الأصناف اللي مبقاش ليها رصيد في الفواتير الباقية بتتشال
+  const comb=retCombinedMap();
+  retLines=retLines.filter(l=>!l.productId||(comb[l.productId]&&comb[l.productId].available>0.0001));
+  if(!retLines.length) retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
+  retRepriceAuto();
+  rerenderReturnFormKeepFields();
 }
 
 function renderReturns(){
@@ -6606,13 +6674,14 @@ function renderReturns(){
   // لما فيه مخزون فعلي، المرتجع لازم يترتبط بفاتورة بيع أصلية (مانع تجاوز الكمية المباعة فعلاً) — نفس الفكرة
   // مبتنفعش تتطبق على متاجر مالهاش كتالوج أصناف أصلًا (stock.length===0)، فهناك السلوك القديم فاضل زي ما هو تمامًا
   const useInvoiceLink=stock.length>0;
-  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).map(inv=>({id:inv.id,label:`فاتورة #${inv.number} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
-  const invMap=(useInvoiceLink&&retInvoiceId)?invoiceReturnableMap(retInvoiceId):null;
+  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).filter(inv=>!retInvoiceIds.includes(inv.id)).map(inv=>({id:inv.id,label:`فاتورة #${inv.number} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
+  const invMap=(useInvoiceLink&&retInvoiceIds.length)?retCombinedMap():null;
+  const selInvs=retSelectedInvoicesSorted();
   const _stockIdx5386=buildStockIndexes();
   const stockOptsArrShared=invMap
     ?stock.filter(p=>invMap[p.id]&&invMap[p.id].available>0.0001).map(p=>({id:p.id,label:p.name,sub:`متاح للإرجاع: ${fmtQty(invMap[p.id].available)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
     :stock.filter(p=>!isRawCategory(p)).map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx5386.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
-  const canAddRetLines=!useInvoiceLink||!!retInvoiceId;
+  const canAddRetLines=!useInvoiceLink||retInvoiceIds.length>0;
   let linesHtml=retLines.map(l=>{
     const stockOptsArr=stockOptsArrShared;
     return `<div class="line-box">
@@ -6682,12 +6751,15 @@ function renderReturns(){
         ${useInvoiceLink?`
         <div class="form-row">
           <div class="form-group" style="flex:2">
-            <div class="lbl">الفاتورة الأصلية *</div>
+            <div class="lbl">الفاتورة الأصلية * <span style="font-weight:normal;color:#717D7E;font-size:11px">(تقدر تختار أكتر من فاتورة لنفس العميل)</span></div>
             ${!currentRetClientId
               ?`<div style="padding:8px 0;color:#909497;font-size:13px">اختر العميل الأول</div>`
               :invoiceOptsArr.length>0
-                ?searchableSelectHtml('ret_invoice', invoiceOptsArr, '🔍 دور على رقم الفاتورة...', retInvoiceId, 'applyRetInvoicePick()')
-                :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير بيع لهذا العميل فيها كمية متاحة للإرجاع</div>`}
+                ?searchableSelectHtml('ret_invoice', invoiceOptsArr, retInvoiceIds.length?'🔍 ضيف فاتورة تانية...':'🔍 دور على رقم الفاتورة...', '', 'addRetInvoice()')
+                :(retInvoiceIds.length
+                  ?`<div style="padding:8px 0;color:#909497;font-size:13px">تم اختيار كل فواتير العميل المتاحة للإرجاع</div>`
+                  :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير بيع لهذا العميل فيها كمية متاحة للإرجاع</div>`)}
+            ${selInvs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${selInvs.map(inv=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">🧾 فاتورة #${inv.number} - ${inv.date}<span onclick="removeRetInvoice('${inv.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -6717,7 +6789,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;retInvoiceId='';renderReturns()">+ مردود مبيعات جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;retInvoiceIds=[];renderReturns()">+ مردود مبيعات جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -6753,7 +6825,7 @@ function applyRetClientCashDefault(){
   const cid=document.getElementById('ret_client')?.value;
   const c=clients.find(x=>x.id===cid);
   if(c) retIsCashRefund = c.transType==='cash';
-  retInvoiceId='';
+  retInvoiceIds=[];
   retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
   rerenderReturnFormKeepFields();
 }
@@ -6762,14 +6834,13 @@ function removeRetLine(id){retLines=retLines.filter(l=>l.id!==id);renderReturns(
 function updateRetLine(id,field,value){
   retLines=retLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){
-      const p=stock.find(s=>s.id===value);
-      // لو فيه فاتورة أصلية مختارة: السعر بيتحط تلقائي بنفس سعر البيع الفعلي في الفاتورة دي، وإلا بنرجع للسلوك القديم (آخر سعر مردود)
-      const invP=(retInvoiceId&&value)?invoiceNetPriceMap(retInvoiceId)[value]:undefined;
-      return {...l,productId:value,productName:p?.name||'',saleUnit:'',price:(invP!==undefined)?invP:(p?.lastSaleReturnPrice?Number(p.lastSaleReturnPrice):l.price)};
-    }
+    // اختيار صنف: السعر بيتحط تلقائي من الفواتير الأصلية المختارة (retRepriceAuto تحت)، ولو الصنف مش فيها بنرجع للسلوك القديم (آخر سعر مردود)
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',saleUnit:'',priceManual:false,price:p?.lastSaleReturnPrice?Number(p.lastSaleReturnPrice):l.price};}
+    // تعديل السعر بإيد المستخدم: بنثبّته ومنعيدش تسعيره تلقائي بعد كده
+    if(field==='price') return {...l,price:Number(value),priceManual:true};
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
+  retRepriceAuto(); // تغيير الكمية ممكن ينقل جزء منها لفاتورة تانية بسعر مختلف، فالسعر التلقائي بيتحدّث
   const savedClient=document.getElementById('ret_client')?.value;
   const savedClientText=document.getElementById('ret_client_search')?.value;
   const savedDate=document.getElementById('ret_date')?.value;
@@ -6782,23 +6853,16 @@ function updateRetLineUnit(id,unitId){
   retLines=retLines.map(l=>{
     if(l.id!==id)return l;
     const p=stock.find(s=>s.id===l.productId);
-    if(!unitId){
-      // الرجوع للوحدة الأساسية: لو فيه فاتورة أصلية نرجّع السعر لسعرها الفعلي بدل ما يفضل سعر وحدة التجزئة
-      const invBack=(retInvoiceId&&l.productId)?invoiceNetPriceMap(retInvoiceId)[l.productId]:undefined;
-      return invBack!==undefined?{...l,saleUnit:'',price:invBack}:{...l,saleUnit:''};
-    }
+    if(!unitId) return {...l,saleUnit:'',priceManual:false};
     const su=(p?.subUnits||[]).find(u=>u.id===unitId);
     let newPrice=l.price;
-    // لو فيه فاتورة أصلية: سعر وحدة التجزئة = سعر الفاتورة الفعلي للوحدة الأساسية ÷ عدد وحدات التجزئة في الوحدة الأساسية
-    const invMainP=(retInvoiceId&&l.productId)?invoiceNetPriceMap(retInvoiceId)[l.productId]:undefined;
-    if(invMainP!==undefined && su && Number(su.qtyPerUnit)>0){
-      newPrice=Math.round(invMainP/Number(su.qtyPerUnit)*10000)/10000;
-    } else if(su){
+    if(su){
       if(su.price>0) newPrice=Number(su.price);
       else if(su.qtyPerUnit>0 && p?.price) newPrice=Number(p.price)/Number(su.qtyPerUnit);
     }
-    return {...l,saleUnit:unitId,price:newPrice};
+    return {...l,saleUnit:unitId,price:newPrice,priceManual:false};
   });
+  retRepriceAuto(); // لو فيه فواتير أصلية: سعر الوحدة الجديدة = سعر الفاتورة الفعلي ÷ عدد وحدات التجزئة في الوحدة الأساسية
   const savedClient=document.getElementById('ret_client')?.value;
   const savedClientText=document.getElementById('ret_client_search')?.value;
   const savedDate=document.getElementById('ret_date')?.value;
@@ -6812,7 +6876,7 @@ function updateRetLineTotal(id,totalValue){
     if(l.id!==id)return l;
     const qty=Number(l.qty)||0;
     const total=Number(totalValue)||0;
-    return {...l,price: qty>0?(total/qty):0};
+    return {...l,price: qty>0?(total/qty):0,priceManual:true};
   });
   const savedClient=document.getElementById('ret_client')?.value;
   const savedClientText=document.getElementById('ret_client_search')?.value;
@@ -6827,7 +6891,7 @@ function saveReturn(){
   const date=document.getElementById('ret_date')?.value||businessDate();
   if(!clientId){showToast('اختر عميل');return;}
   const useInvoiceLink=stock.length>0;
-  if(useInvoiceLink && !retInvoiceId){showToast('اختر الفاتورة الأصلية للمرتجع');return;}
+  if(useInvoiceLink && !retInvoiceIds.length){showToast('اختر الفاتورة الأصلية للمرتجع');return;}
   if(retLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
   // التحقق إن الكمية المرتجعة منطقية (مش أكبر من اللي اتباع فعلاً)
@@ -6837,15 +6901,15 @@ function saveReturn(){
     if(!qty||qty<=0){showToast('أدخل كمية صحيحة لكل صنف');return;}
   }
   // التحقق إن إجمالي الكمية المطلوب إرجاعها لكل صنف (ممكن يبقى موزّع على أكتر من سطر) مش أكبر من المتاح للإرجاع في الفاتورة الأصلية المختارة
-  if(useInvoiceLink && retInvoiceId){
-    const invMap=invoiceReturnableMap(retInvoiceId);
+  if(useInvoiceLink && retInvoiceIds.length){
+    const invMap=retCombinedMap();
     const requested={};
     retLines.forEach(l=>{ if(l.productId) requested[l.productId]=(requested[l.productId]||0)+lineMainQty(l); });
     for(const pid of Object.keys(requested)){
       const avail=invMap[pid]?invMap[pid].available:0;
       if(requested[pid]>avail+0.0001){
         const p=stock.find(s=>s.id===pid);
-        showToast(`❌ الكمية المتاحة للإرجاع من "${p?.name||'المنتج'}" في الفاتورة الأصلية دي ${fmtQty(avail)} فقط`);
+        showToast(`❌ الكمية المتاحة للإرجاع من "${p?.name||'المنتج'}" في ${retInvoiceIds.length>1?'الفواتير الأصلية المختارة':'الفاتورة الأصلية دي'} ${fmtQty(avail)} فقط`);
         return;
       }
     }
@@ -6854,7 +6918,18 @@ function saveReturn(){
   function _commitReturnSave(){
     const cashRefund=document.getElementById('ret_is_cash')?.checked||false;
     const total=retLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
-    const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,invoiceId:(useInvoiceLink&&retInvoiceId)?retInvoiceId:undefined,date,lines:retLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
+    // توزيع كل سطر على الفواتير الأصلية اللي اترجع منها (الأقدم أولًا) — بيتخزن على السطر عشان رصيد "المتاح للإرجاع" لكل فاتورة يفضل دقيق
+    const _comp=(useInvoiceLink&&retInvoiceIds.length)?retComputeAllocations():null;
+    const _retSavedLines=retLines.map((l,i)=>{
+      const {priceManual,...rest}=l;
+      const o={...rest,qty:Number(l.qty),price:Number(l.price)};
+      if(_comp&&_comp[i].alloc.length) o.alloc=_comp[i].alloc;
+      return o;
+    });
+    const _usedInvIds=[];
+    _retSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedInvIds.includes(a.invoiceId)) _usedInvIds.push(a.invoiceId); }));
+    const _retInvIds=_usedInvIds.length?_usedInvIds:(useInvoiceLink?[...retInvoiceIds]:[]);
+    const ret={id:uid(),number:nextDocNumber(returns,'return'),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,createdAt:new Date().toISOString()};
     if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
     postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
@@ -6875,7 +6950,7 @@ function saveReturn(){
     showRetForm=false;
     retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
     retIsCashRefund=false;
-    retInvoiceId='';
+    retInvoiceIds=[];
     renderReturns();
   }
   // مرتجع البيع بالتجزئة استثنائي — لازم تأكيد واعي قبل ما يرجع للمخزون كأنه صالح للبيع تاني
@@ -10578,7 +10653,7 @@ let showPurRetForm=false;
 let purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
 let purRetDetailId=null;
 let purRetDetailFromSupplier=null;
-let purRetPurchaseId=''; // فاتورة الشراء الأصلية المختارة (اختياري) — لو اتحددت، سعر المردود بيتحط تلقائي بنفس سعر شراء الصنف فيها
+let purRetPurchaseIds=[]; // فواتير الشراء الأصلية المختارة (اختياري، واحدة أو أكتر لنفس المورد) — لو اتحددت، سعر المردود بيتحط تلقائي بنفس سعر شراء الصنف فيها
 let purRetIsCashRefund=false; // استرداد نقدي: هل هنستردها كاش فورًا في الخزنة من المورد عند الحفظ
 
 function openPurRetFromSupplier(retId,supplierId){
@@ -10618,9 +10693,67 @@ function purchaseNetPriceMap(purchaseId){
   return map;
 }
 // بيتنفّذ لما تختار فاتورة شراء أصلية للمردود — بيصفّر أصناف المردود (لأن الأصناف المسموحة بتتحدد بالفاتورة) ويحافظ على المورد والتاريخ
-function applyPretPurchasePick(){
-  purRetPurchaseId=document.getElementById('pret_purchase')?.value||'';
-  purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
+// اللي اترجع فعلاً لكل صنف من فاتورة شراء معينة (من المردودات المربوطة بيها بس) والمتبقي منها — للتوزيع والتسعير
+function purchaseRemainingMap(purchaseId){
+  const pur=purchases.find(x=>x.id===purchaseId);
+  const map={};
+  if(!pur) return map;
+  (pur.lines||[]).forEach(l=>{
+    if(!l.productId) return;
+    const q=Number(l.qty)||0;
+    if(!(q>0)) return;
+    if(!map[l.productId]) map[l.productId]={bought:0,returned:0,available:0};
+    map[l.productId].bought+=q;
+  });
+  purchaseReturns.forEach(r=>{
+    const linked=(r.purchaseIds&&r.purchaseIds.length)?r.purchaseIds:(r.purchaseId?[r.purchaseId]:[]);
+    if(!linked.includes(purchaseId)) return;
+    (r.lines||[]).forEach(l=>{
+      if(!l.productId||!map[l.productId]) return;
+      if(Array.isArray(l.alloc)){ l.alloc.forEach(a=>{ if(a.purchaseId===purchaseId) map[l.productId].returned+=Number(a.qty)||0; }); }
+      else if(r.purchaseId===purchaseId){ map[l.productId].returned+=Number(l.qty)||0; }
+    });
+  });
+  Object.values(map).forEach(v=>{ v.available=Math.max(0,v.bought-v.returned); });
+  return map;
+}
+function pretSelectedPurchasesSorted(){
+  return purRetPurchaseIds.map(id=>purchases.find(x=>x.id===id)).filter(Boolean).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
+}
+// نفس فكرة توزيع مردود المبيعات: الأقدم أولًا، وكل فاتورة بحد المتبقي منها؛ لو الكمية زادت عن المتبقي في كل الفواتير
+// الزيادة بتتسعّر بسعر أحدث فاتورة فيها الصنف (مفيش حد أقصى بيمنع الحفظ في مردود المشتريات)
+function pretComputeAllocations(){
+  const pos=pretSelectedPurchasesSorted();
+  const rem={}, prices={};
+  pos.forEach(po=>{ rem[po.id]=purchaseRemainingMap(po.id); prices[po.id]=purchaseNetPriceMap(po.id); });
+  return purRetLines.map(l=>{
+    const res={alloc:[],price:undefined};
+    if(!l.productId) return res;
+    let need=Number(l.qty)||0, val=0, got=0, firstPrice, lastPrice;
+    for(const po of pos){
+      const r=rem[po.id][l.productId], pi=prices[po.id][l.productId];
+      if(!r||!pi) continue;
+      lastPrice=pi.price;
+      if(firstPrice===undefined && r.available>0.0001) firstPrice=pi.price;
+      if(need<=0.0001) continue;
+      const take=Math.min(need,r.available);
+      if(take>0.000001){ res.alloc.push({purchaseId:po.id,qty:take}); r.available-=take; need-=take; val+=take*pi.price; got+=take; }
+    }
+    if(need>0.0001 && lastPrice!==undefined){ val+=need*lastPrice; got+=need; }
+    res.price=got>0?Math.round(val/got*10000)/10000:(firstPrice!==undefined?firstPrice:lastPrice);
+    return res;
+  });
+}
+function pretRepriceAuto(){
+  if(!purRetPurchaseIds.length) return;
+  const comp=pretComputeAllocations();
+  purRetLines=purRetLines.map((l,i)=>{
+    if(!l.productId||l.priceManual) return l;
+    const mp=comp[i].price;
+    return mp===undefined?l:{...l,price:mp};
+  });
+}
+function _pretRerenderKeep(){
   const savedSup=document.getElementById('pret_supplier')?.value;
   const savedSupText=document.getElementById('pret_supplier_search')?.value;
   const savedDate=document.getElementById('pret_date')?.value;
@@ -10629,6 +10762,26 @@ function applyPretPurchasePick(){
     if(savedSup){const el=document.getElementById('pret_supplier');if(el)el.value=savedSup;const st=document.getElementById('pret_supplier_search');if(st)st.value=savedSupText||'';}
     if(savedDate){const el=document.getElementById('pret_date');if(el)el.value=savedDate;}
   },0);
+}
+// بيتنفّذ لما تختار فاتورة شراء (تانية) — بيضيفها للمختارين ويحافظ على الأصناف اللي اتكتبت ويعيد تسعيرها
+function addPretPurchase(){
+  const id=document.getElementById('pret_purchase')?.value||'';
+  if(!id||purRetPurchaseIds.includes(id)) return;
+  purRetPurchaseIds.push(id);
+  pretRepriceAuto();
+  _pretRerenderKeep();
+}
+function removePretPurchase(id){
+  purRetPurchaseIds=purRetPurchaseIds.filter(x=>x!==id);
+  if(purRetPurchaseIds.length){
+    // الأصناف اللي مش موجودة في الفواتير الباقية بتتشال
+    const inSel=new Set();
+    purRetPurchaseIds.forEach(pid=>Object.keys(purchaseNetPriceMap(pid)).forEach(k=>inSel.add(k)));
+    purRetLines=purRetLines.filter(l=>!l.productId||inSel.has(l.productId));
+    if(!purRetLines.length) purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
+  }
+  pretRepriceAuto();
+  _pretRerenderKeep();
 }
 
 function renderPurReturns(){
@@ -10654,11 +10807,11 @@ function renderPurReturns(){
   const _stockIdx8673=buildStockIndexes();
   // الفاتورة الأصلية (اختياري): بتتعتبر شغالة بس لو تخص المورد المختار حاليًا
   const pretUseLink=stock.length>0;
-  const pretActivePur=(pretUseLink&&purRetPurchaseId&&pretSupSelected)?purchases.find(x=>x.id===purRetPurchaseId&&x.supplierId===pretSupSelected):null;
-  const pretPurMap=pretActivePur?purchaseNetPriceMap(pretActivePur.id):null;
-  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${x.number} - ${x.date} - ${fmt(x.total)} ج`})):[];
+  const pretSelPurs=(pretUseLink&&pretSupSelected)?pretSelectedPurchasesSorted().filter(x=>x.supplierId===pretSupSelected):[];
+  const pretPurMap=pretSelPurs.length?(()=>{const m={};pretSelPurs.forEach(po=>{const mm=purchaseNetPriceMap(po.id);Object.keys(mm).forEach(pid=>{if(!m[pid])m[pid]={qty:0};m[pid].qty+=mm[pid].qty;});});return m;})():null;
+  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected&&!purRetPurchaseIds.includes(x.id)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${x.number} - ${x.date} - ${fmt(x.total)} ج`})):[];
   const stockOptsArrShared=pretPurMap
-    ?stock.filter(p=>pretPurMap[p.id]).map(p=>({id:p.id,label:p.name,sub:`كمية الفاتورة: ${fmtQty(pretPurMap[p.id].qty)} • الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
+    ?stock.filter(p=>pretPurMap[p.id]).map(p=>({id:p.id,label:p.name,sub:`كمية الفواتير: ${fmtQty(pretPurMap[p.id].qty)} • الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
     :stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
   let linesHtml=purRetLines.map(l=>{
     const stockOptsArr=stockOptsArrShared;
@@ -10713,12 +10866,15 @@ function renderPurReturns(){
         ${pretUseLink?`
         <div class="form-row">
           <div class="form-group" style="flex:2">
-            <div class="lbl">الفاتورة الأصلية (اختياري — لو اخترتها السعر بيتحط تلقائي بنفس سعر الشراء)</div>
+            <div class="lbl">الفاتورة الأصلية (اختياري — تقدر تختار أكتر من فاتورة لنفس المورد، والسعر بيتحط تلقائي بنفس سعر الشراء)</div>
             ${!pretSupSelected
               ?`<div style="padding:8px 0;color:#909497;font-size:13px">اختر المورد الأول</div>`
               :pretPurOptsArr.length>0
-                ?searchableSelectHtml('pret_purchase', pretPurOptsArr, '🔍 دور على رقم الفاتورة...', pretActivePur?pretActivePur.id:'', 'applyPretPurchasePick()')
-                :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير شراء لهذا المورد</div>`}
+                ?searchableSelectHtml('pret_purchase', pretPurOptsArr, pretSelPurs.length?'🔍 ضيف فاتورة تانية...':'🔍 دور على رقم الفاتورة...', '', 'addPretPurchase()')
+                :(pretSelPurs.length
+                  ?`<div style="padding:8px 0;color:#909497;font-size:13px">تم اختيار كل فواتير المورد</div>`
+                  :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير شراء لهذا المورد</div>`)}
+            ${pretSelPurs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${pretSelPurs.map(po=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">📥 فاتورة #${po.number} - ${po.date}<span onclick="removePretPurchase('${po.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -10746,7 +10902,7 @@ function renderPurReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];purRetIsCashRefund=false;purRetPurchaseId='';renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
+      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];purRetIsCashRefund=false;purRetPurchaseIds=[];renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مردودات مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
   `;
@@ -10757,14 +10913,12 @@ function removePurRetLine(id){purRetLines=purRetLines.filter(l=>l.id!==id);rende
 function updatePurRetLine(id,field,value){
   purRetLines=purRetLines.map(l=>{
     if(l.id!==id)return l;
-    if(field==='productId'){
-      const p=stock.find(s=>s.id===value);
-      // لو فيه فاتورة شراء أصلية مختارة: السعر بيتحط تلقائي بنفس سعر الشراء الفعلي في الفاتورة دي، وإلا السلوك القديم (آخر سعر مردود)
-      const purP=(purRetPurchaseId&&value)?purchaseNetPriceMap(purRetPurchaseId)[value]:undefined;
-      return {...l,productId:value,productName:p?.name||'',expiry:'',price:purP?purP.price:(p?.lastPurchaseReturnPrice?Number(p.lastPurchaseReturnPrice):l.price)};
-    }
+    // اختيار صنف: السعر بيتحط تلقائي من فواتير الشراء الأصلية المختارة (pretRepriceAuto تحت)، وإلا السلوك القديم (آخر سعر مردود)
+    if(field==='productId'){const p=stock.find(s=>s.id===value);return {...l,productId:value,productName:p?.name||'',expiry:'',priceManual:false,price:p?.lastPurchaseReturnPrice?Number(p.lastPurchaseReturnPrice):l.price};}
+    if(field==='price') return {...l,price:Number(value),priceManual:true};
     return {...l,[field]:['qty','price'].includes(field)?Number(value):value};
   });
+  pretRepriceAuto(); // تغيير الكمية ممكن ينقل جزء منها لفاتورة تانية بسعر مختلف
   const savedSup=document.getElementById('pret_supplier')?.value;
   const savedSupText=document.getElementById('pret_supplier_search')?.value;
   const savedDate=document.getElementById('pret_date')?.value;
@@ -10792,9 +10946,8 @@ function applyPretSupplierCashDefault(){
   const s=suppliers.find(x=>x.id===sid);
   if(s) purRetIsCashRefund = s.transType==='cash';
   // لو كانت فيه فاتورة أصلية مختارة وتخص مورد تاني: نصفّرها هي وأصناف المردود (كانت مرتبطة بالمورد القديم)
-  if(purRetPurchaseId){
-    const _pu=purchases.find(x=>x.id===purRetPurchaseId);
-    if(!_pu||_pu.supplierId!==sid){ purRetPurchaseId=''; purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}]; }
+  if(purRetPurchaseIds.some(pid=>{const _pu=purchases.find(x=>x.id===pid);return !_pu||_pu.supplierId!==sid;})){
+    purRetPurchaseIds=[]; purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
   }
   renderPurReturns();
   setTimeout(()=>{
@@ -10825,8 +10978,19 @@ function savePurRet(){
   const total=purRetLines.reduce((s,l)=>s+(Number(l.qty)*Number(l.price)),0);
   const retNum=nextDocNumber(purchaseReturns,'purchaseReturn');
   const cashRefund=document.getElementById('pret_is_cash')?.checked||false;
-  const _linkedPur=(purRetPurchaseId&&purchases.some(x=>x.id===purRetPurchaseId&&x.supplierId===supplierId))?purRetPurchaseId:undefined;
-  const ret={id:uid(),number:retNum,supplierId,purchaseId:_linkedPur,date,lines:purRetLines.map(l=>({...l,qty:Number(l.qty),price:Number(l.price)})),total,cashRefund,createdAt:new Date().toISOString()};
+  // فواتير الشراء الأصلية (اختياري): بنسجل اللي اتوزع عليها المردود فعلاً، وعلى كل سطر نصيب كل فاتورة (الأقدم أولًا)
+  const _selPurIds=purRetPurchaseIds.filter(pid=>purchases.some(x=>x.id===pid&&x.supplierId===supplierId));
+  const _pcomp=_selPurIds.length?pretComputeAllocations():null;
+  const _pretSavedLines=purRetLines.map((l,i)=>{
+    const {priceManual,...rest}=l;
+    const o={...rest,qty:Number(l.qty),price:Number(l.price)};
+    if(_pcomp&&_pcomp[i].alloc.length) o.alloc=_pcomp[i].alloc;
+    return o;
+  });
+  const _usedPurIds=[];
+  _pretSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedPurIds.includes(a.purchaseId)) _usedPurIds.push(a.purchaseId); }));
+  const _pretPurIds=_usedPurIds.length?_usedPurIds:_selPurIds;
+  const ret={id:uid(),number:retNum,supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,createdAt:new Date().toISOString()};
   purchaseReturns.push(ret);
   postJournal('purReturn',ret.id,date,'مردود مشتريات #'+retNum,
     [{accountId:'ap',debit:total,credit:0},{accountId:'inventory',debit:0,credit:total}]);
@@ -10846,7 +11010,7 @@ function savePurRet(){
   showPurRetForm=false;
   purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
   purRetIsCashRefund=false;
-  purRetPurchaseId='';
+  purRetPurchaseIds=[];
   renderPurReturns();
 }
 
@@ -10882,6 +11046,7 @@ function renderPurRetDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
+        ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+x.number).join('، ')}</div>`:'';})()}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#D68910">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
