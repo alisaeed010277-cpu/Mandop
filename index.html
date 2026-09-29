@@ -1534,6 +1534,26 @@ function backupFileLabel(){
 }
 
 // دالة عامة: تحدّث متغير بحث وتعيد الرسم، مع الحفاظ على التركيز ومكان المؤشر بالكيبورد
+// ====== حفظ/استرجاع قيم حقول فورم مفتوح عبر إعادة الرسم ======
+// أي فلتر/بحث/زرار بيعيد رسم الشاشة كان بيمسح اللي اتكتب في فورم مفتوح؛ الدالتين دول بيلقطوا القيم قبل الرسم ويرجّعوها بعده.
+// (لو الفورم مش ظاهر بعد الرسم، الاسترجاع بيتجاهل الحقل الناقص ومفيش أي أثر)
+function formSnap(ids){
+  const o={};
+  ids.forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    o[id]=(el.type==='checkbox')?el.checked:el.value;
+    const st=document.getElementById(id+'_search'); if(st) o[id+'_search']=st.value;
+  });
+  return Object.keys(o).length?o:null;
+}
+function formRestore(snap){
+  if(!snap) return;
+  Object.keys(snap).forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    if(el.type==='checkbox') el.checked=!!snap[id]; else el.value=snap[id];
+  });
+}
+
 function searchInputHandler(el, setter, renderFn){
   setter(el.value);
   const pos=el.selectionStart;
@@ -4848,6 +4868,8 @@ let clientStmtFromDate='',clientStmtToDate='';
 
 function renderClients(){
   if(clientDetailId){renderClientDetail();return;}
+  // إصلاح: الكتابة في خانة البحث كانت بتمسح فورم "إضافة عميل جديد" المفتوح
+  const _cFormSnap=showClientForm?formSnap(['c_name','c_phone','c_area','c_opening','c_opening_date','c_trans_type']):null;
   const clientSearchNorm=normalizeAr(clientSearch);
   const filtered=clients.filter(c=>normalizeAr(c.name).includes(clientSearchNorm)||normalizeAr(c.area||'').includes(clientSearchNorm)||c.phone?.includes(clientSearch));
   const _clientBal=buildClientBalanceIndex();
@@ -4908,6 +4930,7 @@ function renderClients(){
       ${clients.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printClientsSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص العملاء PDF</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا يوجد عملاء</div>':items}`;
+  if(_cFormSnap){ formRestore(_cFormSnap); if(_cFormSnap.c_trans_type) setFormTransType('c',_cFormSnap.c_trans_type==='cash'?'cash':'agl'); }
 }
 
 // عشان نمنع تكرار اسم عميل/مورد بنفس الاسم (بعد تجاهل المسافات الزيادة وحالة الأحرف)
@@ -5681,6 +5704,10 @@ function renderInvoices(){
     </tr>`;
   }).join('');
   const editingInv = editInvoiceId ? invoices.find(i=>i.id===editInvoiceId) : null;
+  // إصلاح: البحث/فلتر التاريخ في قايمة الفواتير كان بيمسح العميل والتاريخ المختارين في فورم الفاتورة المفتوح
+  const _curInvClient=document.getElementById('inv_client')?.value||'';
+  const _curInvClientSel=clients.some(c=>c.id===_curInvClient)?_curInvClient:'';
+  const _curInvDate=document.getElementById('inv_date')?.value||'';
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   // stockOptsArr واحدة بتتبني قبل اللفة على سطور الفاتورة وتتستخدم لكل سطر، بدل ما تتبني
   // من الصفر (بمسح كل الحركات لكل صنف) في كل سطر على حدة - نفس المحتوى بالظبط لكل سطر أصلًا
@@ -5791,8 +5818,8 @@ function renderInvoices(){
       <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||'', editingInv?'':'applyInvClientCashDefault()')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||businessDate()}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||_curInvClientSel, editingInv?'':'applyInvClientCashDefault()')}</div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||_curInvDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة ${invItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${invItemsCount} ${invItemsCount===1?'صنف':(invItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
@@ -6327,6 +6354,8 @@ async function printCollectionsSummaryPdf(from,to){
 
 function renderPayments(){
   if(payDetailId){renderPaymentDetail();return;}
+  // إصلاح: فلتر تاريخ قايمة التحصيلات كان بيمسح فورم التحصيل المفتوح (العميل/المبلغ/التاريخ/الخصم/الملاحظة)
+  const _payFormSnap=showPayForm?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice']):null;
   const sorted=[...payments].filter(p=>(!isRestrictedRole()||roleCanSee(p))&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
@@ -6387,6 +6416,13 @@ function renderPayments(){
     <div style="background:#EAFAF1;border-radius:8px;padding:10px 14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;font-weight:bold;color:#1E8449">
       <span>إجمالي التحصيل (${sorted.length} عملية)</span><span>${fmt(payPeriodTotal)} ج</span>
     </div>`}`;
+  if(_payFormSnap){
+    formRestore(_payFormSnap);
+    if(_payFormSnap.pay_client){
+      renderPayClientInvoices(); // بيعيد بناء قايمة فواتير العميل، وبعدها نرجّع الفاتورة المختارة (لو كانت)
+      const _pi=document.getElementById('pay_invoice'); if(_pi&&_payFormSnap.pay_invoice!==undefined) _pi.value=_payFormSnap.pay_invoice;
+    }
+  }
 }
 
 async function printPaymentReceipt(pid){
@@ -6849,6 +6885,8 @@ let prodInputLines=[{id:uid(),productId:'',qty:''}];
 
 function renderStock(){
   if(stockDetailId){renderStockDetail();return;}
+  // إصلاح: تغيير نوع الحركة (وارد/صادر) أو البحث/فلتر الأصناف كان بيمسح فورم حركة المخزن/التصنيع المفتوح
+  const _stFormSnap=formSnap([...(showMovForm?['mov_product','mov_qty','mov_date','mov_expiry','mov_note']:[]),...(showProductionForm?['prod_output','prod_output_qty','prod_date','prod_expiry','prod_extra_cost','prod_note']:[])]);
   if(stockSubTab==='production'&&!fieldsCfg().manufacturing) stockSubTab='overview'; // النمط اتغيّر والمستخدم كان واقف في تبويب مخفي
   if(stockSubTab==='sub'&&(!companyProfile.subWarehouseEnabled||isRestrictedRole())) stockSubTab='overview'; // المخزن الفرعي اتقفل والمستخدم كان واقف فيه
   document.getElementById('tab-stock').innerHTML=`
@@ -6863,6 +6901,7 @@ function renderStock(){
   else if(stockSubTab==='movements')renderStockMovements();
   else if(stockSubTab==='sub')renderSubWarehouse();
   else renderProduction();
+  formRestore(_stFormSnap);
 }
 
 
@@ -8020,6 +8059,10 @@ function renderExpenses(){
     </div>`).join('');
 
   const _presetBank=showExpenseForm?expensePresetBankId:''; expensePresetBankId=''; // استخدام مرة واحدة عشان مايفضلش متسجل لفورم بعد كده
+  // إصلاح: لو الفورم مفتوح وفيه بيانات مكتوبة، وحصلت إعادة رسم (زي الضغط على زرار فلتر الفترة)، منمسحش اللي اتكتب — بنلقطه هنا ونرجّعه بعد الرسم
+  const _expSnap=((showExpenseForm&&document.getElementById('exp_amount'))||(showNoteForm&&document.getElementById('note_text')))
+    ?['exp_category','exp_amount','exp_new_category','exp_date','exp_paid_from','exp_bank_account','exp_cost_type','exp_cost_nature','note_text','note_amount','note_date'].reduce((o,id)=>{const el=document.getElementById(id);if(el)o[id]=el.value;return o;},{})
+    :null;
   document.getElementById('tab-expenses').innerHTML=`
     <div style="padding:14px">
       <div class="page-title" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
@@ -8149,6 +8192,11 @@ function renderExpenses(){
         </div>
       </div>`}
     </div>`;
+  if(_expSnap){
+    Object.keys(_expSnap).forEach(id=>{const el=document.getElementById(id);if(el&&_expSnap[id]!=='')el.value=_expSnap[id];});
+    const _w1=document.getElementById('exp_new_category_wrap');if(_w1)_w1.style.display=(_expSnap.exp_category==='__new__')?'block':'none';
+    const _w2=document.getElementById('exp_bank_wrap');if(_w2)_w2.style.display=(_expSnap.exp_paid_from==='bank')?'block':'none';
+  }
 }
 
 function addRepNote(){
@@ -9547,6 +9595,8 @@ function openSupplierDetail(id){supplierDetailId=id;supplierStmtFromDate='';supp
 
 function renderSuppliers(){
   if(supplierDetailId){renderSupplierDetail();return;}
+  // إصلاح: الكتابة في خانة البحث كانت بتمسح فورم "إضافة مورد جديد" المفتوح
+  const _sFormSnap=showSupplierForm?formSnap(['sup_name','sup_phone','sup_opening','sup_opening_date','sup_trans_type']):null;
   const supplierSearchNorm=normalizeAr(supplierSearch);
   const filtered=suppliers.filter(s=>normalizeAr(s.name).includes(supplierSearchNorm)||s.phone?.includes(supplierSearch));
   const _supplierBal=buildSupplierBalanceIndex();
@@ -9602,6 +9652,7 @@ function renderSuppliers(){
       ${suppliers.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSuppliersSummaryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 ملخص الموردين PDF</button>`:''}
     </div>
     ${filtered.length===0?'<div class="empty">لا يوجد موردين</div>':items}`;
+  if(_sFormSnap){ formRestore(_sFormSnap); if(_sFormSnap.sup_trans_type) setFormTransType('sup',_sFormSnap.sup_trans_type==='cash'?'cash':'agl'); }
 }
 
 function addSupplier(){
@@ -9801,6 +9852,10 @@ function renderPurchases(){
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const purPeriodTotal=filtered.reduce((s,p)=>s+p.total,0);
   const editingPur = editPurchaseId ? purchases.find(p=>p.id===editPurchaseId) : null;
+  // إصلاح: البحث/فلتر التاريخ في قايمة المشتريات كان بيمسح المورد والتاريخ المختارين في فورم الفاتورة المفتوح
+  const _curPurSup=document.getElementById('pur_supplier')?.value||'';
+  const _curPurSupSel=suppliers.some(x=>x.id===_curPurSup)?_curPurSup:'';
+  const _curPurDate=document.getElementById('pur_date')?.value||'';
   const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
@@ -9879,8 +9934,8 @@ function renderPurchases(){
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||'', editingPur?'':'applyPurSupplierCashDefault()')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||purResumeDate||businessDate()}"></div>
+          <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||_curPurSupSel, editingPur?'':'applyPurSupplierCashDefault()')}</div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||purResumeDate||_curPurDate||businessDate()}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف فاتورة المشتريات ${purItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${purItemsCount} ${purItemsCount===1?'صنف':(purItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
