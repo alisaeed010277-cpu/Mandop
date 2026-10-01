@@ -18,6 +18,22 @@
 body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;background:#F0F4F8;color:#1C2833;font-size:14px;min-height:100vh;font-feature-settings:"lnum";}
 input,select,td,th,.sum-num,.list-item-bal-num{font-feature-settings:"lnum";}
 input[type=date],input[type=number]{direction:ltr;text-align:right;}
+/* خانات التاريخ/الشهر الفاضية: كروم على أجهزة كتير بيكتب "يوم/شهر/سنة" بحروف معكوسة (موي/رهش/ةنس) من عنده ومفيش CSS يصلحها،
+   فبنخفي النص الأصلي للخانة وهي فاضية ونعرض بدله الكلمات بالعربي صح. أول ما تتحط قيمة (من المنتقي أو من البرنامج) النص الأصلي بيرجع لوحده.
+   مربوطة بحالة :invalid (= الخانة فاضية لأنها required) فبتتابع القيمة فورًا حتى لو اتغيرت بالكود. بتشتغل بس في متصفحات كروم/ويبكيت. */
+@supports selector(::-webkit-datetime-edit){
+  input[type=date][required]:invalid,input[type=month][required]:invalid{background-repeat:no-repeat;background-position:right 12px center;background-size:auto 24px;}
+  input[type=date][required]:invalid{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='112' height='24' viewBox='0 0 112 24'%3E%3Ctext x='110' y='17' text-anchor='end' font-family='Segoe UI,Tahoma,Roboto,Arial,sans-serif' font-size='15' fill='%231C2833'%3Eيوم / شهر / سنة%3C/text%3E%3C/svg%3E");}
+  input[type=month][required]:invalid{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='70' height='24' viewBox='0 0 70 24'%3E%3Ctext x='68' y='17' text-anchor='end' font-family='Segoe UI,Tahoma,Roboto,Arial,sans-serif' font-size='15' fill='%231C2833'%3Eشهر / سنة%3C/text%3E%3C/svg%3E");}
+  input[type=date][required]:invalid::-webkit-datetime-edit,input[type=month][required]:invalid::-webkit-datetime-edit{opacity:0;}
+}
+/* على الكمبيوتر (ماوس) لما تدوس على الخانة عشان تكتب بالكيبورد نرجّع النص الأصلي عشان تشوف اللي بتكتبه */
+@media (hover:hover) and (pointer:fine){
+  @supports selector(::-webkit-datetime-edit){
+    input[type=date][required]:invalid:focus,input[type=month][required]:invalid:focus{background-image:none;}
+    input[type=date][required]:invalid:focus::-webkit-datetime-edit,input[type=month][required]:invalid:focus::-webkit-datetime-edit{opacity:1;}
+  }
+}
 /* إخفاء أسهم الزيادة/النقصان المدمجة في خانات الأرقام - الخانة بقت للكتابة اليدوية بس */
 input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
 input[type=number]{-moz-appearance:textfield;appearance:textfield;}
@@ -1545,6 +1561,13 @@ function formSnap(ids){
     const st=document.getElementById(id+'_search'); if(st) o[id+'_search']=st.value;
   });
   return Object.keys(o).length?o:null;
+}
+// تاريخ فورم مفتوح فعلاً: لو نفس الفورم (نفس السجل: جديد أو نفس فاتورة التعديل) لسه ظاهر على الشاشة وفيه تاريخ،
+// نرجّعه زي ما هو بدل ما أي إعادة رسم (بحث/فلتر/مزامنة) تبدّله بتاريخ اليوم أو بتاريخ الفاتورة القديم.
+// علامة data-rec على الخانة بتضمن إننا منخلطش تاريخ فاتورة مع فاتورة تانية.
+function keptFormDate(inputId, recKey){
+  const el=document.getElementById(inputId);
+  return (el && el.dataset && el.dataset.rec===String(recKey) && el.value) ? el.value : '';
 }
 function formRestore(snap){
   if(!snap) return;
@@ -4370,7 +4393,7 @@ function openOpeningBalanceModal(type, id){
       <div class="lbl">الرصيد الافتتاحي (ج)</div>
       <input id="openingAmountInput" type="number" min="0" value="${item.opening||0}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:10px;box-sizing:border-box">
       <div class="lbl">تاريخ الرصيد الافتتاحي</div>
-      <input id="openingDateInput" type="date" value="${item.openingDate||today()}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
+      <input id="openingDateInput" type="date" required value="${item.openingDate||today()}" class="mini-input" style="width:100%;padding:10px;border:1px solid #D5D8DC;border-radius:8px;margin-bottom:16px;box-sizing:border-box">
       <div style="display:flex;gap:8px">
         <button onclick="document.getElementById('openingModal').remove()" class="mini-btn" style="flex:1;background:#EAECEE;color:#333;border:none;border-radius:8px;padding:12px;cursor:pointer">إلغاء</button>
         <button onclick="saveOpeningBalance('${type}','${id}')" class="mini-btn" style="flex:1;background:#1A5276;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer">حفظ</button>
@@ -4762,8 +4785,8 @@ function renderClientSummaryReportBlock(readOnly){
       ${header}
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repcl_from" value="${repClientsFromDate}" onchange="repClientsFromDate=this.value;renderReports()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repcl_to" value="${repClientsToDate}" onchange="repClientsToDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="repcl_from" value="${repClientsFromDate}" onchange="repClientsFromDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="repcl_to" value="${repClientsToDate}" onchange="repClientsToDate=this.value;renderReports()"></div>
         </div>
         <div class="btn-row">
           ${(repClientsFromDate||repClientsToDate)?`<button class="btn-outline" onclick="repClientsFromDate='';repClientsToDate='';renderReports()">✖ إلغاء الفلتر</button>`:''}
@@ -4817,8 +4840,8 @@ function renderSupplierSummaryReportBlock(){
       ${header}
       <div class="card-body" style="padding-bottom:6px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="repsup_from" value="${repSuppliersFromDate}" onchange="repSuppliersFromDate=this.value;renderReports()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="repsup_to" value="${repSuppliersToDate}" onchange="repSuppliersToDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="repsup_from" value="${repSuppliersFromDate}" onchange="repSuppliersFromDate=this.value;renderReports()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="repsup_to" value="${repSuppliersToDate}" onchange="repSuppliersToDate=this.value;renderReports()"></div>
         </div>
         <div class="btn-row">
           ${(repSuppliersFromDate||repSuppliersToDate)?`<button class="btn-outline" onclick="repSuppliersFromDate='';repSuppliersToDate='';renderReports()">✖ إلغاء الفلتر</button>`:''}
@@ -4906,7 +4929,7 @@ function renderClients(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد افتتاحي (ج) — اختياري</div><input type="number" id="c_opening" placeholder="0" min="0"></div>
-          <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" id="c_opening_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" required id="c_opening_date" value="${today()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -5466,6 +5489,8 @@ function renderClientDetail(){
   const bal=closingBalance;
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
   const hasFilter=!!(clientStmtFromDate||clientStmtToDate);
+  // إصلاح: فلتر تاريخ كشف الحساب كان بيمسح فورم "ملاحظة جديدة" المفتوح (النص/المبلغ/التاريخ)
+  const _cnSnap=(showClientNoteForm&&document.getElementById('cnote_date')?.dataset.rec===String(c.id))?formSnap(['cnote_text','cnote_amount','cnote_date']):null;
   const tableRows=(showCarry?carryForwardRowHtml(clientStmtFromDate,carryForward):'')+rows.map(ev=>clientStatementRowHtml(ev,c.id,true)).join('');
   document.getElementById('tab-clients').innerHTML=`
     <div class="back-row">
@@ -5481,8 +5506,8 @@ function renderClientDetail(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="cstmt_from_date" value="${clientStmtFromDate}" onchange="clientStmtFromDate=this.value;renderClientDetail()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="cstmt_to_date" value="${clientStmtToDate}" onchange="clientStmtToDate=this.value;renderClientDetail()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="cstmt_from_date" value="${clientStmtFromDate}" onchange="clientStmtFromDate=this.value;renderClientDetail()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="cstmt_to_date" value="${clientStmtToDate}" onchange="clientStmtToDate=this.value;renderClientDetail()"></div>
         </div>
         <div class="btn-row">
           ${hasFilter?`<button class="btn-outline" onclick="clientStmtFromDate='';clientStmtToDate='';renderClientDetail()">✖ إلغاء الفلتر</button>`:''}
@@ -5505,7 +5530,7 @@ function renderClientDetail(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ (اختياري)</div><input type="number" id="cnote_amount" min="0" placeholder="0"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="cnote_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="cnote_date" data-rec="${c.id}" value="${today()}"></div>
         </div>
         <div class="btn-row">
           <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addClientNote('${c.id}')">✓ حفظ الملاحظة</button>
@@ -5525,6 +5550,7 @@ function renderClientDetail(){
         </div>
       </div>
     </div>`;
+  formRestore(_cnSnap);
 }
 
 let showClientNoteForm=false;
@@ -5709,7 +5735,7 @@ function renderInvoices(){
   // إصلاح: البحث/فلتر التاريخ في قايمة الفواتير كان بيمسح العميل والتاريخ المختارين في فورم الفاتورة المفتوح
   const _curInvClient=document.getElementById('inv_client')?.value||'';
   const _curInvClientSel=clients.some(c=>c.id===_curInvClient)?_curInvClient:'';
-  const _curInvDate=document.getElementById('inv_date')?.value||'';
+  const _curInvDate=keptFormDate('inv_date',editInvoiceId||'new');
   const clientOptsArr=clients.map(c=>({id:c.id,label:c.name}));
   // stockOptsArr واحدة بتتبني قبل اللفة على سطور الفاتورة وتتستخدم لكل سطر، بدل ما تتبني
   // من الصفر (بمسح كل الحركات لكل صنف) في كل سطر على حدة - نفس المحتوى بالظبط لكل سطر أصلًا
@@ -5824,7 +5850,7 @@ function renderInvoices(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||_curInvClientSel, editingInv?'':'applyInvClientCashDefault()')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="inv_date" value="${editingInv?.date||invResumeDate||_curInvDate||businessDate()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="inv_date" data-rec="${editInvoiceId||'new'}" value="${editingInv?(keptFormDate('inv_date',editInvoiceId)||editingInv.date||invResumeDate||_curInvDate||businessDate()):(invResumeDate||_curInvDate||businessDate())}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة ${invItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${invItemsCount} ${invItemsCount===1?'صنف':(invItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
@@ -5862,8 +5888,8 @@ function renderInvoices(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="inv_from_date" value="${invFromDate}" onchange="invFromDate=this.value;renderInvoices()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="inv_to_date" value="${invToDate}" onchange="invToDate=this.value;renderInvoices()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="inv_from_date" value="${invFromDate}" onchange="invFromDate=this.value;renderInvoices()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="inv_to_date" value="${invToDate}" onchange="invToDate=this.value;renderInvoices()"></div>
         </div>
         <div class="btn-row">
           ${(invFromDate||invToDate)?`<button class="btn-outline" onclick="invFromDate='';invToDate='';renderInvoices()">✖ إلغاء الفلتر</button>`:''}
@@ -6473,7 +6499,7 @@ function renderPayments(){
         <div id="pay_inv_row"></div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="pay_amount" placeholder="0.00" min="0" value="${_editingPay?(Math.round((Number(_editingPay.amount)-(Number(_editingPay.discount)||0))*100)/100):''}"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pay_date" value="${_editingPay?_editingPay.date:businessDate()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="pay_date" value="${_editingPay?_editingPay.date:businessDate()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">خصم مسموح به (ج) — اختياري</div><input type="number" id="pay_discount" placeholder="0.00" min="0" value="${_editingPay&&_editingPay.discount?_editingPay.discount:''}"></div>
@@ -6493,8 +6519,8 @@ function renderPayments(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="pay_from_date" value="${payFromDate}" onchange="payFromDate=this.value;renderPayments()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="pay_to_date" value="${payToDate}" onchange="payToDate=this.value;renderPayments()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="pay_from_date" value="${payFromDate}" onchange="payFromDate=this.value;renderPayments()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="pay_to_date" value="${payToDate}" onchange="payToDate=this.value;renderPayments()"></div>
         </div>
         <div class="btn-row">
           ${(payFromDate||payToDate)?`<button class="btn-outline" onclick="payFromDate='';payToDate='';renderPayments()">✖ إلغاء الفلتر</button>`:''}
@@ -6867,7 +6893,7 @@ function renderReturns(){
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
-            <input type="date" id="ret_date" value="${currentRetDate||businessDate()}">
+            <input type="date" required id="ret_date" value="${currentRetDate||businessDate()}">
           </div>
         </div>
         ${useInvoiceLink?`
@@ -6916,8 +6942,8 @@ function renderReturns(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="ret_from_date" value="${retFromDate}" onchange="retFromDate=this.value;renderReturns()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="ret_to_date" value="${retToDate}" onchange="retToDate=this.value;renderReturns()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="ret_from_date" value="${retFromDate}" onchange="retFromDate=this.value;renderReturns()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="ret_to_date" value="${retToDate}" onchange="retToDate=this.value;renderReturns()"></div>
         </div>
         <div class="btn-row">
           ${(retFromDate||retToDate)?`<button class="btn-outline" onclick="retFromDate='';retToDate='';renderReturns()">✖ إلغاء الفلتر</button>`:''}
@@ -7361,7 +7387,7 @@ ${formMode==='main'?`
           <div class="form-group"><div class="lbl">${editing?'الرصيد الحالي *':'الرصيد *'}</div><input type="number" id="sub_qty" min="0" placeholder="0" value="${esc(dv('qty',editing?editing.qty:''))}" oninput="subWhDraft.qty=this.value"></div>
           ${formMode==='new'?`<div class="form-group"><div class="lbl">سعر التكلفة (اختياري)</div><input type="number" id="sub_cost" min="0" placeholder="0" value="${esc(dv('cost',editing?(editing.costPrice||''):''))}" oninput="subWhDraft.cost=this.value"></div>`:''}
         </div>
-        ${showExpiry?`<div class="form-row"><div class="form-group"><div class="lbl">📅 تاريخ الصلاحية (اختياري)</div><input type="month" id="sub_expiry" value="${esc(dv('expiry',editing?(editing.expiry||''):''))}" onchange="subWhDraft.expiry=this.value"></div></div>`:''}
+        ${showExpiry?`<div class="form-row"><div class="form-group"><div class="lbl">📅 تاريخ الصلاحية (اختياري)</div><input type="month" required id="sub_expiry" value="${esc(dv('expiry',editing?(editing.expiry||''):''))}" onchange="subWhDraft.expiry=this.value"></div></div>`:''}
         <div style="font-size:11px;color:#AAB7B8;margin-bottom:8px">${formMode==='main'?'💡 الرصيد هنا للتذكير بس — مش داخل في أي حسابات ولا مخزون الرئيسي. سعر الشراء بيتطلب منك وقت التحويل للرئيسي.':'💡 صنف جديد مش في الرئيسي: هيتعمل في الرئيسي أول ما تحوّل منه. سعر الشراء هيتطلب وقت التحويل.'}</div>
         <div class="btn-row">
           <button class="btn ${editing?'orange':'green'}" onclick="saveSubItem()">${editing?'✓ حفظ التعديل':'✓ حفظ'}</button>
@@ -7376,7 +7402,7 @@ ${formMode==='main'?`
         <div style="font-size:12px;color:#717D7E;margin-bottom:8px">المتاح في المخزن الفرعي: <strong>${fmtQty(trItem.qty)} ${esc(trItem.unit||'')}</strong>${trItem.mainProductId&&stock.find(p=>p.id===trItem.mainProductId)?' — هيتضاف على رصيده الموجود في الرئيسي':' — هيتعمل في المخزن الرئيسي كصنف جديد'}</div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية المحوّلة *</div><input type="number" id="subtr_qty" min="0" placeholder="0" value="${esc(trItem.qty)}"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="subtr_date" value="${businessDate()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="subtr_date" value="${businessDate()}"></div>
         </div>
         <div class="form-row"><div class="form-group"><div class="lbl">سعر الشراء للوحدة (ج) *</div><input type="number" id="subtr_cost" min="0" step="any" placeholder="0" value="${Number(trItem.costPrice)>0?esc(trItem.costPrice):''}"></div></div>
         ${(()=>{const tp=trItem.mainProductId?stock.find(p=>p.id===trItem.mainProductId):null;let avg=0;if(tp){try{avg=productAvgCost(tp.id,new Map())||0;}catch(e){}}return avg>0?`<div style="font-size:11px;color:#717D7E;margin:-4px 0 8px">متوسط التكلفة الحالي في الرئيسي: ${fmt(avg)} ج — سعر التحويلة هيدخل في المتوسط المرجح.</div>`:'';})()}
@@ -7602,11 +7628,11 @@ function renderStockOverview(){
         return `
         <div class="form-row">
           <div class="form-group"><div class="lbl">رصيد أول (كمية) — اختياري</div><input type="number" id="p_opening_qty" min="0" value="${dv('openingQty',_om?_om.qty:'')}" oninput="productFormDraft.openingQty=this.value"></div>
-          <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" id="p_opening_date" value="${dv('openingDate',_om?_om.date:today())}" onchange="productFormDraft.openingDate=this.value"></div>
+          <div class="form-group"><div class="lbl">تاريخ الرصيد الأول</div><input type="date" required id="p_opening_date" value="${dv('openingDate',_om?_om.date:today())}" onchange="productFormDraft.openingDate=this.value"></div>
         </div>
         ${fieldsCfg().expiry?`
         <div class="form-row">
-          <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية" value="${dv('openingExpiry',_om?(_om.expiry||''):'')}" onchange="productFormDraft.openingExpiry=this.value"></div>
+          <div class="form-group"><div class="lbl">📅 تاريخ صلاحية الرصيد الأول</div><input type="month" required id="p_opening_expiry" placeholder="اختر تاريخ الصلاحية" value="${dv('openingExpiry',_om?(_om.expiry||''):'')}" onchange="productFormDraft.openingExpiry=this.value"></div>
         </div>`:''}
         <div style="font-size:11px;color:#717D7E;margin-bottom:6px">💡 لو حطيت رصيد أول (كمية)، احرص تدخل سعر الشراء/التكلفة تحت عشان قيمتها تظهر صح في تقاريرك المالية</div>`;})()}
         <div class="form-row">
@@ -7650,10 +7676,10 @@ function renderStockOverview(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" id="mov_qty" min="1" placeholder="0"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="mov_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="mov_date" value="${today()}"></div>
         </div>
         ${currentMovType==='in'&&fieldsCfg().expiry?`<div class="form-row">
-          <div class="form-group"><div class="lbl">📅 تاريخ الصلاحية</div><input type="month" id="mov_expiry" placeholder="اختر تاريخ الصلاحية"></div>
+          <div class="form-group"><div class="lbl">📅 تاريخ الصلاحية</div><input type="month" required id="mov_expiry" placeholder="اختر تاريخ الصلاحية"></div>
         </div>`:''}
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="mov_note" placeholder="ملاحظة اختيارية"></div>
@@ -8058,8 +8084,8 @@ function renderProduction(){
           <div class="form-group"><div class="lbl">الكمية الناتجة</div><input type="number" min="0" id="prod_output_qty" value="${document.getElementById('prod_output_qty')?.value||''}" onchange="rerenderProductionFormKeepFields()"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="prod_date" value="${document.getElementById('prod_date')?.value||today()}"></div>
-          <div class="form-group"><div class="lbl">📅 صلاحية الدفعة الناتجة (اختياري)</div><input type="date" id="prod_expiry" value="${document.getElementById('prod_expiry')?.value||''}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="prod_date" value="${document.getElementById('prod_date')?.value||today()}"></div>
+          <div class="form-group"><div class="lbl">📅 صلاحية الدفعة الناتجة (اختياري)</div><input type="date" required id="prod_expiry" value="${document.getElementById('prod_expiry')?.value||''}"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">تكلفة تصنيع إضافية (ج) — اختياري، زي أجور/تعبئة</div><input type="number" min="0" id="prod_extra_cost" placeholder="0.00" value="${document.getElementById('prod_extra_cost')?.value||''}" onchange="rerenderProductionFormKeepFields()"></div>
@@ -8414,7 +8440,7 @@ function renderExpenses(){
             <div class="form-group" style="flex:2"><div class="lbl">اسم البند الجديد *</div><input type="text" id="exp_new_category" placeholder="مثال: تأمينات اجتماعية"></div>
           </div>
           <div class="form-row">
-            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="exp_date" value="${businessDate()}"></div>
+            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="exp_date" value="${businessDate()}"></div>
           </div>
           ${(!isRestrictedRole()&&bankAccounts.length>0)?`
           <div class="form-row">
@@ -8467,8 +8493,8 @@ function renderExpenses(){
         </div>
         ${expenseQuickFilter==='custom'?`
         <div class="form-row date-row" style="margin-top:10px">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="exp_from" value="${fromVal}" onchange="renderExpenses()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="exp_to" value="${toVal}" onchange="renderExpenses()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="exp_from" value="${fromVal}" onchange="renderExpenses()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="exp_to" value="${toVal}" onchange="renderExpenses()"></div>
         </div>`:''}
       </div>
 
@@ -8497,7 +8523,7 @@ function renderExpenses(){
           </div>
           <div class="form-row">
             <div class="form-group"><div class="lbl">المبلغ (اختياري)</div><input type="number" id="note_amount" min="0" placeholder="0"></div>
-            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="note_date" value="${today()}"></div>
+            <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="note_date" value="${today()}"></div>
           </div>
           <div class="btn-row">
             <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addRepNote()">✓ حفظ الملاحظة</button>
@@ -8677,7 +8703,7 @@ function renderTreasury(){
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <div class="lbl" style="margin:0">📅 عرض يوم</div>
-            <input type="date" id="treasury_date_input" value="${treasuryDate}" onchange="treasuryDate=this.value;renderTreasury()">
+            <input type="date" required id="treasury_date_input" value="${treasuryDate}" onchange="treasuryDate=this.value;renderTreasury()">
             ${!isToday?`<button class="btn-outline" onclick="treasuryDate=today();renderTreasury()">↩ اليوم</button>`:''}
           </div>
           <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printTreasuryPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير الخزنة PDF</button>
@@ -9104,7 +9130,7 @@ function renderAccountDetail(acc){
         <div style="font-size:12px;color:#717D7E;margin-bottom:8px">${bankTxForm==='deposit'?`رصيد الخزنة النهارده: <strong>${fmt(treasuryData(today()).closing)} ج</strong>`:`رصيد الحساب البنكي: <strong>${fmt(balance)} ج</strong>`}</div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="banktx_amount" min="0" placeholder="0"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="banktx_date" value="${businessDate()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="banktx_date" value="${businessDate()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="banktx_note" placeholder="مثال: إيداع إيراد آخر اليوم"></div>
@@ -9186,7 +9212,7 @@ function renderBanks(){
     const actionsOrForm = settlingCheckId===c.id
       ? `<div style="padding:0 14px 4px">
            <div class="form-row" style="align-items:flex-end;margin:0 0 6px">
-             <div class="form-group"><div class="lbl">تاريخ ${isPayable?'الصرف':'التحصيل'} الفعلي</div><input type="date" id="chk_settle_date_${c.id}" value="${today()}"></div>
+             <div class="form-group"><div class="lbl">تاريخ ${isPayable?'الصرف':'التحصيل'} الفعلي</div><input type="date" required id="chk_settle_date_${c.id}" value="${today()}"></div>
            </div>
            ${bankAccounts.length>0?`
            <div class="lbl" style="margin-bottom:4px">الوجهة</div>
@@ -9260,7 +9286,7 @@ function renderBanks(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">البنك *</div><input type="text" id="chk_bank" placeholder="مثال: البنك الأهلي" value="${editingChk?esc(editingChk.bank):''}"></div>
-          <div class="form-group"><div class="lbl">تاريخ الاستحقاق *</div><input type="date" id="chk_due" value="${editingChk?editingChk.dueDate:''}"></div>
+          <div class="form-group"><div class="lbl">تاريخ الاستحقاق *</div><input type="date" required id="chk_due" value="${editingChk?editingChk.dueDate:''}"></div>
         </div>
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="chk_note" placeholder="..." value="${editingChk?esc(editingChk.note||''):''}"></div>
@@ -9383,8 +9409,8 @@ function renderReports(){
       <div class="card" style="margin-bottom:14px">
         <div style="font-weight:bold;color:#1A5276;margin-bottom:10px;font-size:13px">📅 فترة التقرير</div>
         <div class="form-row date-row">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="rep_from" value="${fromVal}" onchange="renderReports()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="rep_to" value="${toVal}" onchange="renderReports()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="rep_from" value="${fromVal}" onchange="renderReports()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="rep_to" value="${toVal}" onchange="renderReports()"></div>
         </div>
       </div>
       ${renderAgingReportBlock()}
@@ -9954,7 +9980,7 @@ function renderSuppliers(){
         <div class="form-row" style="margin-top:8px">
           <div class="form-group"><div class="lbl">رقم الهاتف</div><input type="text" id="sup_phone" placeholder="01x..."></div>
           <div class="form-group"><div class="lbl">رصيد افتتاحي</div><input type="number" id="sup_opening" placeholder="0"></div>
-          <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" id="sup_opening_date" value="${today()}"></div>
+          <div class="form-group"><div class="lbl">تاريخ الرصيد الافتتاحي</div><input type="date" required id="sup_opening_date" value="${today()}"></div>
         </div>
         <div class="form-row" style="margin-top:8px">
           <div class="form-group">
@@ -10047,8 +10073,8 @@ function renderSupplierDetail(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="sstmt_from_date" value="${supplierStmtFromDate}" onchange="supplierStmtFromDate=this.value;renderSupplierDetail()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="sstmt_to_date" value="${supplierStmtToDate}" onchange="supplierStmtToDate=this.value;renderSupplierDetail()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="sstmt_from_date" value="${supplierStmtFromDate}" onchange="supplierStmtFromDate=this.value;renderSupplierDetail()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="sstmt_to_date" value="${supplierStmtToDate}" onchange="supplierStmtToDate=this.value;renderSupplierDetail()"></div>
         </div>
         <div class="btn-row">
           ${hasFilter?`<button class="btn-outline" onclick="supplierStmtFromDate='';supplierStmtToDate='';renderSupplierDetail()">✖ إلغاء الفلتر</button>`:''}
@@ -10182,7 +10208,7 @@ function renderPurchases(){
   // إصلاح: البحث/فلتر التاريخ في قايمة المشتريات كان بيمسح المورد والتاريخ المختارين في فورم الفاتورة المفتوح
   const _curPurSup=document.getElementById('pur_supplier')?.value||'';
   const _curPurSupSel=suppliers.some(x=>x.id===_curPurSup)?_curPurSup:'';
-  const _curPurDate=document.getElementById('pur_date')?.value||'';
+  const _curPurDate=keptFormDate('pur_date',editPurchaseId||'new');
   const supOptsArr=suppliers.map(s=>({id:s.id,label:s.name}));
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
@@ -10212,7 +10238,7 @@ function renderPurchases(){
           <div class="form-group" style="flex:2"><div class="lbl"><span class="line-num">${_li+1}</span>المنتج</div>
             ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
-          ${fieldsCfg().expiry?`<div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>`:''}
+          ${fieldsCfg().expiry?`<div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" required value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>`:''}
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" min="1" value="${l.qty}" onchange="updatePurLine('${l.id}','qty',this.value)"></div>
@@ -10265,7 +10291,7 @@ function renderPurchases(){
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||_curPurSupSel, editingPur?'':'applyPurSupplierCashDefault()')}</div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="pur_date" value="${editingPur?.date||purResumeDate||_curPurDate||businessDate()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="pur_date" data-rec="${editPurchaseId||'new'}" value="${editingPur?(keptFormDate('pur_date',editPurchaseId)||editingPur.date||purResumeDate||_curPurDate||businessDate()):(purResumeDate||_curPurDate||businessDate())}"></div>
         </div>
         <div class="divider"></div>
         <div class="section-title">📦 أصناف فاتورة المشتريات ${purItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${purItemsCount} ${purItemsCount===1?'صنف':(purItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
@@ -10308,8 +10334,8 @@ function renderPurchases(){
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
         <div class="form-row date-row" style="align-items:flex-end">
-          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" id="pur_from_date" value="${purFromDate}" onchange="purFromDate=this.value;renderPurchases()"></div>
-          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" id="pur_to_date" value="${purToDate}" onchange="purToDate=this.value;renderPurchases()"></div>
+          <div class="form-group"><div class="lbl">من تاريخ</div><input type="date" required id="pur_from_date" value="${purFromDate}" onchange="purFromDate=this.value;renderPurchases()"></div>
+          <div class="form-group"><div class="lbl">إلى تاريخ</div><input type="date" required id="pur_to_date" value="${purToDate}" onchange="purToDate=this.value;renderPurchases()"></div>
         </div>
         <div class="btn-row">
           ${(purFromDate||purToDate)?`<button class="btn-outline" onclick="purFromDate='';purToDate='';renderPurchases()">✖ إلغاء الفلتر</button>`:''}
@@ -10776,6 +10802,8 @@ async function printSupplierPaymentsSummaryPdf(){
 function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
   if(!showSupPayTabForm) editSupPayId=null;
+  // إصلاح: أي إعادة رسم (بحث/فلتر/مزامنة) كانت بتمسح فورم السداد المفتوح (المورد/المبلغ/التاريخ/الخصم/الملاحظة) وترجّع التاريخ لليوم
+  const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note']):null;
   const _editingSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
@@ -10804,7 +10832,7 @@ function renderSupPayTab(){
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="sp2_amount" placeholder="0.00" min="0" value="${_editingSp?(Math.round((Number(_editingSp.amount)-(Number(_editingSp.discount)||0))*100)/100):''}"></div>
-          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" id="sp2_date" value="${_editingSp?_editingSp.date:today()}"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="sp2_date" data-rec="${editSupPayId||'new'}" value="${_editingSp?_editingSp.date:today()}"></div>
         </div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">خصم مكتسب (ج) — اختياري</div><input type="number" id="sp2_discount" placeholder="0.00" min="0" value="${_editingSp&&_editingSp.discount?_editingSp.discount:''}"></div>
@@ -10823,6 +10851,7 @@ function renderSupPayTab(){
       ${!showSupPayTabForm?`<button class="btn green" onclick="showSupPayTabForm=true;editSupPayId=null;renderSupPayTab()">+ تسجيل سداد للمورد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مدفوعات للموردين</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المورد</th><th>التاريخ</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
+  formRestore(_sp2Snap);
 }
 
 function saveSupplierPaymentTab(){
@@ -11133,7 +11162,7 @@ function renderPurReturns(){
           </div>
           <div class="form-group">
             <div class="lbl">التاريخ</div>
-            <input type="date" id="pret_date" value="${currentPretDate||today()}">
+            <input type="date" required id="pret_date" value="${currentPretDate||today()}">
           </div>
         </div>
         ${pretUseLink?`
