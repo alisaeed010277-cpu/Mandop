@@ -4066,7 +4066,7 @@ function printPosReceipt(inv, cashReceived){
     const lineTotal=Number(l.qty)*Number(l.price);
     const uLabel=lineUnitLabel(l);
     return `<div class="rcpt-row"><span class="rcpt-item-name">${pName}</span></div>
-      <div class="rcpt-row"><span>${fmtQty(l.qty)}${uLabel?' '+uLabel:''} × ${fmt(l.price)}</span><span class="rcpt-line-total">${fmt(lineTotal)}</span></div>`;
+      <div class="rcpt-row"><span>${uLabel?'الوحدة: '+uLabel+' | ':''}الكمية: ${fmtQty(l.qty)} × ${fmt(l.price)}</span><span class="rcpt-line-total">${fmt(lineTotal)}</span></div>`;
   }).join('');
   let timeStr='';
   try{ timeStr=new Date(inv.createdAt).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
@@ -5629,7 +5629,7 @@ function renderReturnDetail(){
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
-    return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    return `<tr><td>${pName}</td><td>${uLabel||'—'}</td><td>${fmtQty(l.qty)}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   document.getElementById('tab-returns').innerHTML=`
     <div class="back-row">
@@ -5641,7 +5641,7 @@ function renderReturnDetail(){
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline;margin-left:10px">🧾 فاتورة #${li.number}</a>`).join(' ')}</div>`:''}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
-        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
@@ -5659,7 +5659,7 @@ async function printReturn(retId){
   const rows=ret.lines.map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
     const uLabel=lineUnitLabel(l);
-    return `<tr><td>${pName}</td><td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    return `<tr><td>${pName}</td><td>${uLabel||'—'}</td><td>${fmtQty(l.qty)}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -5669,7 +5669,7 @@ async function printReturn(retId){
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
-    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>`;
   await sendDocument(`مرتجع #${ret.number}`, body, `مرتجع-${ret.number}.pdf`);
 }
@@ -6358,7 +6358,7 @@ async function printInvoice(invId){
     if(l.bonus>0) extras.push(`🎁 ${l.bonus}${uLabel?' '+uLabel:''} هدية`);
     return `<tr>
       <td>${pName}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>
-      <td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
+      <td>${uLabel||'—'}</td><td>${fmtQty(l.qty)}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
     </tr>`;
   }).join('');
   const body=`
@@ -6368,7 +6368,7 @@ async function printInvoice(invId){
       <div><strong>التاريخ:</strong> ${inv.date}</div>
       ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
-    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${inv.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(inv.subtotal)} جنيه</div><div>خصم ${ovDiscTxt(inv)} على الفاتورة: -${fmt(inv.subtotal-inv.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
@@ -6412,7 +6412,7 @@ function renderInvDetail(){
     if(l.bonus>0) extras.push(`🎁 ${l.bonus}${uLabel?' '+uLabel:''} هدية`);
     return `<tr>
       <td>${pName}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>
-      <td>${fmtQty(l.qty)}${uLabel?' '+uLabel:''}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
+      <td>${uLabel||'—'}</td><td>${fmtQty(l.qty)}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td>
     </tr>`;
   }).join('');
   document.getElementById('tab-invoices').innerHTML=`
@@ -6424,7 +6424,7 @@ function renderInvDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date} ${inv.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
-        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${inv.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${ovDiscTxt(inv)} على إجمالي الفاتورة (- ${fmt(inv.subtotal-inv.total)} ج) — الإجمالي قبل الخصم: ${fmt(inv.subtotal)} ج</div>`:''}
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1A5276">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
@@ -9560,7 +9560,8 @@ function renderItemProfitabilityHtml(fromVal,toVal){
   const sortBtn=(key,label)=>`<button class="btn-sm" style="background:${itemProfitSort===key?'#1A5276':'#D5D8DC'};color:${itemProfitSort===key?'#fff':'#333'}" onclick="itemProfitSort='${key}';renderReports()">${label}</button>`;
   const rowsHtml=rows.map(r=>`<tr>
       <td>${esc(r.name)}${r.bonusQty>0.001?`<div style="font-size:10px;color:#AAB7B8">+${fmtQty(r.bonusQty)} بونص</div>`:''}</td>
-      <td style="text-align:center;white-space:nowrap">${fmtQty(r.qty)} ${r.unit}</td>
+      <td style="text-align:center;white-space:nowrap">${esc(r.unit)||'—'}</td>
+      <td style="text-align:center;white-space:nowrap">${fmtQty(r.qty)}</td>
       <td style="text-align:center">${fmt(r.revenue)}</td>
       <td style="text-align:center">${fmt(r.cost)}</td>
       <td style="text-align:center;font-weight:bold;color:${r.profit>=0?'#1E8449':'#C0392B'}">${fmt(r.profit)}</td>
@@ -9573,10 +9574,10 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       ${sortBtn('qty','الأعلى كمية')}
     </div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>الصنف</th><th>الكمية المباعة</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>الهامش</th></tr></thead>
+      <thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية المباعة</th><th>المبيعات</th><th>التكلفة</th><th>الربح</th><th>الهامش</th></tr></thead>
       <tbody>${rowsHtml}</tbody>
       <tfoot><tr style="font-weight:bold;background:#F2F3F4">
-        <td>الإجمالي (${rows.length} صنف)</td><td></td>
+        <td>الإجمالي (${rows.length} صنف)</td><td></td><td></td>
         <td style="text-align:center">${fmt(totalRevenue)}</td>
         <td style="text-align:center">${fmt(totalCost)}</td>
         <td style="text-align:center;color:${totalProfit>=0?'#1E8449':'#C0392B'}">${fmt(totalProfit)}</td>
@@ -10701,7 +10702,7 @@ function renderPurDetail(){
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${lineDiscTxt(l)}`);
     if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
-    return `<tr><td>${esc(prod?.name||l.productName||'—')}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
+    return `<tr><td>${esc(prod?.name||l.productName||'—')}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${lineUnitLabel(l)||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)} ج</td><td style="font-weight:bold">${fmt(lineTotal)} ج</td></tr>`;
   }).join('');
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
@@ -10713,7 +10714,7 @@ function renderPurDetail(){
       <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
       <div style="margin-bottom:10px"><strong>الإجمالي:</strong> <span style="color:#1A5276;font-weight:bold">${fmt(pur.total)} ج</span></div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
         <tbody>${linesRows}</tbody>
       </table></div>
       ${pur.overallDiscount>0?`<div style="margin-top:8px;color:#D68910">✂️ خصم ${ovDiscTxt(pur)} على إجمالي الفاتورة (- ${fmt(pur.subtotal-pur.total)} ج) — الإجمالي قبل الخصم: ${fmt(pur.subtotal)} ج</div>`:''}
@@ -10736,7 +10737,7 @@ async function printPurchase(purId){
     const extras=[];
     if(l.discount>0) extras.push(`خصم ${lineDiscTxt(l)}`);
     if(l.bonus>0) extras.push(`🎁 ${l.bonus} هدية`);
-    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td></tr>`;
+    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}${extras.length>0?'<br><small style="color:#D68910">'+extras.join(' | ')+'</small>':''}</td><td>${lineUnitLabel(l)||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(lineTotal)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -10745,7 +10746,7 @@ async function printPurchase(purId){
       <div><strong>التاريخ:</strong> ${pur.date}</div>
       ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
-    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     ${pur.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(pur.subtotal)} جنيه</div><div>خصم ${ovDiscTxt(pur)} على الفاتورة: -${fmt(pur.subtotal-pur.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
@@ -11368,7 +11369,7 @@ function renderPurRetDetail(){
   const showExpiry=fieldsCfg().expiry;
   const rows=(ret.lines||[]).map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
-    return `<tr><td>${pName}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    return `<tr><td>${pName}</td>${showExpiry?`<td>${l.expiry||'—'}</td>`:''}<td>${lineUnitLabel(l)||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   document.getElementById('tab-purreturns').innerHTML=`
     <div class="back-row">
@@ -11380,7 +11381,7 @@ function renderPurRetDetail(){
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+x.number).join('، ')}</div>`:'';})()}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
-        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#D68910">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchaseReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
@@ -11396,7 +11397,7 @@ async function printPurchaseReturn(retId){
   const s=suppliers.find(s=>s.id===ret.supplierId);
   const rows=(ret.lines||[]).map(l=>{
     const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
-    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
+    return `<tr><td>${pName}${l.expiry?'<br><small style="color:#717D7E">صلاحية: '+l.expiry+'</small>':''}</td><td>${lineUnitLabel(l)||'—'}</td><td>${l.qty}</td><td>${fmt(l.price)}</td><td>${fmt(l.qty*l.price)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -11405,7 +11406,7 @@ async function printPurchaseReturn(retId){
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💰 نقدي — مسترد فورًا</div>`:''}
     </div>
-    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+    <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المردود: ${fmt(ret.total)} جنيه</div>`;
   await sendDocument(`مردود مشتريات #${ret.number}`, body, `مردود-مشتريات-${ret.number}.pdf`);
 }
