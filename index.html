@@ -2844,6 +2844,24 @@ function lineUnitFactor(l){
 }
 function lineMainQty(l){ return (Number(l.qty)||0)/lineUnitFactor(l); }
 function lineMainBonus(l){ return (Number(l.bonus)||0)/lineUnitFactor(l); }
+// ===== الرقم الدفتري (اختياري): رقم الفاتورة/السند في الدفتر الورقي — لمراجعة الورقي بالبرنامج =====
+// لو فاضي مفيش أي أثر على أي شاشة أو مستند، ويفضل الرقم المتسلسل بتاع البرنامج هو الظاهر لوحده.
+function bookNoOf(r){ return String((r&&r.bookNo)||'').trim(); }
+function bkField(v){ const b=String(v||'').trim().slice(0,40); return b?{bookNo:b}:{}; }
+// جنب الرقم المتسلسل في السطر نفسه (عناوين / مستندات PDF / كشوف الحساب) — بخط صغير
+function bkTag(r){ const b=bookNoOf(r); return b?` <span style="font-size:10px;color:#717D7E;font-weight:normal">(دفتري: ${esc(b)})</span>`:''; }
+// تحت الرقم في خلية ضيقة (جداول القوايم) — بخط صغير
+function bkSub(r){ const b=bookNoOf(r); return b?`<div style="font-size:10px;color:#717D7E;font-weight:normal;line-height:1.3">دفتري: ${esc(b)}</div>`:''; }
+// نص عادي (من غير HTML) لعناوين الـPDF — لازم يتعمله esc عند الاستخدام جوه HTML
+function bkTxt(r){ const b=bookNoOf(r); return b?` (دفتري: ${b})`:''; }
+// نفس bkTxt بس متهرّب جاهز للحط جوه HTML (زي <option>)
+function bkTxtE(r){ const b=bookNoOf(r); return b?` (دفتري: ${esc(b)})`:''; }
+// سطر "الرقم الدفتري" في شاشات/مستندات التفاصيل (بيظهر بس لو مكتوب)
+function bkRow(r,style){ const b=bookNoOf(r); return b?`<div${style?` style="${style}"`:''}><strong>الرقم الدفتري:</strong> ${esc(b)}</div>`:''; }
+function bkMatch(r,q){ const b=bookNoOf(r).toLowerCase(); return !!b && b.includes(String(q||'').toLowerCase()); }
+// حقل الإدخال الموحد
+function bkInputHtml(id,val,extra){ return `<div class="form-row"><div class="form-group"><div class="lbl">الرقم الدفتري <span style="font-weight:normal;color:#717D7E;font-size:11px">(اختياري — رقم الورق)</span></div><input type="text" id="${id}" maxlength="40" autocomplete="off" placeholder="رقم الدفتر الورقي لو فيه" value="${esc(val||'')}"${extra||''}></div></div>`; }
+
 function lineUnitLabel(l){
   const p=stock.find(s=>s.id===l.productId);
   const su=getSubUnit(l.productId,l.saleUnit);
@@ -4189,19 +4207,19 @@ function renderGlobalSearchResults(q){
   const matchedProducts=stock.filter(p=>normalizeAr(p.name).includes(ql)||(p.barcode||'').toLowerCase().includes(ql)).slice(0,6);
   const matchedInvoices=invoices.filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return String(inv.number).includes(q)||(c&&normalizeAr(c.name).includes(ql));
+    return String(inv.number).includes(q)||bkMatch(inv,q)||(c&&normalizeAr(c.name).includes(ql));
   }).slice(0,6);
   const matchedPurchases=purchases.filter(pu=>{
     const s=suppliers.find(s=>s.id===pu.supplierId);
-    return String(pu.number).includes(q)||(s&&normalizeAr(s.name).includes(ql));
+    return String(pu.number).includes(q)||bkMatch(pu,q)||(s&&normalizeAr(s.name).includes(ql));
   }).slice(0,6);
 
   let html='';
   html+=secHtml('👥 عملاء', matchedClients.map(c=>rowHtml('👤',c.name,(c.area||'')+(c.phone?' • '+c.phone:''),`globalSearchGoTo('client','${c.id}')`)).join(''));
   html+=secHtml('🏭 موردين', matchedSuppliers.map(s=>rowHtml('🏭',s.name,s.phone||'',`globalSearchGoTo('supplier','${s.id}')`)).join(''));
   html+=secHtml('📦 أصناف', matchedProducts.map(p=>rowHtml('📦',p.name,'الرصيد: '+fmtQty(stockQty(p.id))+' '+p.unit,`globalSearchGoTo('product','${p.id}')`)).join(''));
-  html+=secHtml('🧾 فواتير', matchedInvoices.map(inv=>{const c=clients.find(c=>c.id===inv.clientId);return rowHtml('🧾','فاتورة #'+inv.number+' - '+(c?.name||'—'), fmt(inv.total)+' ج • '+inv.date, `globalSearchGoTo('invoice','${inv.id}')`);}).join(''));
-  html+=secHtml('📥 فواتير مشتريات', matchedPurchases.map(pu=>{const s=suppliers.find(s=>s.id===pu.supplierId);return rowHtml('📥','مشتريات #'+pu.number+' - '+(s?.name||'—'), fmt(pu.total)+' ج • '+pu.date, `globalSearchGoTo('purchase','${pu.id}')`);}).join(''));
+  html+=secHtml('🧾 فواتير', matchedInvoices.map(inv=>{const c=clients.find(c=>c.id===inv.clientId);return rowHtml('🧾','فاتورة #'+inv.number+bkTxtE(inv)+' - '+(c?.name||'—'), fmt(inv.total)+' ج • '+inv.date, `globalSearchGoTo('invoice','${inv.id}')`);}).join(''));
+  html+=secHtml('📥 فواتير مشتريات', matchedPurchases.map(pu=>{const s=suppliers.find(s=>s.id===pu.supplierId);return rowHtml('📥','مشتريات #'+pu.number+bkTxtE(pu)+' - '+(s?.name||'—'), fmt(pu.total)+' ج • '+pu.date, `globalSearchGoTo('purchase','${pu.id}')`);}).join(''));
 
   box.innerHTML = html || '<div class="gs-empty" style="text-align:center;color:#AAB7B8;padding:20px 0">مفيش نتايج</div>';
 }
@@ -4737,9 +4755,9 @@ function renderHome(){
     ${renderDayCloseButton()}
     ${kpiGrid}
     <div class="home-shortcuts">
-      ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;switchTab('invoices')")}
+      ${shortcut('🧾','فاتورة مبيعات',"_autoHoldInvoiceIfOpen();showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;invBookNo='';switchTab('invoices')")}
       ${shortcut('📈','المبيعات',"_autoHoldInvoiceIfOpen();showInvForm=false;editInvoiceId=null;switchTab('invoices')")}
-      ${shortcut('📥','فاتورة مشتريات',"_autoHoldPurchaseIfOpen();showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;switchTab('purchases')")}
+      ${shortcut('📥','فاتورة مشتريات',"_autoHoldPurchaseIfOpen();showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;purBookNo='';switchTab('purchases')")}
       ${shortcut('🛒','المشتريات',"_autoHoldPurchaseIfOpen();showPurForm=false;editPurchaseId=null;switchTab('purchases')")}
       ${shortcut('📦','منتج جديد',"stockSubTab='overview';editProductId=null;productSubUnits=[];productFormDraft={};showProductForm=true;switchTab('stock')")}
       ${shortcut('💸','مصروف جديد',"showExpenseForm=true;switchTab('expenses')")}
@@ -5410,10 +5428,10 @@ function getClientStatementData(cid, from, to){
   const cReturns=returns.filter(r=>r.clientId===cid);
   const allEvents=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,lines:i.lines,createdAt:i.createdAt})),
-    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt})),
-    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,lines:i.lines,createdAt:i.createdAt,bk:bookNoOf(i)})),
+    ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt,bk:bookNoOf(p)})),
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
+    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const evDebit=ev=>(ev.type==='invoice'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
   const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
@@ -5440,7 +5458,7 @@ function clientStatementRowHtml(ev, cid, clickable){
   const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
   return `<tr${rowAttr}>
     <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
-    <td>${label}${detail}</td>
+    <td>${label}${ev.bk?bkTag({bookNo:ev.bk}):''}${detail}</td>
     <td style="color:#C0392B;font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
     <td style="color:#1E8449;font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
     <td style="font-weight:bold">${fmt(ev.running)}</td>
@@ -5580,6 +5598,7 @@ let invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',
 let invOverallDiscount=0;
 let invOvMode='pct', invOvAmt=0; // خصم إجمالي الفاتورة: نسبة (pct) ولا مبلغ نقدي (amt)
 let invIsCash=false;
+let invBookNo=''; // الرقم الدفتري (اختياري) للفاتورة المفتوحة في الفورم
 let invDownPayment=0; // سداد دفعة أولى اختياري لفاتورة آجل — بينشئ سداد فوري جزئي مرتبط بالفاتورة عند الحفظ، بنفس فكرة isCashAuto بس بمبلغ جزئي
 let showInvForm=false;
 let editInvoiceId=null;
@@ -5634,12 +5653,12 @@ function renderReturnDetail(){
   document.getElementById('tab-returns').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromRetDetail()">← رجوع</button>
-      <div class="page-title">مرتجع #${ret.number}</div>
+      <div class="page-title">مرتجع #${ret.number}${bkTag(ret)}</div>
     </div>
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-        ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline;margin-left:10px">🧾 فاتورة #${li.number}</a>`).join(' ')}</div>`:''}
+        ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:#2E86C1;text-decoration:underline;margin-left:10px">🧾 فاتورة #${li.number}${bkTag(li)}</a>`).join(' ')}</div>`:''}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#1E8449">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
@@ -5664,14 +5683,14 @@ async function printReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      <div><strong>رقم المرتجع:</strong> #${ret.number}</div>
-      ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+li.number).join('، ')}</div>`:''}
+      <div><strong>رقم المرتجع:</strong> #${ret.number}${bkTag(ret)}</div>
+      ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+li.number+bkTag(li)).join('، ')}</div>`:''}
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>`;
-  await sendDocument(`مرتجع #${ret.number}`, body, `مرتجع-${ret.number}.pdf`);
+  await sendDocument(`مرتجع #${ret.number}${bkTxt(ret)}`, body, `مرتجع-${ret.number}.pdf`);
 }
 
 async function printReturnsSummaryPdf(from,to){
@@ -5679,7 +5698,7 @@ async function printReturnsSummaryPdf(from,to){
   const total=filtered.reduce((s,r)=>s+r.total,0);
   const rows=filtered.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
-    return `<tr><td>${r.number}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
+    return `<tr><td>${r.number}${bkTag(r)}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -5714,7 +5733,7 @@ function renderInvoices(){
   const roleBase = isRestrictedRole() ? invoices.filter(inv=>roleCanSee(inv)) : invoices;
   const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch);
+    const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch)||bkMatch(inv,invSearch);
     const matchesDate=(!invFromDate||inv.date>=invFromDate)&&(!invToDate||inv.date<=invToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -5722,7 +5741,7 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${inv.number}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
+      <td>${inv.number}${bkSub(inv)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
@@ -5852,6 +5871,7 @@ function renderInvoices(){
           <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||_curInvClientSel, editingInv?'':'applyInvClientCashDefault()')}</div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="inv_date" data-rec="${editInvoiceId||'new'}" value="${editingInv?(keptFormDate('inv_date',editInvoiceId)||editingInv.date||invResumeDate||_curInvDate||businessDate()):(invResumeDate||_curInvDate||businessDate())}"></div>
         </div>
+        ${bkInputHtml('inv_bookno',invBookNo,' oninput="invBookNo=this.value"')}
         <div class="divider"></div>
         <div class="section-title">📦 أصناف الفاتورة ${invItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${invItemsCount} ${invItemsCount===1?'صنف':(invItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
         ${linesHtml}
@@ -5883,7 +5903,7 @@ function renderInvoices(){
     </div>`:''}
     <div class="search-row">
       <input type="text" id="inv_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(invSearch)}" oninput="searchInputHandler(this,v=>invSearch=v,renderInvoices)">
-      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;renderInvoices()">+ فاتورة جديدة</button>`:''}
+      ${!showInvForm?`<button class="btn green" onclick="showInvForm=true;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;invBookNo='';renderInvoices()">+ فاتورة جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -5976,7 +5996,7 @@ function editInvoice(id){
   invLines=inv.lines.map(l=>({...l}));
   invOverallDiscount=Number(inv.overallDiscount)||0;
   invOvMode=inv.overallDiscountMode==='amt'?'amt':'pct';invOvAmt=invOvMode==='amt'?(Number(inv.overallDiscountAmt)||0):0;
-  invIsCash=!!inv.isCash;
+  invIsCash=!!inv.isCash;invBookNo=bookNoOf(inv);
   // لو الفاتورة دي كانت آجل واتسجلها سداد دفعة أولى تلقائي وقت الحفظ، بنرجّع قيمته هنا عشان يظهر في فورم التعديل
   const existingDownPay=payments.find(p=>p.invoiceId===inv.id&&p.isDownPaymentAuto);
   invDownPayment=existingDownPay?Number(existingDownPay.amount)||0:0;
@@ -6054,7 +6074,8 @@ function saveInvoice(){
   const isCash=document.getElementById('inv_is_cash')?.checked||false;
   // سداد دفعة أولى بيتقرا من الفورم بس لو الفاتورة آجل (مش كاش) — فاتورة الكاش أصلاً بتتحصّل بالكامل
   const downPayment=isCash?0:(Number(document.getElementById('inv_down_payment')?.value)||0);
-  return _saveInvoiceCore(clientId, date, isCash, downPayment);
+  const bookNo=String(document.getElementById('inv_bookno')?.value??invBookNo??'').trim();
+  return _saveInvoiceCore(clientId, date, isCash, downPayment, bookNo);
 }
 
 // نفس منطق حفظ فاتورة المبيعات بالظبط (فحوصات، خصم مخزون، قيود يومية، تسوية تكلفة، ميموري سعر...)
@@ -6062,7 +6083,7 @@ function saveInvoice(){
 // تستخدم نفس المحرك الموحّد من غير ما تعتمد على وجود عناصر فورم الفاتورة اليدوية في الصفحة.
 // downPayment: سداد دفعة أولى اختياري (بيتجاهل لو isCash=true) — بيتسجل كسداد فوري جزئي بنفس فكرة سداد فاتورة الكاش الكامل
 // بيرجّع الفاتورة المحفوظة عند النجاح، أو null/undefined عند أي فشل (نفس التوست بيتعرض زي الأول)
-function _saveInvoiceCore(clientId, date, isCash, downPayment=0){
+function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   if(!clientId){showToast('اختر عميل');return;}
   if(invLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -6153,7 +6174,7 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش أو فاتورة آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
+  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo),createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
   if(removedInv){
     logActivity('edit','فاتورة مبيعات','#'+inv.number,(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج');
@@ -6186,7 +6207,7 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0){
   }
   // ميموري آخر سعر بيع لكل صنف — بتاخد بالتاريخ الفعلي للفاتورة، مش بترتيب الحفظ، عشان تعديل فاتورة قديمة متبوظش سعر أحدث منها
   invLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSalePriceDate || date>=p.lastSalePriceDate)){ p.lastSalePrice=Number(l.price); p.lastSalePriceDate=date; } } });
-  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;renderInvoices();
+  save();showInvForm=false;editInvoiceId=null;invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;invBookNo='';renderInvoices();
   return inv;
 }
 
@@ -6225,6 +6246,7 @@ function _captureCurrentDraft(){
     clientName:document.getElementById('inv_client_search')?.value||'',
     date:document.getElementById('inv_date')?.value||businessDate(),
     isCash:document.getElementById('inv_is_cash')?.checked||false,
+    bookNo:String(document.getElementById('inv_bookno')?.value??invBookNo??'').trim(),
     lines:JSON.parse(JSON.stringify(invLines)),
     overallDiscount:Number(invOverallDiscount)||0,
     ...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),
@@ -6244,7 +6266,7 @@ function _heldVisibleToCurrentRole(h){
 function _resetInvoiceFormState(){
   showInvForm=false;editInvoiceId=null;
   invLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
-  invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;
+  invOverallDiscount=0;invOvMode='pct';invOvAmt=0;invIsCash=false;invDownPayment=0;invBookNo='';
 }
 
 // شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة جديدة مفتوحة (زرار من الرئيسية،
@@ -6283,7 +6305,7 @@ function resumeHeldInvoice(id){
   invLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''}];
   invOverallDiscount=Number(held.overallDiscount)||0;
   invOvMode=held.overallDiscountMode==='amt'?'amt':'pct';invOvAmt=invOvMode==='amt'?(Number(held.overallDiscountAmt)||0):0;
-  invIsCash=!!held.isCash;
+  invIsCash=!!held.isCash;invBookNo=String(held.bookNo||'');
   invDownPayment=Number(held.downPayment)||0;
   editInvoiceId=null;
   showInvForm=true;
@@ -6364,7 +6386,7 @@ async function printInvoice(invId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      <div><strong>رقم الفاتورة:</strong> #${inv.number}</div>
+      <div><strong>رقم الفاتورة:</strong> #${inv.number}${bkTag(inv)}</div>
       <div><strong>التاريخ:</strong> ${inv.date}</div>
       ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
@@ -6372,7 +6394,7 @@ async function printInvoice(invId){
     ${inv.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(inv.subtotal)} جنيه</div><div>خصم ${ovDiscTxt(inv)} على الفاتورة: -${fmt(inv.subtotal-inv.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة #${inv.number}`, body, `فاتورة-${inv.number}.pdf`);
+  await sendDocument(`فاتورة #${inv.number}${bkTxt(inv)}`, body, `فاتورة-${inv.number}.pdf`);
 }
 
 async function printInvoicesSummaryPdf(from,to){
@@ -6380,7 +6402,7 @@ async function printInvoicesSummaryPdf(from,to){
   const total=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return `<tr><td>${inv.number}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
+    return `<tr><td>${inv.number}${bkTag(inv)}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -6418,7 +6440,7 @@ function renderInvDetail(){
   document.getElementById('tab-invoices').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromInvDetail()">← رجوع</button>
-      <div class="page-title">فاتورة #${inv.number}</div>
+      <div class="page-title">فاتورة #${inv.number}${bkTag(inv)}</div>
     </div>
     <div class="card">
       <div class="card-body">
@@ -6445,7 +6467,7 @@ async function printCollectionsSummaryPdf(from,to){
   const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=sorted.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -6468,7 +6490,7 @@ function renderPayments(){
   // إصلاح: فلتر تاريخ قايمة التحصيلات كان بيمسح فورم التحصيل المفتوح (العميل/المبلغ/التاريخ/الخصم/الملاحظة)
   if(!showPayForm) editPayId=null;
   const _editingPay=editPayId?(payments.find(p=>p.id===editPayId)||null):null;
-  const _payFormSnap=(showPayForm&&!_payEditFresh)?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice']):null;
+  const _payFormSnap=(showPayForm&&!_payEditFresh)?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice','pay_bookno']):null;
   _payEditFresh=false;
   const sorted=[...payments].filter(p=>(!isRestrictedRole()||roleCanSee(p))&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
@@ -6479,7 +6501,7 @@ function renderPayments(){
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(c?.name||'—')}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(c?.name||'—')}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
         ${roleCanModify(p)?`${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
@@ -6507,6 +6529,7 @@ function renderPayments(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="pay_note" placeholder="كاش / شيك / تحويل..." value="${_editingPay?esc(_editingPay.note||''):''}"></div>
         </div>
+        ${bkInputHtml('pay_bookno',_editingPay?bookNoOf(_editingPay):'')}
         <div class="btn-row">
           <button class="btn ${_editingPay?'orange':'green'}" onclick="savePayment()">${_editingPay?'✓ حفظ التعديل':'✓ تسجيل'}</button>
           <button class="btn-outline" onclick="showPayForm=false;editPayId=null;renderPayments()">إلغاء</button>
@@ -6556,7 +6579,8 @@ async function printPaymentReceipt(pid){
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       ${c?.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
-      <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
+      ${bkRow(p)}
+      <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -6583,9 +6607,10 @@ function renderPaymentDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
+        ${bkRow(p,'margin-bottom:10px')}
         <div style="margin-bottom:10px"><strong>المبلغ المحصّل نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مسموح به:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
-        <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
+        <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
@@ -6626,7 +6651,7 @@ function renderPayClientInvoices(){
   if(!cid){document.getElementById('pay_inv_row').innerHTML='';return;}
   const cInvoices=invoices.filter(i=>i.clientId===cid);
   if(cInvoices.length===0){document.getElementById('pay_inv_row').innerHTML='';return;}
-  const opts=cInvoices.map(i=>`<option value="${i.id}">فاتورة #${i.number} — ${fmt(i.total)} ج (${i.date})</option>`).join('');
+  const opts=cInvoices.map(i=>`<option value="${i.id}">فاتورة #${i.number}${bkTxtE(i)} — ${fmt(i.total)} ج (${i.date})</option>`).join('');
   document.getElementById('pay_inv_row').innerHTML=`<div class="form-row"><div class="form-group"><div class="lbl">ربط بفاتورة (اختياري)</div><select id="pay_invoice"><option value="">— عام على الحساب —</option>${opts}</select></div></div>`;
 }
 
@@ -6637,6 +6662,7 @@ function savePayment(){
   const date=document.getElementById('pay_date')?.value||businessDate();
   const note=document.getElementById('pay_note')?.value||'';
   const invoiceId=document.getElementById('pay_invoice')?.value||null;
+  const bookNo=String(document.getElementById('pay_bookno')?.value||'').trim().slice(0,40);
   if(!clientId||(!cashAmount&&!discount)){showToast('اختر عميل وأدخل المبلغ');return;}
   if(cashAmount<0||discount<0){showToast('لا يمكن إدخال مبلغ سالب');return;} // تحقق من صحة المجاميع - يمنع أي تسريب لو اتكتب رقم سالب بالغلط أو بقصد
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد العميل (نقدي + خصم)
@@ -6644,7 +6670,7 @@ function savePayment(){
   const _oldPay=editPayId?(payments.find(p=>p.id===editPayId)||null):null;
   if(_oldPay && (_oldPay.isCashAuto||_oldPay.isDownPaymentAuto)){showToast('التحصيل ده اتسجل تلقائيًا مع فاتورة — عدّله من الفاتورة نفسها');return;}
   if(_oldPay && isRestrictedRole() && !roleCanModify(_oldPay)) return;
-  const pay=_oldPay?{..._oldPay,clientId,invoiceId,amount,discount:discount||undefined,date,note}:{id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
+  const pay=_oldPay?{..._oldPay,clientId,invoiceId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldPay){
     payments=payments.filter(p=>p.id!==_oldPay.id);
     removeJournalBySource('payment', _oldPay.id);
@@ -6664,6 +6690,7 @@ let showRetForm=false;
 let editReturnId=null, retLegacyEdit=false, _retEditPrefill=null; // تعديل مردود مبيعات موجود (retLegacyEdit: مردود قديم متسجل من غير فاتورة أصلية)
 let retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];
 let retFromDate='',retToDate='';
+let retBookNo=''; // الرقم الدفتري (اختياري) للمردود المفتوح في الفورم
 let retIsCashRefund=false; // مردود نقدي: هل هيترد للعميل كاش فورًا من الخزنة عند الحفظ
 let retInvoiceIds=[]; // الفواتير الأصلية المختارة للمرتجع الجاري تسجيله (واحدة أو أكتر لنفس العميل) — لازم تتحدد الأول (لما فيه مخزون فعلي) قبل إضافة أي صنف
 
@@ -6810,7 +6837,7 @@ function renderReturns(){
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
-      <td>${r.number}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
+      <td>${r.number}${bkSub(r)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
       <td style="font-weight:bold;color:#1E8449;white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
@@ -6822,7 +6849,7 @@ function renderReturns(){
   // لما فيه مخزون فعلي، المرتجع لازم يترتبط بفاتورة بيع أصلية (مانع تجاوز الكمية المباعة فعلاً) — نفس الفكرة
   // مبتنفعش تتطبق على متاجر مالهاش كتالوج أصناف أصلًا (stock.length===0)، فهناك السلوك القديم فاضل زي ما هو تمامًا
   const useInvoiceLink=stock.length>0;
-  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).filter(inv=>!retInvoiceIds.includes(inv.id)).map(inv=>({id:inv.id,label:`فاتورة #${inv.number} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
+  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).filter(inv=>!retInvoiceIds.includes(inv.id)).map(inv=>({id:inv.id,label:`فاتورة #${inv.number}${bkTxt(inv)} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
   const invMap=(useInvoiceLink&&retInvoiceIds.length)?retCombinedMap():null;
   const selInvs=retSelectedInvoicesSorted();
   const _stockIdx5386=buildStockIndexes();
@@ -6896,6 +6923,7 @@ function renderReturns(){
             <input type="date" required id="ret_date" value="${currentRetDate||businessDate()}">
           </div>
         </div>
+        ${bkInputHtml('ret_bookno',retBookNo,' oninput="retBookNo=this.value"')}
         ${useInvoiceLink?`
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -6907,7 +6935,7 @@ function renderReturns(){
                 :(retInvoiceIds.length
                   ?`<div style="padding:8px 0;color:#909497;font-size:13px">تم اختيار كل فواتير العميل المتاحة للإرجاع</div>`
                   :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير بيع لهذا العميل فيها كمية متاحة للإرجاع</div>`)}
-            ${selInvs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${selInvs.map(inv=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">🧾 فاتورة #${inv.number} - ${inv.date}<span onclick="removeRetInvoice('${inv.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
+            ${selInvs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${selInvs.map(inv=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">🧾 فاتورة #${inv.number}${bkTag(inv)} - ${inv.date}<span onclick="removeRetInvoice('${inv.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -6937,7 +6965,7 @@ function renderReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;editReturnId=null;retLegacyEdit=false;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;retInvoiceIds=[];renderReturns()">+ مردود مبيعات جديد</button>`:''}
+      ${!showRetForm?`<button class="btn green" onclick="showRetForm=true;editReturnId=null;retLegacyEdit=false;retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',saleUnit:''}];retIsCashRefund=false;retInvoiceIds=[];retBookNo='';renderReturns()">+ مردود مبيعات جديد</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -7037,6 +7065,7 @@ function updateRetLineTotal(id,totalValue){
 function saveReturn(){
   const clientId=document.getElementById('ret_client')?.value;
   const date=document.getElementById('ret_date')?.value||businessDate();
+  const bookNo=String(document.getElementById('ret_bookno')?.value??retBookNo??'').trim();
   if(!clientId){showToast('اختر عميل');return;}
   const useInvoiceLink=stock.length>0;
   if(useInvoiceLink && !retInvoiceIds.length && !retLegacyEdit){showToast('اختر الفاتورة الأصلية للمرتجع');return;}
@@ -7098,7 +7127,7 @@ function saveReturn(){
     const _usedInvIds=[];
     _retSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedInvIds.includes(a.invoiceId)) _usedInvIds.push(a.invoiceId); }));
     const _retInvIds=_usedInvIds.length?_usedInvIds:(useInvoiceLink?[...retInvoiceIds]:[]);
-    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
+    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
     if(_oldRet){ if(_oldRet.createdBy) ret.createdBy=_oldRet.createdBy; logActivity('edit','مردود مبيعات','#'+ret.number,(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج'); }
     else if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
@@ -7117,7 +7146,7 @@ function saveReturn(){
     // ميموري آخر سعر مردود مبيعات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
     retLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSaleReturnPriceDate || date>=p.lastSaleReturnPriceDate)){ p.lastSaleReturnPrice=Number(l.price); p.lastSaleReturnPriceDate=date; } } });
     save();
-    showRetForm=false;editReturnId=null;retLegacyEdit=false;
+    showRetForm=false;editReturnId=null;retLegacyEdit=false;retBookNo='';
     retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
     retIsCashRefund=false;
     retInvoiceIds=[];
@@ -7139,7 +7168,7 @@ function editReturn(id){
   // أسعار المردود المحفوظة بتتثبّت (priceManual) عشان إعادة التسعير التلقائي ميغيّرهاش من غير ما المستخدم يقصد؛ والتوزيع على الفواتير (alloc) بيتحسب من جديد عند الحفظ
   retLines=(r.lines||[]).map(l=>{ const {alloc,...rest}=l; return {...rest,id:l.id||uid(),priceManual:true}; });
   if(!retLines.length) retLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:'',saleUnit:''}];
-  retIsCashRefund=!!r.cashRefund;
+  retIsCashRefund=!!r.cashRefund;retBookNo=bookNoOf(r);
   retInvoiceIds=((r.invoiceIds&&r.invoiceIds.length)?r.invoiceIds:(r.invoiceId?[r.invoiceId]:[])).filter(iid=>invoices.some(i=>i.id===iid));
   retLegacyEdit=stock.length>0 && !retInvoiceIds.length; // مردود قديم من غير فاتورة أصلية: نسمح بتعديله من غير ما نجبره يربطه
   showRetForm=true; retDetailId=null; retDetailFromClient=null;
@@ -10099,10 +10128,10 @@ function getSupplierStatementData(sid, from, to){
   const sReturns=purchaseReturns.filter(r=>r.supplierId===sid);
   const allEvents=[
     ...(s.opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:s.opening,id:null,createdAt:''}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,lines:p.lines,createdAt:p.createdAt})),
-    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt})),
-    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt})),
-    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt}))
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,lines:p.lines,createdAt:p.createdAt,bk:bookNoOf(p)})),
+    ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt,bk:bookNoOf(p)})),
+    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
+    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const evDebit=ev=>(ev.type==='purchase'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
   const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
@@ -10128,7 +10157,7 @@ function supplierStatementRowHtml(ev, sid, clickable){
   const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
   return `<tr${rowAttr}>
     <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
-    <td>${label}${detail}</td>
+    <td>${label}${ev.bk?bkTag({bookNo:ev.bk}):''}${detail}</td>
     <td style="color:#C0392B;font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
     <td style="color:#1E8449;font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
     <td style="font-weight:bold">${fmt(ev.running)}</td>
@@ -10166,6 +10195,7 @@ let purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discoun
 let purOverallDiscount=0;
 let purOvMode='pct', purOvAmt=0; // خصم إجمالي فاتورة المشتريات: نسبة (pct) ولا مبلغ نقدي (amt)
 let purIsCash=false;
+let purBookNo=''; // الرقم الدفتري (اختياري) لفاتورة المشتريات المفتوحة في الفورم
 let purDownPayment=0; // سداد دفعة أولى اختياري لفاتورة مشتريات آجلة — نفس فكرة invDownPayment بالظبط بس للمورد
 let showPurForm=false;
 let purDetailId=null;
@@ -10200,7 +10230,7 @@ function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
   const filtered=[...purchases].filter(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    const matchesSearch=!purSearch||normalizeAr(s?.name).includes(normalizeAr(purSearch))||String(p.number).includes(purSearch);
+    const matchesSearch=!purSearch||normalizeAr(s?.name).includes(normalizeAr(purSearch))||String(p.number).includes(purSearch)||bkMatch(p,purSearch);
     const matchesDate=(!purFromDate||p.date>=purFromDate)&&(!purToDate||p.date<=purToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -10214,7 +10244,7 @@ function renderPurchases(){
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td>${p.number}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
+      <td>${p.number}${bkSub(p)}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
       <td style="font-weight:bold;color:#1A5276;white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
@@ -10294,6 +10324,7 @@ function renderPurchases(){
           <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||_curPurSupSel, editingPur?'':'applyPurSupplierCashDefault()')}</div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="pur_date" data-rec="${editPurchaseId||'new'}" value="${editingPur?(keptFormDate('pur_date',editPurchaseId)||editingPur.date||purResumeDate||_curPurDate||businessDate()):(purResumeDate||_curPurDate||businessDate())}"></div>
         </div>
+        ${bkInputHtml('pur_bookno',purBookNo,' oninput="purBookNo=this.value"')}
         <div class="divider"></div>
         <div class="section-title">📦 أصناف فاتورة المشتريات ${purItemsCount>0?`<span style="font-weight:normal;color:#717D7E">(${purItemsCount} ${purItemsCount===1?'صنف':(purItemsCount<=10?'أصناف':'صنف')})</span>`:''}</div>
         ${linesHtml}
@@ -10330,7 +10361,7 @@ function renderPurchases(){
     ${formHtml}
     <div class="search-row">
       <input type="text" id="pur_search_input" style="flex:1;border:1px solid #D5D8DC;border-radius:6px;padding:8px 10px;" placeholder="🔍 بحث..." value="${esc(purSearch)}" oninput="searchInputHandler(this,v=>purSearch=v,renderPurchases)">
-      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
+      ${!showPurForm?`<button class="btn green" onclick="showPurForm=true;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;purBookNo='';renderPurchases()">+ فاتورة مشتريات جديدة</button>`:''}
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-body" style="padding-bottom:10px">
@@ -10366,7 +10397,7 @@ function editPurchase(id){
   purchaseLines=(pur.lines||[]).map(l=>({...l}));
   purOverallDiscount=Number(pur.overallDiscount)||0;
   purOvMode=pur.overallDiscountMode==='amt'?'amt':'pct';purOvAmt=purOvMode==='amt'?(Number(pur.overallDiscountAmt)||0):0;
-  purIsCash=!!pur.isCash;
+  purIsCash=!!pur.isCash;purBookNo=bookNoOf(pur);
   // لو الفاتورة دي كانت آجل واتسجلها سداد دفعة أولى تلقائي وقت الحفظ، بنرجّع قيمته هنا عشان يظهر في فورم التعديل
   const existingDownPay=supplierPayments.find(p=>p.purchaseId===pur.id&&p.isDownPaymentAuto);
   purDownPayment=existingDownPay?Number(existingDownPay.amount)||0:0;
@@ -10445,6 +10476,7 @@ function checkPurchaseStockImpact(oldMovements,newLines){
 function savePurchase(){
   const supplierId=document.getElementById('pur_supplier')?.value;
   const date=document.getElementById('pur_date')?.value||businessDate();
+  const bookNo=String(document.getElementById('pur_bookno')?.value??purBookNo??'').trim();
   const isCash=document.getElementById('pur_is_cash')?.checked||false;
   // سداد دفعة أولى بيتقرا من الفورم بس لو الفاتورة آجل (مش كاش) — فاتورة الكاش أصلاً بتتسدد بالكامل
   const downPayment=isCash?0:(Number(document.getElementById('pur_down_payment')?.value)||0);
@@ -10513,7 +10545,7 @@ function savePurchase(){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش أو آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
-  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt};
+  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo)};
   purchases.push(pur);
   if(removedPur){
     logActivity('edit','فاتورة مشتريات','#'+pur.number,(suppliers.find(s=>s.id===supplierId)?.name||'')+' • '+fmt(total)+' ج');
@@ -10540,7 +10572,7 @@ function savePurchase(){
   }
   // ميموري آخر سعر شراء لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
   purchaseLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchasePriceDate || date>=p.lastPurchasePriceDate)){ p.lastPurchasePrice=Number(l.price); p.lastPurchasePriceDate=date; } } });
-  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;renderPurchases();
+  save();showPurForm=false;editPurchaseId=null;purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;purBookNo='';renderPurchases();
 }
 
 function deletePurchase(id){
@@ -10583,6 +10615,7 @@ function _capturePurchaseDraft(){
     supplierName:document.getElementById('pur_supplier_search')?.value||'',
     date:document.getElementById('pur_date')?.value||businessDate(),
     isCash:document.getElementById('pur_is_cash')?.checked||false,
+    bookNo:String(document.getElementById('pur_bookno')?.value??purBookNo??'').trim(),
     lines:JSON.parse(JSON.stringify(purchaseLines)),
     overallDiscount:Number(purOverallDiscount)||0,
     ...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),
@@ -10593,7 +10626,7 @@ function _capturePurchaseDraft(){
 function _resetPurchaseFormState(){
   showPurForm=false;editPurchaseId=null;
   purchaseLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
-  purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;
+  purOverallDiscount=0;purOvMode='pct';purOvAmt=0;purIsCash=false;purDownPayment=0;purBookNo='';
 }
 
 // شبكة أمان عامة: بتتنادى من أي مكان تاني في البرنامج ممكن يمسح فاتورة مشتريات جديدة مفتوحة
@@ -10630,7 +10663,7 @@ function resumeHeldPurchase(id){
   purchaseLines=(held.lines&&held.lines.length)?JSON.parse(JSON.stringify(held.lines)):[{id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:''}];
   purOverallDiscount=Number(held.overallDiscount)||0;
   purOvMode=held.overallDiscountMode==='amt'?'amt':'pct';purOvAmt=purOvMode==='amt'?(Number(held.overallDiscountAmt)||0):0;
-  purIsCash=!!held.isCash;
+  purIsCash=!!held.isCash;purBookNo=String(held.bookNo||'');
   purDownPayment=Number(held.downPayment)||0;
   editPurchaseId=null;
   showPurForm=true;
@@ -10707,7 +10740,7 @@ function renderPurDetail(){
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromPurDetail()">← رجوع</button>
-      <div class="page-title">فاتورة مشتريات #${pur.number}</div>
+      <div class="page-title">فاتورة مشتريات #${pur.number}${bkTag(pur)}</div>
     </div>
     <div class="card">
       <div style="margin-bottom:8px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
@@ -10742,7 +10775,7 @@ async function printPurchase(purId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>رقم الفاتورة:</strong> #${pur.number}</div>
+      <div><strong>رقم الفاتورة:</strong> #${pur.number}${bkTag(pur)}</div>
       <div><strong>التاريخ:</strong> ${pur.date}</div>
       ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
@@ -10750,7 +10783,7 @@ async function printPurchase(purId){
     ${pur.overallDiscount>0?`<div class="doc-info"><div>الإجمالي قبل الخصم: ${fmt(pur.subtotal)} جنيه</div><div>خصم ${ovDiscTxt(pur)} على الفاتورة: -${fmt(pur.subtotal-pur.total)} جنيه</div></div>`:''}
     <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة مشتريات #${pur.number}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
+  await sendDocument(`فاتورة مشتريات #${pur.number}${bkTxt(pur)}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
 }
 
 async function printPurchasesSummaryPdf(from,to){
@@ -10758,7 +10791,7 @@ async function printPurchasesSummaryPdf(from,to){
   const total=filtered.reduce((s,p)=>s+p.total,0);
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.number}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
+    return `<tr><td>${p.number}${bkTag(p)}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -10784,7 +10817,7 @@ async function printSupplierPaymentsSummaryPdf(){
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -10804,7 +10837,7 @@ function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
   if(!showSupPayTabForm) editSupPayId=null;
   // إصلاح: أي إعادة رسم (بحث/فلتر/مزامنة) كانت بتمسح فورم السداد المفتوح (المورد/المبلغ/التاريخ/الخصم/الملاحظة) وترجّع التاريخ لليوم
-  const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note']):null;
+  const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note','sp2_bookno']):null;
   const _editingSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
@@ -10814,7 +10847,7 @@ function renderSupPayTab(){
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(s?.name||'—')}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(s?.name||'—')}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:#1E8449;white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
         ${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editSupplierPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
@@ -10841,6 +10874,7 @@ function renderSupPayTab(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="sp2_note" placeholder="كاش / شيك / تحويل..." value="${_editingSp?esc(_editingSp.note||''):''}"></div>
         </div>
+        ${bkInputHtml('sp2_bookno',_editingSp?bookNoOf(_editingSp):'')}
         <div class="btn-row">
           <button class="btn ${_editingSp?'orange':'green'}" onclick="saveSupplierPaymentTab()">${_editingSp?'✓ حفظ التعديل':'✓ تسجيل'}</button>
           <button class="btn-outline" onclick="showSupPayTabForm=false;editSupPayId=null;renderSupPayTab()">إلغاء</button>
@@ -10861,13 +10895,14 @@ function saveSupplierPaymentTab(){
   const discount=Number(document.getElementById('sp2_discount')?.value||0);
   const date=document.getElementById('sp2_date')?.value||today();
   const note=document.getElementById('sp2_note')?.value||'';
+  const bookNo=String(document.getElementById('sp2_bookno')?.value||'').trim().slice(0,40);
   if(!supplierId||(!cashAmount&&!discount)){showToast('اختر مورد وأدخل المبلغ');return;}
   if(cashAmount<0||discount<0){showToast('لا يمكن إدخال مبلغ سالب');return;} // تحقق من صحة المجاميع - يمنع أي تسريب لو اتكتب رقم سالب بالغلط أو بقصد
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد المورد (نقدي + خصم)
   // تعديل سداد موجود: نفس الـid ونفس تاريخ الإنشاء، وبنشيل قيده القديم ونرحّل قيد جديد بالقيم الجديدة
   const _oldSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   if(_oldSp && (_oldSp.isCashAuto||_oldSp.isDownPaymentAuto)){showToast('السداد ده اتسجل تلقائيًا مع فاتورة مشتريات — عدّله من الفاتورة نفسها');return;}
-  const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note}:{id:uid(),supplierId,amount,discount:discount||undefined,date,note,createdAt:new Date().toISOString()};
+  const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),supplierId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldSp){
     supplierPayments=supplierPayments.filter(p=>p.id!==_oldSp.id);
     removeJournalBySource('supplierPayment', _oldSp.id);
@@ -10891,6 +10926,7 @@ async function printSupplierPaymentReceipt(pid){
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
       ${s?.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
+      ${bkRow(p)}
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -10915,6 +10951,7 @@ function renderSupPayTabDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
+        ${bkRow(p,'margin-bottom:10px')}
         <div style="margin-bottom:10px"><strong>المبلغ المدفوع نقدًا:</strong> <span style="color:#1E8449;font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مكتسب:</strong> <span style="color:#D68910;font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
@@ -10953,6 +10990,7 @@ let purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''
 let purRetDetailId=null;
 let purRetDetailFromSupplier=null;
 let purRetPurchaseIds=[]; // فواتير الشراء الأصلية المختارة (اختياري، واحدة أو أكتر لنفس المورد) — لو اتحددت، سعر المردود بيتحط تلقائي بنفس سعر شراء الصنف فيها
+let purRetBookNo=''; // الرقم الدفتري (اختياري) لمردود المشتريات المفتوح في الفورم
 let purRetIsCashRefund=false; // استرداد نقدي: هل هنستردها كاش فورًا في الخزنة من المورد عند الحفظ
 
 function openPurRetFromSupplier(retId,supplierId){
@@ -11098,7 +11136,7 @@ function renderPurReturns(){
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
     return `<tr>
-      <td>${r.number}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${r.date}</td>
+      <td>${r.number}${bkSub(r)}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${r.date}</td>
       <td style="font-weight:bold;color:#D68910;white-space:nowrap">${fmt(r.total)} ج</td>
       <td>
         <button class="btn-sm blue" onclick="purRetDetailId='${r.id}';renderPurReturns()">👁</button>
@@ -11112,7 +11150,7 @@ function renderPurReturns(){
   const pretUseLink=stock.length>0;
   const pretSelPurs=(pretUseLink&&pretSupSelected)?pretSelectedPurchasesSorted().filter(x=>x.supplierId===pretSupSelected):[];
   const pretPurMap=pretSelPurs.length?(()=>{const m={};pretSelPurs.forEach(po=>{const mm=purchaseNetPriceMap(po.id);Object.keys(mm).forEach(pid=>{if(!m[pid])m[pid]={qty:0};m[pid].qty+=mm[pid].qty;});});return m;})():null;
-  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected&&!purRetPurchaseIds.includes(x.id)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${x.number} - ${x.date} - ${fmt(x.total)} ج`})):[];
+  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected&&!purRetPurchaseIds.includes(x.id)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${x.number}${bkTxt(x)} - ${x.date} - ${fmt(x.total)} ج`})):[];
   const stockOptsArrShared=pretPurMap
     ?stock.filter(p=>pretPurMap[p.id]).map(p=>({id:p.id,label:p.name,sub:`كمية الفواتير: ${fmtQty(pretPurMap[p.id].qty)} • الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
     :stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
@@ -11166,6 +11204,7 @@ function renderPurReturns(){
             <input type="date" required id="pret_date" value="${currentPretDate||today()}">
           </div>
         </div>
+        ${bkInputHtml('pret_bookno',purRetBookNo,' oninput="purRetBookNo=this.value"')}
         ${pretUseLink?`
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -11177,7 +11216,7 @@ function renderPurReturns(){
                 :(pretSelPurs.length
                   ?`<div style="padding:8px 0;color:#909497;font-size:13px">تم اختيار كل فواتير المورد</div>`
                   :`<div style="padding:8px 0;color:#909497;font-size:13px">مفيش فواتير شراء لهذا المورد</div>`)}
-            ${pretSelPurs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${pretSelPurs.map(po=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">📥 فاتورة #${po.number} - ${po.date}<span onclick="removePretPurchase('${po.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
+            ${pretSelPurs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${pretSelPurs.map(po=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">📥 فاتورة #${po.number}${bkTag(po)} - ${po.date}<span onclick="removePretPurchase('${po.id}')" style="cursor:pointer;margin-right:8px;color:#C0392B;font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -11205,7 +11244,7 @@ function renderPurReturns(){
       </div>
     </div>`:''}
     <div class="search-row">
-      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;editPurRetId=null;purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];purRetIsCashRefund=false;purRetPurchaseIds=[];renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
+      ${!showPurRetForm?`<button class="btn green" onclick="showPurRetForm=true;editPurRetId=null;purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];purRetIsCashRefund=false;purRetPurchaseIds=[];purRetBookNo='';renderPurReturns()">+ مردود مشتريات جديد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مردودات مشتريات</div>':`<div class="card tbl-wrap"><table><thead><tr><th>#</th><th>المورد</th><th>التاريخ</th><th>الإجمالي</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}
   `;
@@ -11262,6 +11301,7 @@ function applyPretSupplierCashDefault(){
 function savePurRet(){
   const supplierId=document.getElementById('pret_supplier')?.value;
   const date=document.getElementById('pret_date')?.value||today();
+  const bookNo=String(document.getElementById('pret_bookno')?.value??purRetBookNo??'').trim();
   if(!supplierId){showToast('اختر مورد');return;}
   if(purRetLines.some(l=>!l.productId&&!l.productName.trim())){showToast('أدخل اسم المنتج لكل سطر');return;}
 
@@ -11297,7 +11337,7 @@ function savePurRet(){
   const _usedPurIds=[];
   _pretSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedPurIds.includes(a.purchaseId)) _usedPurIds.push(a.purchaseId); }));
   const _pretPurIds=_usedPurIds.length?_usedPurIds:_selPurIds;
-  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
+  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
   // تعديل مردود موجود: بنشيل نسخته القديمة (الحركات + كل قيودها) وبنسجل الجديدة بنفس الـid والرقم وتاريخ الإنشاء
   if(_oldPR){
     purchaseReturns=purchaseReturns.filter(r=>r.id!==_oldPR.id);
@@ -11324,7 +11364,7 @@ function savePurRet(){
   // ميموري آخر سعر مردود مشتريات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
   purRetLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchaseReturnPriceDate || date>=p.lastPurchaseReturnPriceDate)){ p.lastPurchaseReturnPrice=Number(l.price); p.lastPurchaseReturnPriceDate=date; } } });
   save();
-  showPurRetForm=false;
+  showPurRetForm=false;purRetBookNo='';
   purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
   purRetIsCashRefund=false;
   purRetPurchaseIds=[];
@@ -11339,7 +11379,7 @@ function editPurRet(id){
   // أسعار المردود المحفوظة بتتثبّت (priceManual) عشان إعادة التسعير التلقائي ميغيّرهاش من غير ما المستخدم يقصد؛ والتوزيع على الفواتير (alloc) بيتحسب من جديد عند الحفظ
   purRetLines=(r.lines||[]).map(l=>{ const {alloc,...rest}=l; return {...rest,id:l.id||uid(),priceManual:true}; });
   if(!purRetLines.length) purRetLines=[{id:uid(),productId:'',productName:'',qty:'',price:'',expiry:''}];
-  purRetIsCashRefund=!!r.cashRefund;
+  purRetIsCashRefund=!!r.cashRefund;purRetBookNo=bookNoOf(r);
   purRetPurchaseIds=((r.purchaseIds&&r.purchaseIds.length)?r.purchaseIds:(r.purchaseId?[r.purchaseId]:[])).filter(pid=>purchases.some(x=>x.id===pid&&x.supplierId===r.supplierId));
   showPurRetForm=true; purRetDetailId=null; purRetDetailFromSupplier=null;
   _pretEditPrefill={supplierId:r.supplierId,date:r.date};
@@ -11374,12 +11414,12 @@ function renderPurRetDetail(){
   document.getElementById('tab-purreturns').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromPurRetDetail()">← رجوع</button>
-      <div class="page-title">مردود مشتريات #${ret.number}</div>
+      <div class="page-title">مردود مشتريات #${ret.number}${bkTag(ret)}</div>
     </div>
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-        ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+x.number).join('، ')}</div>`:'';})()}
+        ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+x.number+bkTag(x)).join('، ')}</div>`:'';})()}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:#D68910">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
@@ -11402,13 +11442,13 @@ async function printPurchaseReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>رقم المردود:</strong> #${ret.number}</div>
+      <div><strong>رقم المردود:</strong> #${ret.number}${bkTag(ret)}</div>
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💰 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المردود: ${fmt(ret.total)} جنيه</div>`;
-  await sendDocument(`مردود مشتريات #${ret.number}`, body, `مردود-مشتريات-${ret.number}.pdf`);
+  await sendDocument(`مردود مشتريات #${ret.number}${bkTxt(ret)}`, body, `مردود-مشتريات-${ret.number}.pdf`);
 }
 
 // إشارة إضافية مستقلة عن _lastExport/_lastAutoExport (اللي متخزنة في localStorage بس):
