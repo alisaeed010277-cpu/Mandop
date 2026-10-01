@@ -5683,7 +5683,6 @@ async function printReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      <div><strong>رقم المرتجع:</strong> #${ret.number}${bkTag(ret)}</div>
       ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+li.number+bkTag(li)).join('، ')}</div>`:''}
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
@@ -6386,7 +6385,6 @@ async function printInvoice(invId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      <div><strong>رقم الفاتورة:</strong> #${inv.number}${bkTag(inv)}</div>
       <div><strong>التاريخ:</strong> ${inv.date}</div>
       ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
@@ -10775,7 +10773,6 @@ async function printPurchase(purId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>رقم الفاتورة:</strong> #${pur.number}${bkTag(pur)}</div>
       <div><strong>التاريخ:</strong> ${pur.date}</div>
       ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
@@ -11442,7 +11439,6 @@ async function printPurchaseReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>رقم المردود:</strong> #${ret.number}${bkTag(ret)}</div>
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💰 نقدي — مسترد فورًا</div>`:''}
     </div>
