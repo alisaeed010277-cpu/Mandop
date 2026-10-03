@@ -5073,7 +5073,7 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
       </div>` : `<div class="doc-title">صديقك المحاسبي</div>`;
   return `<div class="doc-header">
       <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
-      <div class="doc-meta">${esc(title)}</div>
+      ${bodyHtml.includes('<!--hide-doc-meta-->')?'':`<div class="doc-meta">${esc(title)}</div>`}
     </div>
     ${bodyHtml}
     <div class="doc-footer" style="display:flex;align-items:center;gap:5px;justify-content:flex-start;direction:ltr;text-align:left">
@@ -5482,10 +5482,11 @@ async function printClientStatement(cid, from='', to=''){
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
   const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>clientStatementRowHtml(ev,c.id,false)).join('');
   const body=`
+    <!--hide-doc-meta-->
     <div class="doc-info">
-      <div><strong>العميل:</strong> ${esc(c.name)}</div>
+      <div><strong>كشف حساب:</strong> ${esc(c.name)}</div>
       ${c.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
-      <div><strong>تاريخ الكشف:</strong> ${today()}</div>
+      <div><strong>التاريخ:</strong> ${today()}</div>
       ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -10170,10 +10171,11 @@ async function printSupplierStatement(sid, from='', to=''){
   const balLbl=bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي';
   const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>supplierStatementRowHtml(ev,s.id,false)).join('');
   const body=`
+    <!--hide-doc-meta-->
     <div class="doc-info">
-      <div><strong>المورد:</strong> ${esc(s.name)}</div>
+      <div><strong>كشف حساب:</strong> ${esc(s.name)}</div>
       ${s.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
-      <div><strong>تاريخ الكشف:</strong> ${today()}</div>
+      <div><strong>التاريخ:</strong> ${today()}</div>
       ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
