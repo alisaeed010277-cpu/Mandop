@@ -545,6 +545,43 @@ input.pl-manu,input.pl-active{border:1px solid #D5D8DC;border-radius:6px;padding
 #barcodeScanModal video{width:100%;display:block;max-height:60vh;border-radius:8px;}
 #barcodeScanModal .bcs-guide{position:absolute;inset:12%;border:2px solid rgba(255,255,255,.55);border-radius:8px;pointer-events:none;}
 #barcodeScanModal .bcs-status{font-size:12px;color:#717D7E;margin-top:8px;min-height:16px;}
+
+/* ============================================================
+   بوب آب شاشات الإدخال (Bottom Sheet)
+   كل فورم إدخال (فاتورة/تحصيل/سداد/مرتجع/منتج/...) بيتعرض كشاشة منبثقة من تحت
+   بدل ما يتحط في نفس الصفحة. نفس الفورم ونفس الحقول والألوان بالظبط — بس شكل العرض اتغيّر.
+   ============================================================ */
+.sheet-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:800;touch-action:none;}
+body.sheet-open{overflow:hidden;}
+body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
+.card.entry-sheet.as-sheet{
+  position:fixed;left:0;right:0;bottom:var(--sheet-kb,0px);
+  margin:0 auto !important;width:100%;max-width:560px;
+  max-height:calc(var(--sheet-vh,100vh) * .92);
+  border-radius:20px 20px 0 0;z-index:810;
+  overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  box-shadow:0 -8px 32px rgba(0,0,0,.28);
+}
+.card.entry-sheet.as-sheet.sheet-anim{animation:sheetUp .28s cubic-bezier(.2,.8,.2,1);}
+.card.entry-sheet.as-sheet>.card-head{position:sticky;top:0;z-index:5;padding:14px 16px;font-size:15px;}
+.card.entry-sheet.as-sheet>.card-body{padding-bottom:14px;}
+.sheet-x{background:rgba(255,255,255,.28);color:inherit;border:none;border-radius:50%;width:30px;height:30px;min-width:30px;font-size:14px;line-height:1;cursor:pointer;margin-inline-start:10px;padding:0;display:flex;align-items:center;justify-content:center;}
+.sheet-x:active{background:rgba(255,255,255,.45);}
+.card.entry-sheet.as-sheet .sheet-foot{
+  position:sticky;bottom:0;z-index:4;background:#fff;
+  margin:8px -14px -14px;padding:10px 14px calc(12px + env(safe-area-inset-bottom,0px));
+  border-top:1px solid #E5E8EB;box-shadow:0 -4px 12px rgba(0,0,0,.06);
+}
+@keyframes sheetUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+@keyframes sheetFade{from{opacity:0;}to{opacity:1;}}
+/* الديالوجات الصغيرة الموجودة أصلًا (بيانات الشركة / الرصيد الافتتاحي / تعديل الاسم / نوع التعامل / نوع النشاط) بنفس شكل البوب آب */
+#companyModal,#openingModal,#editNameModal,#transTypeModal,#businessTypeModal{align-items:flex-end !important;padding:0 !important;padding-bottom:var(--sheet-kb,0px) !important;}
+#companyModal>div,#openingModal>div,#editNameModal>div,#transTypeModal>div,#businessTypeModal>div{
+  border-radius:20px 20px 0 0 !important;max-width:560px !important;width:100% !important;margin:0 auto;
+  max-height:calc(var(--sheet-vh,100vh) * .92) !important;overflow-y:auto !important;
+  padding-bottom:calc(22px + env(safe-area-inset-bottom,0px)) !important;
+  animation:sheetUp .28s cubic-bezier(.2,.8,.2,1);
+}
 </style>
 </head>
 <body>
@@ -2011,6 +2048,7 @@ async function loadAllData(){
   // لو لقينا بيانات حقيقية فعلاً دلوقتي (نفس معيار hasData المستخدم في checkAutoBackup)
   await _loadHadDataFlag();
   if(clients.length>0||invoices.length>0||purchases.length>0||suppliers.length>0||stock.length>0) _markHadRealData();
+  __dataLoaded=true; // من هنا بس مسموح بالنسخ الاحتياطي السحابي (قبلها المصفوفات كانت لسه فاضية بقيمتها الافتراضية)
 
   // تحديث تلقائي مرة واحدة: تصحيح تسميات الحركات القديمة في المخزن لتوضيح مبيعات/مشتريات
   let migrated=false;
@@ -3150,55 +3188,204 @@ let __googleUser = null;
 // ده بيفضل موجود حتى لو IndexedDB (مكان البيانات الأساسي) اتمسح لوحده. لو العميل رابط
 // حسابه بجوجل، بترفع نفس النسخة كمان تحت حساب الجوجل — ده بيفضل موجود حتى لو localStorage
 // نفسه (وبالتالي معرّف الجهاز) اتمسح، وهو الحالة النادرة اللي معرّف الجهاز مبيقدرش يغطيها.
-let _lastSilentPush=0; // آخر توقيت اتبعتت فيه نسخة احتياطية صامتة - عشان مانبعتش كتابة لـ Firestore مع كل عملية حفظ (كان بيضاعف عدد الكتابات بلا داعي مع كتر العملاء)
-// force=true بتتخطى الدباونس - مستخدمة بس في اللحظات الحرجة القليلة اللي لازم فيها نسخة فورية (ربط جوجل، فحص مسح البيانات عند فتح البرنامج)
-function pushSilentBackup(force){
-  if(!__syncDB) return;
-  if(!force && Date.now()-_lastSilentPush<60000) return; // بحد أقصى مرة كل دقيقة من غير force - كافي لهدف الحماية من مسح مفاجئ، ومش هدفها مزامنة لحظية أصلاً (ده دور pushSyncSnapshot المنفصل)
-  _lastSilentPush=Date.now();
-  const payload = {
+// ===== تحصين النسخة الاحتياطية السحابية (BACKUP-HARDENING START) =====
+// أسباب التحصين (كلها اتأكدت من قراءة الكود، ومفيش تغيير في أي شاشة أو منطق شغال):
+//  1) كان ممكن النسخة الحقيقية تتكتب عليها نسخة فاضية: _onGoogleAuthReady/save() بيشغّلوا pushSilentBackup
+//     قبل أو بعد مسح التخزين على بيانات فاضية → النسخة السحابية نفسها بتتمسح قبل ما الاسترجاع يلحق يقراها.
+//  2) مستند Firestore الواحد حده 1 ميجا؛ أي عميل بياناته كبرت كان الرفع بيفشل بصمت للأبد (catch بيتجاهل).
+//  3) الاسترجاع كان بيقبل مصفوفة فاضية على إنها "نجاح" وبيرجّع للعميل برنامج فاضي.
+let __dataLoaded=false;                       // لسه البيانات المحلية متحملتش من IndexedDB؟ ممنوع أي رفع قبلها
+let __wipeUnresolved=!!DB.get('_wipeUnresolved'); // اتشك في مسح ومعرفناش نسترجع: منكتبش فوق النسخة الأصلية
+let _lastSilentPush=0, _bkTrail=null, _bkRunning=false, _bkPending=null;
+const _bkLastSig={};                          // آخر نسخة اترفعت بنجاح لكل مفتاح — منعيدش رفع نفس البيانات
+const BK_SINGLE_DOC_MAX_BYTES=500000;         // نص حد المستند الواحد تقريبًا (هامش أمان للتحويل لحجم Firestore)
+const BK_CHUNK_CHARS=250000;                  // حجم القطعة لو البيانات كبيرة
+
+function _hasAnyBusinessData(){
+  return clients.length>0||invoices.length>0||stock.length>0||movements.length>0||suppliers.length>0||purchases.length>0||
+         payments.length>0||supplierPayments.length>0||expenses.length>0||returns.length>0||purchaseReturns.length>0;
+}
+const _BK_CORE=['clients','invoices','stock','movements','suppliers','purchases','payments','supplierPayments','expenses','returns','purchaseReturns'];
+function _backupHasRealData(d){
+  return !!d && _BK_CORE.some(k=>Array.isArray(d[k]) && d[k].length>0);
+}
+function _backupScore(d){
+  return _BK_CORE.reduce((s,k)=>s+(Array.isArray(d[k])?d[k].length:0),0);
+}
+function _bkPayload(){
+  return {
     clients, invoices, payments, stock, movements, returns,
     suppliers, purchases, supplierPayments, purchaseReturns,
     expenses, expenseCategories, treasuryOpening, repNotes, clientNotes,
     checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers,
     chartOfAccounts, journalEntries, productions,
-    companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
+    companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters
+  };
+}
+function _bkMeta(){
+  return {
     _deviceId: __deviceId,
     _savedAt: (typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
       ? firebase.firestore.FieldValue.serverTimestamp() : Date.now()
   };
-  try{
-    if(__deviceId){
-      __syncDB.collection('deviceBackups').doc(__deviceId).set(payload)
-        .catch(e=>{ console.warn('silent backup push failed (ignored):', e); });
-    }
-    if(__googleUser){
-      __syncDB.collection('deviceBackups').doc('g_'+__googleUser.uid).set(payload)
-        .catch(e=>{ console.warn('silent backup (google) push failed (ignored):', e); });
-    }
-  }catch(e){ console.warn('silent backup push error (ignored):', e); }
+}
+function _bkTime(v){
+  if(v && typeof v.toMillis==='function') return v.toMillis();
+  return (typeof v==='number') ? v : 0;
+}
+function _utf8Len(s){ return new TextEncoder().encode(s).length; }
+function _quickHash(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; } return (h>>>0).toString(36); }
+function _bkDayKey(){ const d=new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function _bkSplit(json){
+  // تقطيع النص من غير ما نقطع زوج surrogate (إيموجي) من النص — وإلا بيتبوّظ لما بنجمع القطع تاني
+  const out=[]; let pos=0;
+  while(pos<json.length){
+    let end=Math.min(pos+BK_CHUNK_CHARS, json.length);
+    if(end<json.length){ const c=json.charCodeAt(end-1); if(c>=0xD800 && c<=0xDBFF) end--; }
+    out.push(json.slice(pos,end)); pos=end;
+  }
+  return out;
 }
 
-// بيرجع true لو نجح يسترجع نسخة من النسخة الاحتياطية الصامتة ويطبقها محليًا.
-// key اختياري: افتراضيًا بيدوّر بمعرّف الجهاز، ويقدر يدوّر بحساب الجوجل بدل منه
-// (ده اللي بيحصل لو المستخدم سجّل دخول بجوجل من شاشة القفل بعد ما الجهاز نسي كل حاجة)
-async function _tryAutoRecover(key){
-  const docKey = key || __deviceId;
-  if(!__syncDB || !docKey) return false;
+// كتابة نسخة تحت مفتاح واحد. صغيرة = مستند واحد بنفس الشكل القديم بالظبط (متوافق مع أي استرجاع قديم).
+// كبيرة = قطع في مستندات منفصلة، بتتكتب في "خانة" مش المستخدمة دلوقتي وبعدها بس المستند الرئيسي يتحوّل
+// عليها — فلو الرفع وقف في النص، النسخة السليمة القديمة تفضل شغالة.
+async function _writeBackupSet(base, data, json, meta){
+  const col=__syncDB.collection('deviceBackups');
+  if(_utf8Len(json)<=BK_SINGLE_DOC_MAX_BYTES){
+    await col.doc(base).set(Object.assign({}, data, meta));
+    return;
+  }
+  let curSlot=1;
   try{
-    const doc = await __syncDB.collection('deviceBackups').doc(docKey).get();
-    if(!doc.exists) return false;
-    const data = doc.data();
-    if(!data || !Array.isArray(data.clients)) return false;
-    clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
-    returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
-    purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];expenseCategories=data.expenseCategories||[];treasuryOpening=Number(data.treasuryOpening)||0;
-    repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
-    bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
-    productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
-    deletedIds=data.deletedIds||{};
-    docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
-    seedExpenseCategoriesIfNeeded(); // احتياطًا لو النسخة المسترجعة قديمة ومفيهاش قائمة البنود لسه
+    const cur=await col.doc(base).get();
+    if(cur.exists){ const cd=cur.data(); if(cd && cd._chunked && (cd._slot===0||cd._slot===1)) curSlot=cd._slot; }
+  }catch(e){}
+  const slot=1-curSlot;
+  const gen=Date.now()+'_'+Math.random().toString(36).slice(2,8);
+  const parts=_bkSplit(json);
+  for(let i=0;i<parts.length;i++){
+    await col.doc(base+'__c'+slot+'_'+i).set({_gen:gen, i:i, s:parts[i]});
+  }
+  await col.doc(base).set(Object.assign({
+    _chunked:true, _n:parts.length, _slot:slot, _gen:gen, _hasData:true,
+    _counts:{clients:data.clients.length, invoices:data.invoices.length, stock:data.stock.length}
+  }, meta));
+}
+// قراءة نسخة (بتفهم الشكلين). بترجّع null لو مفيش نسخة أو لو القطع ناقصة/مش متطابقة.
+async function _readBackupSet(base){
+  const col=__syncDB.collection('deviceBackups');
+  const snap=await col.doc(base).get();
+  if(!snap.exists) return null;
+  const d=snap.data();
+  if(!d) return null;
+  if(!d._chunked) return d;
+  const parts=[];
+  for(let i=0;i<d._n;i++){
+    const cs=await col.doc(base+'__c'+d._slot+'_'+i).get();
+    if(!cs.exists) return null;
+    const cd=cs.data();
+    if(!cd || cd._gen!==d._gen || typeof cd.s!=='string') return null;
+    parts.push(cd.s);
+  }
+  let obj;
+  try{ obj=JSON.parse(parts.join('')); }catch(e){ return null; }
+  if(!obj || typeof obj!=='object') return null;
+  obj._savedAt=d._savedAt; obj._deviceId=d._deviceId;
+  return obj;
+}
+
+// نسخة احتياطية صامتة تلقائية. force=true بتتخطى الدباونس (لحظات حرجة بس: فتح البرنامج، ربط جوجل).
+function pushSilentBackup(force){
+  if(!__syncDB) return;
+  if(!__dataLoaded) return;            // حارس 1: البيانات المحلية لسه متحملتش — أي رفع دلوقتي ممكن يبقى فاضي
+  if(!_hasAnyBusinessData()) return;   // حارس 2: مبنكتبش نسخة فاضية فوق نسخة حقيقية أبدًا
+  const since=Date.now()-_lastSilentPush;
+  if(!force && since<60000){
+    // آخر تعديلات جوه الدقيقة كانت بتفضل من غير نسخة لحد أول حفظ جاي — دلوقتي بنأجّلها لنهاية الدقيقة
+    if(!_bkTrail){ _bkTrail=setTimeout(function(){ _bkTrail=null; try{ pushSilentBackup(true); }catch(e){} }, 60000-since+500); }
+    return;
+  }
+  _lastSilentPush=Date.now();
+  _bkPending=_bkPayload();
+  if(!_bkRunning) _runBackupQueue();
+}
+async function _runBackupQueue(){
+  _bkRunning=true;
+  try{
+    while(_bkPending){
+      const job=_bkPending; _bkPending=null;
+      try{ await _doBackupJob(job); }catch(e){ console.warn('silent backup job error (ignored):', e); }
+    }
+  }finally{ _bkRunning=false; }
+}
+async function _doBackupJob(data){
+  const json=JSON.stringify(data);
+  const sig=json.length+':'+_quickHash(json);
+  const bases=[];
+  if(__wipeUnresolved){
+    // شكينا في مسح ومعرفناش نسترجع: أي بيانات جديدة بتتحفظ في مكان منفصل، والنسخة الأصلية فاضلة زي ما هي
+    if(__deviceId) bases.push(__deviceId+'__new');
+  }else{
+    if(__deviceId) bases.push(__deviceId);
+    if(__googleUser) bases.push('g_'+__googleUser.uid);
+  }
+  for(const base of bases){
+    if(_bkLastSig[base]===sig) continue;
+    try{ await _writeBackupSet(base, data, json, _bkMeta()); _bkLastSig[base]=sig; }
+    catch(e){ console.warn('silent backup push failed (ignored):', base, e); }
+  }
+  if(__wipeUnresolved || !bases.length) return;
+  // لقطة يومية (7 خانات بتلف حسب يوم الأسبوع) — لو النسخة الرئيسية اتبوّظت لأي سبب، عندنا آخر 7 أيام
+  const day=_bkDayKey();
+  if(DB.get('_bkHistDay')===day) return;
+  const dow=new Date().getDay();
+  let ok=true;
+  for(const base of bases){
+    try{ await _writeBackupSet(base+'__d'+dow, data, json, _bkMeta()); }
+    catch(e){ ok=false; console.warn('daily snapshot failed (ignored):', base, e); }
+  }
+  if(ok) DB.set('_bkHistDay', day);
+}
+
+// بتدوّر في كل المصادر (النسخة الرئيسية + اللقطات اليومية) وبتختار الأنسب. بتتجاهل أي نسخة فاضية.
+// الاختيار: الأحدث، إلا لو الأحدث أصغر بكتير (< نص) من أغنى نسخة — ساعتها بناخد الأغنى (حماية من نسخة
+// صغيرة اتكتبت بعد المسح).
+async function _findBestBackup(bases){
+  const found=[];
+  for(const b of bases){
+    const keys=[b].concat([0,1,2,3,4,5,6].map(i=>b+'__d'+i));
+    for(const key of keys){
+      let d=null;
+      try{ d=await _readBackupSet(key); }catch(e){ continue; }
+      if(!_backupHasRealData(d)) continue;
+      found.push({data:d, t:_bkTime(d._savedAt), score:_backupScore(d), key:key});
+    }
+  }
+  if(!found.length) return null;
+  const newest=found.reduce((a,b)=>b.t>a.t?b:a);
+  const richest=found.reduce((a,b)=>b.score>a.score?b:a);
+  return (newest.score*2<richest.score) ? richest : newest;
+}
+function _applyBackupData(data){
+  clients=data.clients||[];invoices=data.invoices||[];payments=data.payments||[];stock=data.stock||[];movements=data.movements||[];
+  returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
+  purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];expenseCategories=data.expenseCategories||[];treasuryOpening=Number(data.treasuryOpening)||0;
+  repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
+  bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
+  productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
+  deletedIds=data.deletedIds||{};
+  docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
+  seedExpenseCategoriesIfNeeded(); // احتياطًا لو النسخة المسترجعة قديمة ومفيهاش قائمة البنود لسه
+}
+async function _recoverFromBases(bases){
+  if(!__syncDB) return false;
+  try{
+    const best=await _findBestBackup(bases.filter(Boolean));
+    if(!best) return false;
+    _applyBackupData(best.data);
+    __wipeUnresolved=false; DB.set('_wipeUnresolved',0);   // قبل save() عشان الرفع يرجع للمكان الطبيعي
+    try{ _markHadRealData(); }catch(e){}
     save(); // نحفظها محليًا تاني عشان تفضل موجودة حتى لو النت قطع بعد كده
     return true;
   }catch(e){
@@ -3206,6 +3393,11 @@ async function _tryAutoRecover(key){
     return false;
   }
 }
+// بيرجع true لو نجح يسترجع. key اختياري (افتراضيًا معرّف الجهاز؛ شاشة القفل بتبعت g_<uid>)
+async function _tryAutoRecover(key){
+  return _recoverFromBases([key || __deviceId]);
+}
+// ===== (BACKUP-HARDENING END) =====
 
 // بينفذ مجموعة عمليات كتابة/حذف على Firestore على دفعات (batches) بحد أقصى
 // 450 عملية للدفعة الواحدة (الحد الفعلي لفايرستور 500 - سايبين هامش أمان)،
@@ -4935,7 +5127,7 @@ function renderClients(){
   }).join('');
   document.getElementById('tab-clients').innerHTML=`
     ${showClientForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head green">إضافة عميل جديد</div>
       <div class="card-body">
         <div class="form-row">
@@ -5073,7 +5265,7 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
       </div>` : `<div class="doc-title">صديقك المحاسبي</div>`;
   return `<div class="doc-header">
       <div class="doc-header-left">${companyProfile.logo?`<img src="${companyProfile.logo}" style="width:50px;height:50px;border-radius:8px;object-fit:cover">`:''}${companyBlock}</div>
-      ${bodyHtml.includes('<!--hide-doc-meta-->')?'':`<div class="doc-meta">${esc(title)}</div>`}
+      <div class="doc-meta">${esc(title)}</div>
     </div>
     ${bodyHtml}
     <div class="doc-footer" style="display:flex;align-items:center;gap:5px;justify-content:flex-start;direction:ltr;text-align:left">
@@ -5482,11 +5674,10 @@ async function printClientStatement(cid, from='', to=''){
   const balLbl=bal>0?'مستحق عليه':bal<0?'له رصيد':'الحساب صافي';
   const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>clientStatementRowHtml(ev,c.id,false)).join('');
   const body=`
-    <!--hide-doc-meta-->
     <div class="doc-info">
-      <div><strong>كشف حساب:</strong> ${esc(c.name)}</div>
+      <div><strong>العميل:</strong> ${esc(c.name)}</div>
       ${c.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
-      <div><strong>التاريخ:</strong> ${today()}</div>
+      <div><strong>تاريخ الكشف:</strong> ${today()}</div>
       ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -5543,7 +5734,7 @@ function renderClientDetail(){
     <div class="card" style="margin-top:14px;border-right:4px solid #F1C40F">
       <div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظاتي عن العميل (شخصية فقط — مش بتدخل في كشف الحساب ولا الرصيد)</div>
       <div class="card-body">
-        ${!showClientNoteForm?`<button class="btn-outline" onclick="showClientNoteForm=true;renderClientDetail()">+ ملاحظة جديدة</button>`:`
+        ${!showClientNoteForm?`<button class="btn-outline" onclick="showClientNoteForm=true;renderClientDetail()">+ ملاحظة جديدة</button>`:`<div class="card entry-sheet"><div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظة جديدة عن العميل</div><div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">الملاحظة *</div><input type="text" id="cnote_text" placeholder="مثال: بيدفع أول الشهر عادة..."></div>
         </div>
@@ -5554,7 +5745,7 @@ function renderClientDetail(){
         <div class="btn-row">
           <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addClientNote('${c.id}')">✓ حفظ الملاحظة</button>
           <button class="btn-outline" onclick="showClientNoteForm=false;renderClientDetail()">إلغاء</button>
-        </div>`}
+        </div></div></div>`}
         <div style="margin-top:12px">
           ${[...clientNotes].filter(n=>n.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
             <div class="list-item" style="background:#FEF9E7">
@@ -5864,7 +6055,7 @@ function renderInvoices(){
   document.getElementById('tab-invoices').innerHTML=`
     ${renderHeldInvoicesBlock()}
     ${showInvForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -6509,7 +6700,7 @@ function renderPayments(){
   }).join('');
   document.getElementById('tab-payments').innerHTML=`
     ${showPayForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head ${_editingPay?'orange':'green'}">${_editingPay?'✏️ تعديل تحصيل من العميل':'تسجيل تحصيل للعميل'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -6909,7 +7100,7 @@ function renderReturns(){
 
   document.getElementById('tab-returns').innerHTML=`
     ${showRetForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head ${_editingRet?'orange':'green'}">${_editingRet?'✏️ تعديل مردود مبيعات #'+_editingRet.number:'↩️ تسجيل مردود مبيعات جديد'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -7397,7 +7588,7 @@ function renderSubWarehouse(){
     </div>
     ${(!subWhForm&&!trItem)?`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn green" onclick="subWhForm={mode:'add'};subWhDraft={};renderStock()">+ صنف / رصيد جديد</button></div>`:''}
     ${subWhForm?`
-    <div class="card" style="margin-bottom:14px">
+    <div class="card entry-sheet" style="margin-bottom:14px">
       <div class="card-head ${editing?'orange':'green'}">${editing?'✏️ تعديل صنف في المخزن الفرعي':'➕ رصيد جديد في المخزن الفرعي'}</div>
       <div class="card-body">
 ${formMode==='main'?`
@@ -7424,7 +7615,7 @@ ${formMode==='main'?`
       </div>
     </div>`:''}
     ${trItem?`
-    <div class="card" style="margin-bottom:14px">
+    <div class="card entry-sheet" style="margin-bottom:14px">
       <div class="card-head green">↪ تحويل "${esc(trItem.name)}" للمخزن الرئيسي</div>
       <div class="card-body">
         <div style="font-size:12px;color:#717D7E;margin-bottom:8px">المتاح في المخزن الفرعي: <strong>${fmtQty(trItem.qty)} ${esc(trItem.unit||'')}</strong>${trItem.mainProductId&&stock.find(p=>p.id===trItem.mainProductId)?' — هيتضاف على رصيده الموجود في الرئيسي':' — هيتعمل في المخزن الرئيسي كصنف جديد'}</div>
@@ -7600,7 +7791,7 @@ function renderStockOverview(){
       const editingP=editProductId?stock.find(p=>p.id===editProductId):null;
       const dv=(field,fallback)=>(field in productFormDraft)?productFormDraft[field]:fallback;
       return `
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head ${editingP?'orange':'green'}">${editingP?'✏️ تعديل بيانات المنتج':'إضافة منتج جديد'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -7688,7 +7879,7 @@ function renderStockOverview(){
     </div>`;
     })():''}
     ${showMovForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head">تسجيل حركة مخزن</div>
       <div class="card-body">
         <div class="form-row">
@@ -8096,7 +8287,7 @@ function renderProduction(){
       ${!showProductionForm?`<button class="btn green" onclick="showProductionForm=true;prodInputLines=[{id:uid(),productId:'',qty:''}];renderProduction()">+ عملية تصنيع جديدة</button>`:''}
     </div>
     ${showProductionForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head green">🏭 عملية تصنيع جديدة</div>
       <div class="card-body">
         <div class="section-title">الخامات المستخدمة</div>
@@ -8188,16 +8379,10 @@ function _signOutGoogleAccount(){
     // أحدث بيانات ممكنة، مش نسخة قديمة شوية لو كانت آخر عملية رفع لسه مخلصتش
     if(uid && __syncDB){
       try{
-        await __syncDB.collection('deviceBackups').doc('g_'+uid).set({
-          clients, invoices, payments, stock, movements, returns,
-          suppliers, purchases, supplierPayments, purchaseReturns,
-          expenses, treasuryOpening, repNotes, clientNotes,
-          checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers,
-          chartOfAccounts, journalEntries, productions,
-          companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters,
-          _deviceId: __deviceId,
-          _savedAt: Date.now()
-        });
+        if(_hasAnyBusinessData() && __dataLoaded && !__wipeUnresolved){
+          const _pl=_bkPayload();
+          await _writeBackupSet('g_'+uid, _pl, JSON.stringify(_pl), _bkMeta());
+        }
       }catch(e){ console.warn('final push before sign-out failed (continuing):', e); }
     }
     await firebase.auth().signOut();
@@ -8288,8 +8473,8 @@ function checkAutoBackup(){
     setTimeout(()=>URL.revokeObjectURL(url), 3000);
     const now = new Date().toISOString();
     DB.set('_lastAutoExport', now);
-    DB.set('_lastExport', now); // يحدّث نفس مؤشر آخر تصدير عشان البانر ميزعجش المستخدم كمان
-    hideExportReminder();
+    // ملحوظة: مبقيناش نحدّث _lastExport هنا. التنزيل التلقائي من غير ضغطة من المستخدم بيتحجب بصمت في
+    // متصفحات كتير، فمينفعش نعتبره نسخة مضمونة ونخفي تذكير النسخ اليدوي (مشاركة → Drive).
   }catch(e){
     console.error('فشل الباك أب التلقائي', e);
   }
@@ -8359,6 +8544,7 @@ function importData(){
             oldFileWarning=true;
           }
           if(oldFileWarning) showToast('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجعات أو الموردين أو الشيكات أو الحسابات) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
+          __wipeUnresolved=false; DB.set('_wipeUnresolved',0); // بيانات حقيقية اتستوردت: الرفع السحابي يرجع للمكان الطبيعي
           seedAccountingIfNeeded();
           seedExpenseCategoriesIfNeeded();
           showToast('✅ تم استيراد البيانات بنجاح!');render();
@@ -8451,7 +8637,7 @@ function renderExpenses(){
       </div>
 
       ${showExpenseForm?`
-      <div class="card" style="margin-bottom:14px">
+      <div class="card entry-sheet" style="margin-bottom:14px">
         <div class="card-head green">➕ إضافة مصروف جديد</div>
         <div class="card-body">
           <div class="form-row">
@@ -8545,7 +8731,7 @@ function renderExpenses(){
       ${isRestrictedRole()?'':`<div class="card" style="margin-top:18px;border-right:4px solid #F1C40F">
         <div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظاتي (شخصية فقط — مش بتدخل في حساب المصاريف ولا الخزنة)</div>
         <div class="card-body">
-          ${!showNoteForm?`<button class="btn-outline" onclick="showNoteForm=true;renderExpenses()">+ ملاحظة جديدة</button>`:`
+          ${!showNoteForm?`<button class="btn-outline" onclick="showNoteForm=true;renderExpenses()">+ ملاحظة جديدة</button>`:`<div class="card entry-sheet"><div class="card-head" style="background:#F1C40F;color:#4A3B00">📝 ملاحظة جديدة</div><div class="card-body">
           <div class="form-row">
             <div class="form-group" style="flex:2"><div class="lbl">الملاحظة *</div><input type="text" id="note_text" placeholder="مثال: استلفت من محمد، سلفت لأحمد..."></div>
           </div>
@@ -8556,7 +8742,7 @@ function renderExpenses(){
           <div class="btn-row">
             <button class="btn" style="background:#F1C40F;color:#4A3B00" onclick="addRepNote()">✓ حفظ الملاحظة</button>
             <button class="btn-outline" onclick="showNoteForm=false;renderExpenses()">إلغاء</button>
-          </div>`}
+          </div></div></div>`}
           <div style="margin-top:12px">
             ${[...repNotes].sort((a,b)=>b.date.localeCompare(a.date)).map(n=>`
               <div class="list-item" style="background:#FEF9E7">
@@ -9097,7 +9283,7 @@ function banksSegmentedControlHtml(){
 
 function renderAccountForm(editingAcc){
   const bankOpts=EGYPT_BANKS.map(b=>({id:b,label:b}));
-  return `<div class="card" style="margin-bottom:14px">
+  return `<div class="card entry-sheet" style="margin-bottom:14px">
     <div class="card-head ${editingAcc?'orange':'green'}">${editingAcc?'✏️ تعديل بيانات الحساب البنكي':'➕ إضافة حساب بنكي'}</div>
     <div class="card-body">
       <div class="form-row">
@@ -9152,7 +9338,7 @@ function renderAccountDetail(acc){
     </div>
     ${bankAccounts.length>1?`<button class="btn-outline" style="margin-bottom:12px" onclick="bankAccountDetailId=null;renderBanks()">→ كل الحسابات</button>`:''}
     ${(bankTxForm&&bankTxFormAcc===acc.id)?`
-    <div class="card" style="margin-bottom:14px">
+    <div class="card entry-sheet" style="margin-bottom:14px">
       <div class="card-head ${bankTxForm==='deposit'?'green':'orange'}">${bankTxForm==='deposit'?'⬇️ إيداع نقدي من الخزنة في البنك':'⬆️ سحب من البنك إلى الخزنة'}</div>
       <div class="card-body">
         <div style="font-size:12px;color:#717D7E;margin-bottom:8px">${bankTxForm==='deposit'?`رصيد الخزنة النهارده: <strong>${fmt(treasuryData(today()).closing)} ج</strong>`:`رصيد الحساب البنكي: <strong>${fmt(balance)} ج</strong>`}</div>
@@ -9178,7 +9364,7 @@ function renderAccountDetail(acc){
 function renderBankAccounts(){
   const editingAcc=editBankAccId?bankAccounts.find(a=>a.id===editBankAccId):null;
   if(bankAccounts.length===0){
-    return `<div class="empty" style="margin-bottom:10px">لسه مفيش حساب بنكي مسجل للشركة</div>${renderAccountForm(null)}`;
+    return `<div class="empty" style="margin-bottom:10px">لسه مفيش حساب بنكي مسجل للشركة</div>${showAddAccountForm?renderAccountForm(null):`<button class="btn-outline" onclick="openAddAccountForm()">+ إضافة حساب بنكي</button>`}`;
   }
   if(bankAccountDetailId||bankAccounts.length===1){
     const acc=bankAccountDetailId?bankAccounts.find(a=>a.id===bankAccountDetailId):bankAccounts[0];
@@ -9294,7 +9480,7 @@ function renderBanks(){
 
     ${(!showCheckForm&&!editingChk)?`<div style="margin-bottom:14px"><button class="btn green" onclick="showCheckForm=true;renderBanks()">+ ${isPayable?'شيك دفع':'شيك قبض'} جديد</button></div>`:''}
     ${(showCheckForm||editingChk)?`
-    <div class="card" style="margin-bottom:14px">
+    <div class="card entry-sheet" style="margin-bottom:14px">
       <div class="card-head ${editingChk?'orange':'green'}">${editingChk?'✏️ تعديل الشيك':'➕ إضافة '+(isPayable?'شيك دفع':'شيك قبض')+' جديد'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -10002,7 +10188,7 @@ function renderSuppliers(){
   document.getElementById('tab-suppliers').innerHTML=`
     <div class="page-title">🏭 الموردين</div>
     ${showSupplierForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head green">إضافة مورد جديد</div>
       <div class="card-body">
         <div class="lbl">اسم المورد *</div><input type="text" id="sup_name" placeholder="اسم المورد">
@@ -10171,11 +10357,10 @@ async function printSupplierStatement(sid, from='', to=''){
   const balLbl=bal>0?'مستحق للمورد':bal<0?'له رصيد':'الحساب صافي';
   const tableRows=(showCarry?carryForwardRowHtml(from,carryForward):'')+rows.map(ev=>supplierStatementRowHtml(ev,s.id,false)).join('');
   const body=`
-    <!--hide-doc-meta-->
     <div class="doc-info">
-      <div><strong>كشف حساب:</strong> ${esc(s.name)}</div>
+      <div><strong>المورد:</strong> ${esc(s.name)}</div>
       ${s.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
-      <div><strong>التاريخ:</strong> ${today()}</div>
+      <div><strong>تاريخ الكشف:</strong> ${today()}</div>
       ${(from||to)?`<div><strong>الفترة:</strong> ${from||'البداية'} → ${to||'اليوم'}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -10317,7 +10502,7 @@ function renderPurchases(){
           </div>
         </div>
         ${purDownPaymentNum<=0?'':(purDownPaymentNum>purTotal?`<div class="bonus-box" style="background:#FDEDEC;color:#C0392B">⚠️ الدفعة المدخلة (${fmt(purDownPaymentNum)} ج) أكبر من إجمالي الفاتورة (${fmt(purTotal)} ج) — عدّل القيمة، وإلا هيترفض حفظ الفاتورة</div>`:`<div class="bonus-box" style="background:#EAFAF1;color:#1E8449">✅ هيتسجل سداد فوري بمبلغ ${fmt(purDownPaymentNum)} ج للمورد فور حفظ الفاتورة، والباقي (${fmt(purTotal-purDownPaymentNum)} ج) هيفضل مستحق عليه في كشف حساب المورد.</div>`)}`;
-    formHtml=`<div class="card">
+    formHtml=`<div class="card entry-sheet">
       <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -10855,7 +11040,7 @@ function renderSupPayTab(){
   }).join('');
   document.getElementById('tab-suppay').innerHTML=`
     ${showSupPayTabForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head ${_editingSp?'orange':'green'}">${_editingSp?'✏️ تعديل سداد للمورد':'تسجيل سداد للمورد'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -11190,7 +11375,7 @@ function renderPurReturns(){
 
   document.getElementById('tab-purreturns').innerHTML=`
     ${showPurRetForm?`
-    <div class="card">
+    <div class="card entry-sheet">
       <div class="card-head orange">${_editingPr?'✏️ تعديل مردود مشتريات #'+_editingPr.number:'↪️ تسجيل مردود مشتريات جديد'}</div>
       <div class="card-body">
         <div class="form-row">
@@ -11498,12 +11683,19 @@ function _showWipeWarning(){
 // التلقائي الصامت (من غير ما العميل ياخد باله أصلاً) — بالكامل بصمت تام، من غير أي
 // رسالة أو تنبيه، حتى لو نجح. بيانات العميل بترجع وخلاص، وكأن حاجة معملتش أصلاً
 async function _handlePossibleWipe(){
-  const recovered = await _tryAutoRecover();
+  // مصادر الاسترجاع: معرّف الجهاز + حساب جوجل (لو كان مربوط قبل كده — الـ uid متخزن محليًا) —
+  // وكل مصدر بنقرا منه النسخة الرئيسية + لقطات آخر 7 أيام، ونختار الأنسب
+  const bases=[__deviceId];
+  const gu=DB.get('_googleLinked') || (__googleUser && __googleUser.uid);
+  if(gu) bases.push('g_'+gu);
+  const recovered = await _recoverFromBases(bases);
   if(recovered){
     const w=document.getElementById('wipeWarningScreen');
     if(w) w.remove();
     render();
   }else{
+    // معرفناش نسترجع: نعلّم الجهاز عشان أي بيانات جديدة تتحفظ في مكان منفصل ومتكتبش فوق النسخة الأصلية
+    __wipeUnresolved=true; DB.set('_wipeUnresolved',1);
     _showWipeWarning();
   }
 }
@@ -11539,7 +11731,7 @@ function _linkGoogleAccount(){
       if(existing.exists){
         const d = existing.data();
         const belongsToOtherDevice = d && d._deviceId && d._deviceId!==__deviceId && !d._released &&
-          ((d.clients&&d.clients.length) || (d.invoices&&d.invoices.length));
+          ((d.clients&&d.clients.length) || (d.invoices&&d.invoices.length) || d._hasData);
         if(belongsToOtherDevice){
           try{ await firebase.auth().signOut(); }catch(e){}
           showToast('⚠️ الإيميل ده مربوط بالفعل بنسخة تانية من البرنامج عليها بيانات مختلفة.\n\nمينفعش يتربط بجهازين مختلفين في نفس الوقت.\n\nلو عايز تزامن بيانات الجهازين مع بعض، استخدم "🔗 ربط الأجهزة" بدل كده.');
@@ -11799,6 +11991,11 @@ document.addEventListener('DOMContentLoaded', async function(){
     _showLoadErrorScreen();
     return;
   }
+  try{
+    if(navigator.storage && navigator.storage.persist){
+      navigator.storage.persist().then(function(g){ DB.set('_persistGranted', g?1:0); }).catch(function(){});
+    }
+  }catch(e){}
   // إصلاح حرج (مسح البيانات عند المزامنة): startSyncListener() كانت بتتنادى من سكريبت
   // منفصل تحت آخر الملف، بيشتغل وقت تحليل الصفحة نفسه - يعني قبل ما await loadAllData()
   // فوق يخلص أصلاً (لأن السكريبت ده بره الـ DOMContentLoaded وبيسبقه). النتيجة: أول
@@ -11869,6 +12066,9 @@ function _closeTopmostBackLayer(){
   if(isOpen('exportModal')){ document.getElementById('exportModal').style.display='none'; return true; }
   if(isOpen('onboardingModal')){ document.getElementById('onboardingModal').style.display='none'; return true; }
 
+  // 1.5) بوب آب شاشات الإدخال (فاتورة/تحصيل/...) — بيتقفل بنفس زرار "إلغاء" بتاعه
+  if(typeof _sheetBackClose==='function' && _sheetBackClose()) return true;
+
   // 2) شاشات تفاصيل داخل التابات — حسب التاب الحالي بس
   if(currentTab==='clients' && clientDetailId!=null){ clientDetailId=null; showClientNoteForm=false; renderClients(); return true; }
   if(currentTab==='invoices' && invDetailId!=null){ goBackFromInvDetail(); return true; }
@@ -11907,6 +12107,161 @@ window.addEventListener('popstate', function(){
 
 // حارس أولي عند فتح الصفحة
 _pushBackGuard();
+
+// ============================================================
+// بوب آب شاشات الإدخال (Bottom Sheet) — محرك عرض فقط
+// ------------------------------------------------------------
+// أي كارت عليه الكلاس entry-sheet (فورمات الإدخال) بيتحوّل لشاشة منبثقة من تحت.
+// مفيش أي منطق حفظ أو فورم اتغيّر: الفورم هو هو في نفس مكانه في الـDOM، وكل
+// الدوال (saveInvoice/savePayment/...) وكل حالات الـshow...Form زي ما هي بالظبط —
+// إحنا بس بنضيف كلاس CSS بعد كل رسم، ونحافظ على مكان السكرول جوه الشاشة بين كل
+// إعادة رسم والتانية. أي خطأ هنا بيتبلع من غير ما يأثر على البرنامج (والفورم
+// بيفضل شغال عادي في الصفحة زي الأول).
+// ============================================================
+(function(){
+  try{
+    var SEL='.card.entry-sheet';
+    var ov=null, active=null, curKey=null, snap='', lastScroll=0;
+    var root=document.documentElement;
+
+    function tabEl(el){ return el.closest('.body > div'); }
+    function tabVisible(el){ var t=tabEl(el); return !!t && t.style.display!=='none'; }
+    function cancelBtn(card){
+      var bs=card.querySelectorAll('button');
+      for(var i=0;i<bs.length;i++){ if(bs[i].textContent.trim()==='إلغاء') return bs[i]; }
+      return null;
+    }
+    // توقيع القيم المكتوبة (الفاضي بيتتجاهل) — بنقارنه بحالة أول فتح عشان نعرف لو في كلام اتكتب
+    function sig(card){
+      var out=[], els=card.querySelectorAll('input,select,textarea');
+      for(var i=0;i<els.length;i++){
+        var e=els[i], v;
+        if(e.type==='checkbox'||e.type==='radio') v=e.checked?('#'+(e.id||e.name||i)):'';
+        else v=e.value||'';
+        if(v) out.push(v);
+      }
+      return out.join('\u0001');
+    }
+    function ensureOv(){
+      if(ov) return ov;
+      ov=document.createElement('div');
+      ov.className='sheet-ov';
+      ov.addEventListener('click', function(){ requestClose(); });
+      document.body.appendChild(ov);
+      return ov;
+    }
+    function addClose(card){
+      var head=card.firstElementChild;
+      if(!head || !head.classList.contains('card-head') || head.querySelector('.sheet-x')) return;
+      var x=document.createElement('button');
+      x.type='button'; x.className='sheet-x'; x.setAttribute('aria-label','إغلاق'); x.textContent='✕';
+      x.addEventListener('click', function(ev){ ev.stopPropagation(); requestClose(); });
+      head.appendChild(x);
+    }
+    // شريط الإجمالي + أزرار الحفظ/الإلغاء بيثبت تحت الشاشة (مهم في الفواتير الطويلة)
+    function placeFooter(card){
+      var body=null, kids=card.children;
+      for(var i=0;i<kids.length;i++){ if(kids[i].classList.contains('card-body')){ body=kids[i]; break; } }
+      var cb=cancelBtn(card);
+      if(!body||!cb) return;
+      var f=cb.closest('.btn-row')||cb.parentElement;
+      if(!f||!body.contains(f)) return;
+      while(f.parentElement && f.parentElement!==body) f=f.parentElement;
+      if(f.parentElement!==body) return;
+      var h=f.offsetHeight;
+      if(h>0 && h<=150) f.classList.add('sheet-foot');
+    }
+    function sync(){
+      try{
+        var card=null, all=document.querySelectorAll(SEL);
+        for(var i=0;i<all.length;i++){ if(tabVisible(all[i])){ card=all[i]; break; } }
+        if(!card){
+          if(active){ active=null; curKey=null; document.body.classList.remove('sheet-open'); }
+          return;
+        }
+        if(card===active && card.classList.contains('as-sheet')) return;
+        var head=card.firstElementChild;
+        var key=tabEl(card).id+'|'+(head?head.textContent.trim():'');
+        var fresh=(!active)||key!==curKey;
+        card.classList.add('as-sheet');
+        card.setAttribute('role','dialog');
+        card.setAttribute('aria-modal','true');
+        active=card; curKey=key;
+        ensureOv();
+        document.body.classList.add('sheet-open');
+        addClose(card);
+        placeFooter(card);
+        card.addEventListener('scroll', function(){ lastScroll=card.scrollTop; }, {passive:true});
+        if(fresh){ card.classList.add('sheet-anim'); snap=sig(card); lastScroll=0; }
+        else{ card.scrollTop=lastScroll; }
+      }catch(e){ try{ console.warn('sheet sync', e); }catch(_){} }
+    }
+    // قفل الشاشة بنفس زرار "إلغاء" الأصلي بتاع الفورم (عشان كل حالات الفورم تتصفّر زي الأول)
+    function requestClose(){
+      if(!active || !document.contains(active)) return false;
+      var btn=cancelBtn(active);
+      if(!btn) return false;
+      var doClose=function(){
+        var a=document.querySelector('.card.entry-sheet.as-sheet');
+        var b=a && cancelBtn(a);
+        if(b) b.click();
+      };
+      if(sig(active)!==snap && typeof showConfirm==='function'){
+        showConfirm('تقفل الشاشة؟ اللي كتبته فيها مش هيتحفظ.', doClose);
+      }else{
+        doClose();
+      }
+      return true;
+    }
+    window._sheetBackClose=function(){
+      if(active && document.contains(active)) return requestClose();
+      return false;
+    };
+
+    // الكيبورد على الموبايل: الشاشة تفضل فوق الكيبورد وحجمها يتظبط على المساحة المتاحة
+    function vv(){
+      try{
+        var v=window.visualViewport;
+        if(!v){ root.style.setProperty('--sheet-vh', window.innerHeight+'px'); return; }
+        root.style.setProperty('--sheet-vh', v.height+'px');
+        root.style.setProperty('--sheet-kb', Math.max(0, window.innerHeight - v.height - v.offsetTop)+'px');
+      }catch(e){}
+    }
+    vv();
+    if(window.visualViewport){
+      window.visualViewport.addEventListener('resize', vv);
+      window.visualViewport.addEventListener('scroll', vv);
+    }
+    window.addEventListener('resize', vv);
+
+    // لما تركّز على خانة بحث (اختيار عميل/صنف) نطلّعها لفوق شوية عشان القايمة تلاقي مساحة
+    document.addEventListener('focusin', function(e){
+      var a=active, t=e.target;
+      if(!a || !document.contains(a) || !a.contains(t) || !t.classList || !t.classList.contains('ssel-input')) return;
+      setTimeout(function(){
+        try{
+          if(!document.contains(t)) return;
+          var head=a.firstElementChild, hh=(head&&head.classList.contains('card-head'))?head.offsetHeight:0;
+          var off=t.getBoundingClientRect().top-(a.getBoundingClientRect().top+hh);
+          if(off>120) a.scrollTop+=off-12;
+        }catch(_){}
+      }, 280);
+    });
+
+    document.addEventListener('keydown', function(e){
+      if(e.key!=='Escape') return;
+      var cm=document.getElementById('confirmModal');
+      if(cm && getComputedStyle(cm).display!=='none') return;
+      if(active && document.contains(active)) requestClose();
+    });
+
+    var bodyEl=document.querySelector('.body');
+    if(bodyEl){
+      new MutationObserver(sync).observe(bodyEl,{childList:true,subtree:true});
+      sync();
+    }
+  }catch(e){ try{ console.warn('sheet init', e); }catch(_){} }
+})();
 
 // ============================================================
 // التوقيع الرقمي (المرحلة 1): أكواد التفعيل الجديدة بتتحقق بمفتاح عام بس.
