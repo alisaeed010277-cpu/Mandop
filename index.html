@@ -5245,8 +5245,9 @@ const DOC_STYLE = `
   .doc-info div{margin-bottom:4px;}
   table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;}
   th{background:#EAF2F8;color:#000;padding:8px 10px;text-align:right;font-size:13px;font-weight:700;border-top:2px solid #1A5276;border-bottom:2px solid #1A5276;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-  .doc-bal{width:auto;min-width:300px;margin:10px auto 0 0;}
-  .doc-bal td{font-weight:700;font-size:14px;text-align:center;padding:6px 12px;border:1px solid #1A5276;}
+  table.doc-bal{width:auto;min-width:300px;margin:10px auto 16px 0;border-collapse:collapse;}
+  table.doc-bal th{width:140px;background:#EAF2F8;color:#000;font-size:13px;font-weight:700;text-align:right;padding:7px 12px;border:1px solid #1A5276;}
+  table.doc-bal td{background:#fff !important;font-weight:700;font-size:14px;text-align:center;padding:7px 12px;border:1px solid #1A5276;}
   td{padding:7px 10px;border-bottom:1px solid #D5D8DC;}
   tr:nth-child(even) td{background:#F2F3F4;}
   .doc-total{text-align:left;font-weight:bold;font-size:16px;color:#1A5276;margin-top:6px;}
@@ -6567,7 +6568,7 @@ function renderHeldInvoicesBlock(){
 // جدول الرصيد السابق/الحالي في PDF الفواتير — بيتحسب من نفس محرك كشف الحساب وقت الطباعة، وأي خطأ بيرجع '' (الفاتورة بتطبع عادي)
 function docBalanceBoxHtml(prev,cur){
   const f=v=>fmt(Math.abs(v))+' جنيه'+(v<-0.004?' (له رصيد)':'');
-  return `<table class="doc-bal"><thead><tr><th>الرصيد السابق</th><th>الرصيد الحالي</th></tr></thead><tbody><tr><td>${f(prev)}</td><td>${f(cur)}</td></tr></tbody></table>`;
+  return `<table class="doc-bal"><tbody><tr><th>الرصيد السابق</th><td>${f(prev)}</td></tr><tr><th>الرصيد الحالي</th><td>${f(cur)}</td></tr></tbody></table>`;
 }
 function invoiceBalanceBoxHtml(inv){
   try{
