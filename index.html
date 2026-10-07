@@ -1966,6 +1966,78 @@ function _scanIntoStockSearch(){
 }
 
 
+// ===== حماية من تابين/نافذتين مفتوحين على نفس الجهاز =====
+// save() بيكتب كل المفاتيح كل مرة، فتاب مفتوح بنسخة قديمة كان بيمسح شغل التاب التاني بمجرد أي حفظ. دلوقتي كل تاب بيبلّغ التانيين لما
+// يحفظ، والتاب القديم بيعمل تحديث تلقائي (reload) أول ما العميل يرجعله (visibility/focus) - بصمت وبشرط مفيش فورم مفتوح أو كتابة جارية.
+const __tabId = Math.random().toString(36).slice(2), __tabLoadTs = Date.now();
+let __tabStale = false, __tabCh = null, __tabNotifyT = null;
+try{
+  if(typeof BroadcastChannel!=='undefined'){
+    __tabCh = new BroadcastChannel('elnokhba-saves');
+    __tabCh.onmessage = (ev)=>{ const m=ev&&ev.data; if(m && m.t==='saved' && m.id!==__tabId && m.ts>__tabLoadTs) __tabStale=true; };
+  }
+}catch(e){}
+function _tabNotifySaved(){
+  if(!__tabCh || __tabNotifyT || Date.now()-__tabLoadTs<10000) return; // حفظ بداية التشغيل (ترحيل/seed) مش بنبلّغ بيه
+  __tabNotifyT=setTimeout(()=>{ __tabNotifyT=null; try{ __tabCh.postMessage({t:'saved',id:__tabId,ts:Date.now()}); }catch(e){} }, 400);
+}
+function _tabRefreshIfStale(){
+  try{
+    if(!__tabStale || document.visibilityState!=='visible') return;
+    if(isFormInProgress() || isUserActivelyTyping()) return;
+    location.reload();
+  }catch(e){}
+}
+document.addEventListener('visibilitychange', _tabRefreshIfStale);
+window.addEventListener('focus', _tabRefreshIfStale);
+
+// ===== تشخيص للمالك فقط (مخفي تمامًا عن العملاء) =====
+// بيتفعّل على جهاز معيّن بفتح التطبيق مرة بـ ?diag=1 في آخر الرابط (و ?diag=0 تقفله). بيظهر زرار صغير 🩺 تحت على الشمال، لمسه بيفتح
+// حالة النسخ الاحتياطي والمزامنة (آخر نجاح / آخر خطأ). لو مش مفعّل: مفيش أي حاجة بتظهر ولا بتتسجّل.
+let __diagOn = false, __diagSaveT = null;
+try{ __diagOn = (new URLSearchParams(location.search).get('diag')==='1') || DB.get('_diagOn')===1; }catch(e){}
+function _diagCodeOf(e){ try{ return (e&&e.code) || String((e&&e.message)||e).slice(0,40); }catch(x){ return '?'; } }
+function _diagNote(k,v){
+  if(!__diagOn) return;
+  try{
+    (window.__diagData||(window.__diagData={}))[k]=v;
+    if(!__diagSaveT){ __diagSaveT=setTimeout(()=>{ __diagSaveT=null; try{ DB.set('_diagLast', window.__diagData); }catch(e){} }, 3000); }
+  }catch(e){}
+}
+function _diagAgo(t){ if(!t) return '—'; const m=Math.round((Date.now()-t)/60000); return m<1?'الآن':m<60?('من '+m+' د'):m<1440?('من '+Math.round(m/60)+' س'):('من '+Math.round(m/1440)+' يوم'); }
+function _diagInit(){
+  try{
+    const q=new URLSearchParams(location.search).get('diag');
+    if(q==='1'||q==='0') DB.set('_diagOn', q==='1'?1:0);
+    if(DB.get('_diagOn')!==1){ __diagOn=false; return; }
+    __diagOn=true;
+    try{ const last=DB.get('_diagLast'); if(last&&typeof last==='object') window.__diagData=Object.assign({},last,window.__diagData||{}); }catch(e){}
+    const box=document.createElement('div');
+    box.style.cssText='position:fixed;left:6px;bottom:6px;z-index:2147483647;max-width:92vw;background:rgba(0,0,0,.85);color:#fff;font:11px/1.6 monospace;padding:4px 8px;border-radius:8px;direction:rtl;text-align:right;white-space:pre-wrap;cursor:pointer';
+    let open=false;
+    const draw=()=>{
+      if(!open){ box.textContent='🩺'; return; }
+      const d=window.__diagData||{}; const er=(x)=>x?(x.c+' '+_diagAgo(x.t)):'—';
+      box.textContent=[
+        'الجهاز: '+(__deviceId||'?')+(__googleUser?' (جوجل)':''),
+        'مزامنة: '+(syncEnabled?'مفعّلة':'لا')+' | جاهزة للرفع: '+(__syncPushReady?'نعم':'لا'),
+        'آخر تحميل أولي: '+_diagAgo(d.loadOk),
+        'آخر رفع ناجح: '+_diagAgo(d.pushOk),
+        'آخر خطأ رفع: '+er(d.pushErr),
+        'آخر خطأ استماع: '+er(d.listenErr),
+        'نسخة احتياطية رئيسية: '+_diagAgo(d.bkOk),
+        'لقطة يومية: '+_diagAgo(d.bkDailyOk),
+        'آخر خطأ نسخ: '+er(d.bkErr),
+        'تاب قديم: '+(__tabStale?'نعم':'لا')
+      ].join('\n');
+    };
+    box.onclick=()=>{ open=!open; draw(); };
+    document.body.appendChild(box); draw();
+    setInterval(()=>{ if(open) draw(); }, 2000);
+  }catch(e){}
+}
+try{ if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', _diagInit); else _diagInit(); }catch(e){}
+
 // حفظ async في IndexedDB
 const save=()=>{
   idbSet(KEYS.clients,clients);
@@ -2002,6 +2074,7 @@ const save=()=>{
   idbSet(KEYS.auditLog,auditLog);
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
   try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
+  try{ _tabNotifySaved(); }catch(e){}
 };
 
 async function loadAllData(){
@@ -3439,8 +3512,8 @@ async function _doBackupJob(data){
   }
   for(const base of bases){
     if(_bkLastSig[base]===sig) continue;
-    try{ await _writeBackupSet(base, data, json, _bkMeta()); _bkLastSig[base]=sig; }
-    catch(e){ console.warn('silent backup push failed (ignored):', base, e); }
+    try{ await _writeBackupSet(base, data, json, _bkMeta()); _bkLastSig[base]=sig; _diagNote('bkOk',Date.now()); }
+    catch(e){ console.warn('silent backup push failed (ignored):', base, e); _diagNote('bkErr',{t:Date.now(),c:_diagCodeOf(e)}); }
   }
   if(__wipeUnresolved || !bases.length) return;
   // لقطة يومية (7 خانات بتلف حسب يوم الأسبوع) — لو النسخة الرئيسية اتبوّظت لأي سبب، عندنا آخر 7 أيام
@@ -3450,9 +3523,9 @@ async function _doBackupJob(data){
   let ok=true;
   for(const base of bases){
     try{ await _writeBackupDaily(base+'__d'+dow, data, json, _bkMeta()); }
-    catch(e){ ok=false; console.warn('daily snapshot failed (ignored):', base, e); }
+    catch(e){ ok=false; console.warn('daily snapshot failed (ignored):', base, e); _diagNote('bkErr',{t:Date.now(),c:'daily:'+_diagCodeOf(e)}); }
   }
-  if(ok) DB.set('_bkHistDay', day);
+  if(ok){ DB.set('_bkHistDay', day); _diagNote('bkDailyOk',Date.now()); }
 }
 
 // بتدوّر في كل المصادر (النسخة الرئيسية + اللقطات اليومية) وبتختار الأنسب. بتتجاهل أي نسخة فاضية.
@@ -3740,8 +3813,9 @@ function pushSyncSnapshot(){
       metaChanged.forEach(([g,json])=>{ __syncPushedMetaGroups[g]=json; });
     }
     if(!ops.length) return;
-    _commitSyncOps(ops).then(()=>{ __syncPushRetryAttempt=0; if(_legacySentNow){ DB.set('_delLegacySent', _codeAtPush); try{ _pruneDeletedIds(); }catch(e){} } }).catch(e=>{
+    _commitSyncOps(ops).then(()=>{ __syncPushRetryAttempt=0; _diagNote('pushOk',Date.now()); if(_legacySentNow){ DB.set('_delLegacySent', _codeAtPush); try{ _pruneDeletedIds(); }catch(e){} } }).catch(e=>{
       console.warn('sync push failed:', e);
+      _diagNote('pushErr',{t:Date.now(),c:_diagCodeOf(e)});
       if(_isTransientSyncError(e)) _scheduleSyncPushRetry();
     });
   }catch(e){ console.warn('sync push error (ignored):', e); }
@@ -3837,6 +3911,7 @@ function startSyncListener(){
     _refreshAfterMetaSync(null); // بيانات الشركة اللي وصلت في أول تحميل لازم تظهر فورًا في الشريط والقوايم
     pushSyncSnapshot(); // سجلات محلية مكانتش على السيرفر (جهاز بيدخل بربط لأول مرة) تتبعت دلوقتي
     try{ _pruneDeletedIds(); }catch(e){}
+    _diagNote('loadOk',Date.now());
   };
   try{
     const _attachKey = (key, plain)=>{
@@ -3889,6 +3964,7 @@ function startSyncListener(){
         }
       }, err=>{
         console.warn('sync listen error ('+key+'):', err);
+        _diagNote('listenErr',{t:Date.now(),c:key+':'+_diagCodeOf(err)});
         if(_auditWin && firstSnapshotForKey && !_isTransientSyncError(err)){ _attachKey(key, true); return; }
         if(firstSnapshotForKey){
           // فشل قبل أول تحميل: الكولكشن يفضل "مستني" (الرفع مقفول) ونعيد المحاولة لاحقًا
@@ -3928,6 +4004,7 @@ function startSyncListener(){
       }
     }, err=>{
       console.warn('sync root listen error:', err);
+      _diagNote('listenErr',{t:Date.now(),c:'root:'+_diagCodeOf(err)});
       if(rootFirstSnapshot){ _retryInitial('__root', ()=>_attachRoot()); return; }
       pendingKeys.delete('__root');
       _finishInitialLoadIfReady();
@@ -4110,9 +4187,25 @@ function _isSyncConflict(local, remote){
 // من اللي على السيرفر + وقت تعديله (_updatedAt) مش أقدم. بعدها pushSyncSnapshot هيرفعه لأن كاش المقارنة فيه نسخة السيرفر.
 // أي حالة تانية (نسخة السيرفر أحدث أو مساوية، سجل قديم من غير _v، جهاز تاني) = نفس السلوك القديم بالظبط.
 function _isLocalNewerUnsynced(local, remote){
-  return !!local && local._updatedBy===__deviceId
-    && (Number(local._v)||0) > (Number(remote._v)||0)
+  if(!local || local._updatedBy!==__deviceId) return false;
+  // سجل اتستورد من ملف على الجهاز ده بعد آخر تعديل على السيرفر: الاستيراد هو اللي بيكسب (مش بيتكتب فوقه بنسخة سيرفر أقدم)
+  if((Number(local._impAt)||0) > (Number(remote._updatedAt)||0)) return true;
+  return (Number(local._v)||0) > (Number(remote._v)||0)
     && (Number(local._updatedAt)||0) >= (Number(remote._updatedAt)||0);
+}
+// بعد استيراد ملف على جهاز مربوط: السجلات المختلفة عن نسخة السيرفر بنختمها "اتعدلت دلوقتي من الجهاز ده" (_impAt) عشان تتبعت وما تتكتبش فوقها
+// نسخة سيرفر أقدم في أول تحميل. مفيش ربط = مفيش حاجة بتتعمل. (السجلات اللي مش في الملف بتفضل زي ما هي على السيرفر.)
+function _stampImportedForSync(){
+  if(!syncEnabled || !syncCode) return;
+  const now=Date.now(), map=getSyncArrayMap();
+  SYNC_ARRAY_KEYS.forEach(key=>{
+    const cache=__syncPushedSnapshot[key];
+    (map[key]||[]).forEach(it=>{
+      if(!it || !it.id) return;
+      if(cache && cache.get(it.id)===JSON.stringify(it)) return; // مطابق للسيرفر: مفيش داعي
+      it._updatedBy=__deviceId; it._updatedAt=now; it._impAt=now;
+    });
+  });
 }
 // اسم قصير مفهوم للسجل عشان يتعرض في سجل الحذف والتعديل عند اكتشاف تعارض - بيجرب أشهر الحقول
 // المستخدمة زي الاسم/الرقم/الملاحظة، وبيرجع جزء من الـid لو معرفش حقل مناسب
@@ -8794,6 +8887,7 @@ function importData(){
           }
           if(oldFileWarning) showToast('⚠️ ملاحظة: الملف ده نسخة قديمة ومش فيه كل البيانات (زي المرتجعات أو الموردين أو الشيكات أو الحسابات) — البيانات الناقصة الموجودة على الجهاز هتفضل زي ما هي.');
           __wipeUnresolved=false; DB.set('_wipeUnresolved',0); // بيانات حقيقية اتستوردت: الرفع السحابي يرجع للمكان الطبيعي
+          try{ _stampImportedForSync(); }catch(e){}
           seedAccountingIfNeeded();
           seedExpenseCategoriesIfNeeded();
           showToast('✅ تم استيراد البيانات بنجاح!');render();
