@@ -3169,6 +3169,59 @@ let __syncPushedSnapshot = {};
 // __syncPushedDeletions[key]: Set من الـ ids اللي اتمسح مستندها على السيرفر بالفعل -
 // عشان منعيدش نبعت أمر حذف لنفس السجل تاني في كل مرة (كان هيفضل موجود في deletedIds المحلي للأبد).
 let __syncPushedDeletions = {};
+// إعادة إرسال أوامر الحذف: كل فتح تطبيق كان بيعيد إرسال كل الحذف القديم للأبد (324 ألف عملية حذف في الشهر).
+// بنفضل نعيد إرسال الحذف الجديد لمدة SYNC_DEL_RESEND_DAYS يوم بس من وقت الحذف (حماية من جهاز كان أوفلاين وفيه نسخة قديمة
+// من السجل الممسوح)، والحذف القديم كله بيتبعت مرة أخيرة واحدة بس لكل رمز ربط على كل جهاز بعد التحديث (_delLegacySent).
+// هيكل deletedIds نفسه ما اتغيرش (بيتحفظ ويتصدّر زي ما هو)؛ تواريخ الحذف في مكان منفصل محلي (_delAt).
+const SYNC_DEL_RESEND_DAYS = 30;
+// التحميل الأولي لازم يبقى من السيرفر نفسه: لو أول "لقطة" جت من الكاش المحلي بس (مثلًا الجهاز فاتح من غير نت، أو الشبكة بطيئة
+// والـ SDK اعتبر نفسه أوفلاين) فالكولكشن ممكن يبان فاضي وهو مش فاضي، وبالتالي الكود كان بيعتبر التحميل خلص ويرفع كل السجلات المحلية
+// فوق السيرفر أول ما النت يرجع. بنستنى لقطة fromCache=false قبل ما نفتح الرفع. (false = السلوك القديم بالظبط لو حصلت مشكلة.)
+const SYNC_REQUIRE_SERVER_FIRST = true;
+let __delAt = null, __delAtSaveT = null;
+function _delAtLoad(){
+  if(__delAt) return __delAt;
+  let m=null; try{ m=DB.get('_delAt'); }catch(e){}
+  if(!m || typeof m!=='object' || Array.isArray(m)) m={};
+  const lim=Date.now()-SYNC_DEL_RESEND_DAYS*86400000;
+  Object.keys(m).forEach(k=>{
+    const o=m[k];
+    if(!o || typeof o!=='object'){ delete m[k]; return; }
+    Object.keys(o).forEach(id=>{ if(!(o[id]>=lim)) delete o[id]; });
+    if(!Object.keys(o).length) delete m[k];
+  });
+  __delAt=m; return m;
+}
+let __delAtFlushHooked = false;
+function _delAtFlush(){ if(__delAtSaveT){ clearTimeout(__delAtSaveT); __delAtSaveT=null; } try{ if(__delAt) DB.set('_delAt', __delAt); }catch(e){} }
+function _noteDeletionTime(key,id){
+  const m=_delAtLoad();
+  (m[key]||(m[key]={}))[id]=Date.now();
+  if(!__delAtFlushHooked && typeof window!=='undefined' && window.addEventListener){
+    __delAtFlushHooked=true;
+    window.addEventListener('pagehide', _delAtFlush);
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden') _delAtFlush(); });
+  }
+  if(!__delAtSaveT){ __delAtSaveT=setTimeout(()=>{ __delAtSaveT=null; try{ DB.set('_delAt', __delAt); }catch(e){} }, 300); }
+}
+// تنضيف deletedIds: بعد ما الحذف القديم اتبعت فعلًا للسيرفر (_delLegacySent == رمز الربط الحالي) مبقاش ليه لازمة غير في
+// الحذف الجديد (آخر SYNC_DEL_RESEND_DAYS يوم). مبننضّفش على جهاز مش مربوط، ولا قبل نجاح المرور الأخير، ولا لأي مفتاح برا مفاتيح المزامنة.
+let __delPrunedThisSession = false;
+function _pruneDeletedIds(){
+  if(__delPrunedThisSession) return 0;
+  if(!syncEnabled || !syncCode || (DB.get('_delLegacySent')||'')!==syncCode) return 0;
+  __delPrunedThisSession = true;
+  const dm=_delAtLoad(), lim=Date.now()-SYNC_DEL_RESEND_DAYS*86400000;
+  let removed=0;
+  SYNC_ARRAY_KEYS.forEach(key=>{
+    const arr=deletedIds[key]; if(!Array.isArray(arr) || !arr.length) return;
+    const recent=dm[key]||{};
+    const keep=arr.filter(id=>recent[id]>=lim);
+    if(keep.length!==arr.length){ removed+=arr.length-keep.length; deletedIds[key]=keep; }
+  });
+  if(removed){ try{ save(); }catch(e){} }
+  return removed;
+}
 // آخر نسخة (JSON ثابت الترتيب) اتبعتت/اتستلمت لكل مجموعة من بيانات المستند الأساسي:
 // company (بروفايل الشركة) / settings (حدود التنبيه) / counters (عدّادات الترقيم) / treasury (رصيد الخزنة الافتتاحي)
 let __syncPushedMetaGroups = {};
@@ -3247,6 +3300,52 @@ function _bkSplit(json){
   return out;
 }
 
+// ضغط/فك ضغط (gzip + base64) للقطات اليومية بس. النسخة الرئيسية فضلت بنفس الشكل القديم بالظبط (متوافقة مع أي نسخة
+// قديمة من البرنامج)، واللقطات اليومية هي أكتر من 80% من حجم التخزين. لو المتصفح مش بيدعم الضغط، أو أي خطوة فشلت،
+// بنكتب اللقطة بالشكل القديم زي ما كانت.
+async function _bkGzipB64(str){
+  if(typeof CompressionStream==='undefined') throw new Error('no CompressionStream');
+  const cs=new CompressionStream('gzip');
+  const w=cs.writable.getWriter();
+  w.write(new TextEncoder().encode(str)).catch(()=>{}); w.close().catch(()=>{});
+  const u8=new Uint8Array(await new Response(cs.readable).arrayBuffer());
+  let bin=''; for(let i=0;i<u8.length;i+=0x8000) bin+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));
+  return btoa(bin);
+}
+async function _bkGunzipB64(b64){
+  if(typeof DecompressionStream==='undefined') throw new Error('no DecompressionStream');
+  const bin=atob(b64); const u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+  const ds=new DecompressionStream('gzip');
+  const w=ds.writable.getWriter();
+  w.write(u8).catch(()=>{}); w.close().catch(()=>{});
+  return new TextDecoder().decode(await new Response(ds.readable).arrayBuffer());
+}
+// كتابة لقطة يومية: مضغوطة في مستند واحد (بعد ما نتأكد إنها بتتفك لنفس النص بالظبط)، وإلا بالشكل القديم.
+// لو اللقطة القديمة على نفس المفتاح كانت مقطّعة (_chunked)، بنمسح قطعها اليتيمة بعد نجاح الكتابة الجديدة.
+async function _writeBackupDaily(key, data, json, meta){
+  let z=null;
+  try{
+    z=await _bkGzipB64(json);
+    if(z.length>BK_SINGLE_DOC_MAX_BYTES || (await _bkGunzipB64(z))!==json) z=null;
+  }catch(e){ z=null; }
+  if(!z) return _writeBackupSet(key, data, json, meta);
+  const col=__syncDB.collection('deviceBackups');
+  let cur=null;
+  try{ const cs=await col.doc(key).get(); if(cs.exists) cur=cs.data(); }catch(e){}
+  await col.doc(key).set(Object.assign({
+    _z:1, _zd:z, _hasData:true,
+    _counts:{clients:data.clients.length, invoices:data.invoices.length, stock:data.stock.length}
+  }, meta));
+  if(cur && cur._chunked){
+    try{
+      const n=Math.min(Math.max(Number(cur._n)||0,40),200);
+      const batch=__syncDB.batch();
+      for(let slot=0;slot<2;slot++) for(let i=0;i<n;i++) batch.delete(col.doc(key+'__c'+slot+'_'+i));
+      await batch.commit();
+    }catch(e){ console.warn('daily snapshot old chunks cleanup failed (ignored):', key, e); }
+  }
+}
 // كتابة نسخة تحت مفتاح واحد. صغيرة = مستند واحد بنفس الشكل القديم بالظبط (متوافق مع أي استرجاع قديم).
 // كبيرة = قطع في مستندات منفصلة، بتتكتب في "خانة" مش المستخدمة دلوقتي وبعدها بس المستند الرئيسي يتحوّل
 // عليها — فلو الرفع وقف في النص، النسخة السليمة القديمة تفضل شغالة.
@@ -3279,6 +3378,14 @@ async function _readBackupSet(base){
   if(!snap.exists) return null;
   const d=snap.data();
   if(!d) return null;
+  if(d._z){ // لقطة يومية مضغوطة
+    try{
+      const obj=JSON.parse(await _bkGunzipB64(d._zd));
+      if(!obj || typeof obj!=='object') return null;
+      obj._savedAt=d._savedAt; obj._deviceId=d._deviceId;
+      return obj;
+    }catch(e){ return null; }
+  }
   if(!d._chunked) return d;
   const parts=[];
   for(let i=0;i<d._n;i++){
@@ -3342,7 +3449,7 @@ async function _doBackupJob(data){
   const dow=new Date().getDay();
   let ok=true;
   for(const base of bases){
-    try{ await _writeBackupSet(base+'__d'+dow, data, json, _bkMeta()); }
+    try{ await _writeBackupDaily(base+'__d'+dow, data, json, _bkMeta()); }
     catch(e){ ok=false; console.warn('daily snapshot failed (ignored):', base, e); }
   }
   if(ok) DB.set('_bkHistDay', day);
@@ -3375,6 +3482,7 @@ function _applyBackupData(data){
   bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
   productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
   deletedIds=data.deletedIds||{};
+try{ DB.set('_delLegacySent',''); }catch(e){}
   docNumberCounters=data.docNumberCounters||{invoice:0, purchase:0, return:0, purchaseReturn:0};
   seedExpenseCategoriesIfNeeded(); // احتياطًا لو النسخة المسترجعة قديمة ومفيهاش قائمة البنود لسه
 }
@@ -3403,19 +3511,32 @@ async function _tryAutoRecover(key){
 // 450 عملية للدفعة الواحدة (الحد الفعلي لفايرستور 500 - سايبين هامش أمان)،
 // عشان لو عدد السجلات المتغيرة كبير (أول مزامنة لجهاز عنده بيانات قديمة كتير
 // مثلاً) الكتابة تعدي عادي من غير ما تتكسر بسبب تخطي الحد الأقصى للدفعة.
+// أخطاء مؤقتة (حصة فايربيز خلصت / السيرفر مش متاح / مهلة): الكتابة دي تستاهل نعيد محاولتها لاحقًا.
+// أي خطأ تاني (صلاحيات، بيانات مرفوضة...) بيفضل بنفس السلوك القديم بالظبط: مفيش إعادة محاولة.
+function _isTransientSyncError(e){
+  const c=e && e.code;
+  return c==='resource-exhausted'||c==='unavailable'||c==='deadline-exceeded'||c==='aborted'||c==='internal'||c==='cancelled'||c==='unknown';
+}
 function _commitSyncOps(ops){
   if(!ops.length) return Promise.resolve();
   const chunks=[];
   for(let i=0;i<ops.length;i+=450) chunks.push(ops.slice(i,i+450));
   let p=Promise.resolve();
-  chunks.forEach(chunk=>{
+  let doneChunks=0; // عدد الدفعات اللي وصلت السيرفر فعلًا (كل دفعة ذرّية: يا كلها يا ولا حاجة)
+  chunks.forEach((chunk,ci)=>{
     p=p.then(()=>{
       const batch=__syncDB.batch();
       chunk.forEach(op=>{ if(op.type==='delete') batch.delete(op.ref); else if(op.opts) batch.set(op.ref, op.data, op.opts); else batch.set(op.ref, op.data); });
       return batch.commit();
-    });
+    }).then(()=>{ doneChunks=ci+1; });
   });
-  return p;
+  return p.catch(err=>{
+    // الدفعات اللي ما وصلتش السيرفر (اللي فشلت + اللي بعدها): نلغي علامة "اتبعت" بتاعتها عشان تتعاد
+    if(_isTransientSyncError(err)){
+      chunks.slice(doneChunks).forEach(ch=>ch.forEach(op=>{ if(typeof op.rollback==='function'){ try{ op.rollback(); }catch(e){} } }));
+    }
+    throw err;
+  });
 }
 
 // ============================================================
@@ -3531,10 +3652,21 @@ function _refreshAfterMetaSync(roleSigBefore){
 // (workspaces/{syncCode}/{النوع}/{id}) - مش في مستند واحد ضخم فيه كل حاجة زي
 // قبل كده. الفايدة: جهازين يحفظوا سجلين مختلفين في نفس اللحظة تقريبًا من غير
 // ما أي واحد فيهم يمسح تعديل التاني بالغلط (كل سجل مستقل تمامًا عن الباقي).
+let __syncPushRetryTimer = null, __syncPushRetryAttempt = 0;
+function _scheduleSyncPushRetry(){
+  if(__syncPushRetryTimer) return;
+  const n = ++__syncPushRetryAttempt;
+  const delay = Math.min(30000 * Math.pow(2, n-1), 600000); // 30 ثانية ثم بنضاعف لحد 10 دقايق
+  __syncPushRetryTimer = setTimeout(()=>{ __syncPushRetryTimer=null; try{ pushSyncSnapshot(); }catch(e){} }, delay);
+}
 function pushSyncSnapshot(){
   if(!syncEnabled || !syncCode || !__syncDB || !__syncPushReady) return;
   try{
     const ops=[];
+    const _codeAtPush=syncCode;
+    const _legacyPass=(DB.get('_delLegacySent')||'')!==_codeAtPush; // لسه ما بعتناش الحذف القديم لرمز الربط ده من الجهاز ده
+    const _dm=_delAtLoad(), _lim=Date.now()-SYNC_DEL_RESEND_DAYS*86400000;
+    let _legacySentNow=false;
     const map=getSyncArrayMap();
     const wsRef=__syncDB.collection('workspaces').doc(syncCode);
     SYNC_ARRAY_KEYS.forEach(key=>{
@@ -3549,16 +3681,27 @@ function pushSyncSnapshot(){
         // الجهاز، عشان أي جهاز تاني يستلم السجل ده بعدين يقدر يكتشف لو هو كان بيعدّل نفس السجل
         // في نفس الوقت تقريبًا (تعارض حقيقي) بدل ما يستبدله من غير ما حد ينتبه - راجع
         // _isSyncConflict() و applyIncomingChanges() تحت.
+        const prevCached=cache.get(item.id);
         item._v=(Number(item._v)||0)+1;
         item._updatedAt=Date.now();
         item._updatedBy=__deviceId;
-        ops.push({ref:wsRef.collection(key).doc(String(item.id)), type:'set', data:item});
-        cache.set(item.id, JSON.stringify(item));
+        const pushedJson=JSON.stringify(item);
+        // لو الكتابة فشلت فشل مؤقت: نرجّع كاش المقارنة لحاله القديم عشان السجل يتبعت تاني (مش يتعتبر اتبعت).
+        // ما بنرجّعش _v/_updatedBy للسجل نفسه: ختم "ده تعديلي أنا" هو اللي بيحميه من الكتابة فوقه لو جه تحديث من جهاز تاني.
+        ops.push({ref:wsRef.collection(key).doc(String(item.id)), type:'set', data:item, rollback:()=>{
+          if(cache.get(item.id)===pushedJson){ if(prevCached===undefined) cache.delete(item.id); else cache.set(item.id, prevCached); }
+        }});
+        cache.set(item.id, pushedJson);
       });
       const delSet=__syncPushedDeletions[key] || (__syncPushedDeletions[key]=new Set());
       (deletedIds[key]||[]).forEach(id=>{
         if(delSet.has(id)) return;
-        ops.push({ref:wsRef.collection(key).doc(String(id)), type:'delete'});
+        const _t=(_dm[key]||{})[id];
+        if(!(_t>=_lim)){            // حذف قديم (من غير تاريخ حديث): بيتبعت مرة أخيرة بس في أول مرور بعد التحديث
+          if(!_legacyPass) return;
+          _legacySentNow=true;
+        }
+        ops.push({ref:wsRef.collection(key).doc(String(id)), type:'delete', rollback:()=>{ delSet.delete(id); }});
         delSet.add(id);
         cache.delete(id);
       });
@@ -3587,11 +3730,20 @@ function pushSyncSnapshot(){
       metaData._updatedAt=(typeof firebase!=='undefined' && firebase.firestore && firebase.firestore.FieldValue)
         ? firebase.firestore.FieldValue.serverTimestamp() : Date.now();
       metaData._schemaVersion=2;
-      ops.push({ref:wsRef, type:'set', data:metaData, opts:{mergeFields:[...metaFields,'_updatedBy','_updatedAt','_schemaVersion']}});
+      const prevMeta={};
+      metaChanged.forEach(([g])=>{ prevMeta[g]=__syncPushedMetaGroups[g]; });
+      ops.push({ref:wsRef, type:'set', data:metaData, opts:{mergeFields:[...metaFields,'_updatedBy','_updatedAt','_schemaVersion']}, rollback:()=>{
+        metaChanged.forEach(([g,json])=>{
+          if(__syncPushedMetaGroups[g]===json){ if(prevMeta[g]===undefined) delete __syncPushedMetaGroups[g]; else __syncPushedMetaGroups[g]=prevMeta[g]; }
+        });
+      }});
       metaChanged.forEach(([g,json])=>{ __syncPushedMetaGroups[g]=json; });
     }
     if(!ops.length) return;
-    _commitSyncOps(ops).catch(e=>{ console.warn('sync push failed (ignored):', e); });
+    _commitSyncOps(ops).then(()=>{ __syncPushRetryAttempt=0; if(_legacySentNow){ DB.set('_delLegacySent', _codeAtPush); try{ _pruneDeletedIds(); }catch(e){} } }).catch(e=>{
+      console.warn('sync push failed:', e);
+      if(_isTransientSyncError(e)) _scheduleSyncPushRetry();
+    });
   }catch(e){ console.warn('sync push error (ignored):', e); }
 }
 
@@ -3650,6 +3802,7 @@ function applyRemoteSnapshot(remoteData){
 }
 
 let __syncListenerActive = false;
+let __syncListenerGen = 0; // رقم دورة الاستماع الحالية - عشان أي إعادة محاولة قديمة (بعد إيقاف الربط/تغيير الرمز) متشتغلش بالغلط
 // بيبدأ استماع لحظي مستقل لكل نوع سجل (كولكشن فرعي) على حدة، بدل استماع واحد
 // لمستند ضخم. أول "لقطة" (snapshot) من كل كولكشن هي نفسها بتمثل التحميل الأولي
 // (بديل القراءة اليدوية المنفصلة اللي كانت موجودة قبل كده) - بنستخدمها عشان
@@ -3662,6 +3815,20 @@ function startSyncListener(){
   // مفاتيح لسه مستنيين أول لقطة منها (المستند الأساسي '__root' كمان جزء من الانتظار - عشان جهاز جديد متبعتش
   // بروفايل شركة/إعدادات فاضية على السيرفر قبل ما يشوف اللي عليه الأول)
   const pendingKeys = new Set([...SYNC_ARRAY_KEYS,'__root']);
+  // حماية من الرفع فوق بيانات السيرفر: لو التحميل الأولي لأي كولكشن فشل (حصة فايربيز خلصت، صلاحيات، إلخ)
+  // مبنعتبرهوش "اتحمّل" ومبنفتحش الرفع (__syncPushReady بيفضل false) - وإلا الجهاز كان هيرفع نسخته المحلية كلها
+  // فوق السيرفر من غير ما يشوف اللي عليه، وممكن يكتب نسخة قديمة فوق تعديلات أحدث من جهاز تاني.
+  // بدل كده بنعيد محاولة الاستماع للكولكشن اللي فشل بس (15 ثانية ثم بنضاعف لحد 10 دقايق).
+  const _myGen = ++__syncListenerGen, _myCode = syncCode;
+  const _retryAttempts = {};
+  const _retryInitial = (id, fn)=>{
+    const n = _retryAttempts[id] = (_retryAttempts[id]||0) + 1;
+    const delay = Math.min(15000 * Math.pow(2, n-1), 600000);
+    setTimeout(()=>{
+      if(!__syncListenerActive || _myGen!==__syncListenerGen || !syncEnabled || syncCode!==_myCode) return;
+      try{ fn(); }catch(e){ console.warn('sync retry error (ignored):', e); _retryInitial(id, fn); }
+    }, delay);
+  };
   const _finishInitialLoadIfReady = ()=>{
     if(pendingKeys.size>0 || __syncPushReady) return;
     __syncPushReady = true;
@@ -3669,17 +3836,27 @@ function startSyncListener(){
     if(!isUserActivelyTyping() && !isFormInProgress()) render();
     _refreshAfterMetaSync(null); // بيانات الشركة اللي وصلت في أول تحميل لازم تظهر فورًا في الشريط والقوايم
     pushSyncSnapshot(); // سجلات محلية مكانتش على السيرفر (جهاز بيدخل بربط لأول مرة) تتبعت دلوقتي
+    try{ _pruneDeletedIds(); }catch(e){}
   };
   try{
-    SYNC_ARRAY_KEYS.forEach(key=>{
+    const _attachKey = (key, plain)=>{
       let firstSnapshotForKey = true;
-      const unsub = wsRef.collection(key).onSnapshot(snapshot=>{
+      // سجل الحذف والتعديل (auditLog) بيكبر مع كل عملية على السيرفر ومفيش حاجة بتمسحه، والتطبيق أصلًا بيحتفظ بآخر 500 بس محليًا.
+      // فبدل ما كل جهاز يقرا السجل كله (ويتحاسب عليه) عند كل فتح، بنقرا آخر 500 بس (orderBy ts). لو الاستعلام نفسه اترفض
+      // لسبب دائم (مثلًا فهرس) بنرجع للاستماع الكامل القديم (plain) من غير ما نوقف المزامنة.
+      const _auditWin = (key==='auditLog' && !plain);
+      const _colRef = _auditWin ? wsRef.collection(key).orderBy('ts','desc').limit(500) : wsRef.collection(key);
+      const unsub = _colRef.onSnapshot({includeMetadataChanges:true}, snapshot=>{
+        if(SYNC_REQUIRE_SERVER_FIRST && firstSnapshotForKey && snapshot.metadata && snapshot.metadata.fromCache) return; // لسه من الكاش: نستنى السيرفر
         const map = getSyncArrayMap();
         const localById = new Map((map[key]||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
         const cache = __syncPushedSnapshot[key] || (__syncPushedSnapshot[key]=new Map());
         const additions=[], updates=[], removedIds=[];
-        snapshot.docChanges().forEach(change=>{
+        // أول لقطة مقبولة = كل المستندات (مش بس الفرق عن لقطة الكاش اللي اتجاهلناها). بدون كاش محفوظ ده نفس docChanges بالظبط.
+        const _changes = (firstSnapshotForKey && Array.isArray(snapshot.docs)) ? snapshot.docs.map(d=>({type:'added', doc:d})) : snapshot.docChanges();
+        _changes.forEach(change=>{
           if(!firstSnapshotForKey && change.doc.metadata.hasPendingWrites) return; // كتابتنا إحنا لسه معلقة، مش تحديث حقيقي من برا
+          if(_auditWin && change.type==='removed') return; // خروج سجل قديم من نافذة آخر 500 مش حذف حقيقي (مفيش ميزة بتمسح سجلات السجل)
           if(change.type==='removed'){
             cache.delete(change.doc.id);
             if(!firstSnapshotForKey) removedIds.push(change.doc.id);
@@ -3711,15 +3888,28 @@ function startSyncListener(){
           if(!isUserActivelyTyping() && !isFormInProgress()) render();
         }
       }, err=>{
-        console.warn('sync listen error ('+key+', ignored):', err);
+        console.warn('sync listen error ('+key+'):', err);
+        if(_auditWin && firstSnapshotForKey && !_isTransientSyncError(err)){ _attachKey(key, true); return; }
+        if(firstSnapshotForKey){
+          // فشل قبل أول تحميل: الكولكشن يفضل "مستني" (الرفع مقفول) ونعيد المحاولة لاحقًا
+          _retryInitial(key, ()=>_attachKey(key));
+          return;
+        }
+        // خطأ بعد ما التحميل الأولي خلص: نفس السلوك القديم بالظبط
         pendingKeys.delete(key);
         _finishInitialLoadIfReady();
       });
       __syncSubListeners.push(unsub);
-    });
+    };
+    SYNC_ARRAY_KEYS.forEach(key=>_attachKey(key));
     // استماع لتحديثات بروفايل الشركة والإعدادات العامة ورصيد الخزنة الافتتاحي (المستند الأساسي الصغير)
-    let rootFirstSnapshot = true;
-    const unsubRoot = wsRef.onSnapshot(doc=>{
+    const _attachRoot = ()=>{
+    let rootFirstSnapshot = true, lastRootJson = null;
+    const unsubRoot = wsRef.onSnapshot({includeMetadataChanges:true}, doc=>{
+      if(SYNC_REQUIRE_SERVER_FIRST && rootFirstSnapshot && doc.metadata && doc.metadata.fromCache) return; // لسه من الكاش: نستنى السيرفر
+      let _rj=null; try{ _rj=JSON.stringify(doc.exists?doc.data():null); }catch(e){}
+      const _rootSame=(!rootFirstSnapshot && _rj!==null && _rj===lastRootJson); // حدث metadata بس (البيانات نفسها ما اتغيرتش)
+      lastRootJson=_rj;
       if(rootFirstSnapshot){
         rootFirstSnapshot=false;
         if(doc.exists) _applyRootMeta(doc.data());
@@ -3728,6 +3918,7 @@ function startSyncListener(){
         _finishInitialLoadIfReady();
         return;
       }
+      if(_rootSame) return;
       if(!doc.exists || doc.metadata.hasPendingWrites) return;
       const sigBefore=_roleConfigSig();
       if(_applyRootMeta(doc.data())){
@@ -3736,11 +3927,14 @@ function startSyncListener(){
         if(!isUserActivelyTyping() && !isFormInProgress()) render();
       }
     }, err=>{
-      console.warn('sync root listen error (ignored):', err);
+      console.warn('sync root listen error:', err);
+      if(rootFirstSnapshot){ _retryInitial('__root', ()=>_attachRoot()); return; }
       pendingKeys.delete('__root');
       _finishInitialLoadIfReady();
     });
     __syncSubListeners.push(unsubRoot);
+    };
+    _attachRoot();
   }catch(e){
     console.warn('sync listener setup failed (ignored):', e);
     __syncListenerActive = false; // نسمح بمحاولة تانية لاحقًا (مثلاً لما النت يرجع)
@@ -3756,7 +3950,13 @@ async function _pullAllSyncData(){
   const additions={}, updates={};
   let addCount=0, updCount=0;
   for(const key of SYNC_ARRAY_KEYS){
-    const snap = await wsRef.collection(key).get();
+    let snap;
+    if(key==='auditLog'){
+      try{ snap = await wsRef.collection(key).orderBy('ts','desc').limit(500).get({source:'server'}); }
+      catch(e){ snap = await wsRef.collection(key).get({source:'server'}); }
+    }else{
+      snap = await wsRef.collection(key).get({source:'server'});
+    }
     const map = getSyncArrayMap();
     const localById = new Map((map[key]||[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
     const cache = __syncPushedSnapshot[key] || (__syncPushedSnapshot[key]=new Map());
@@ -3771,9 +3971,9 @@ async function _pullAllSyncData(){
     if(newItems.length){ additions[key]=newItems; addCount+=newItems.length; }
     if(changedItems.length){ updates[key]=changedItems; updCount+=changedItems.length; }
   }
-  if(addCount||updCount) applyIncomingChanges(additions,updates,true);
+  if(addCount||updCount){ const kept=applyIncomingChanges(additions,updates,true)||0; updCount-=kept; }
   let metaChanged=false;
-  const rootDoc = await wsRef.get();
+  const rootDoc = await wsRef.get({source:'server'});
   if(rootDoc.exists){
     const sigBefore=_roleConfigSig();
     metaChanged=_applyRootMeta(rootDoc.data());
@@ -3828,7 +4028,7 @@ const SYNC_ARRAY_LABELS={
 function recordDeletion(key,id){
   if(!id) return;
   if(!deletedIds[key]) deletedIds[key]=[];
-  if(!deletedIds[key].includes(id)) deletedIds[key].push(id);
+  if(!deletedIds[key].includes(id)){ deletedIds[key].push(id); try{ _noteDeletionTime(key,id); }catch(e){} }
 }
 
 // سجل الحذف والتعديل (شاشة "سجل الحذف والتعديل" آخر المزيد) — منفصل تمامًا عن recordDeletion
@@ -3904,6 +4104,16 @@ function applyIncomingDeletions(remoteDeletedIds){
 function _isSyncConflict(local, remote){
   return !!local && local._updatedBy===__deviceId && (Number(local._v)||0)>=(Number(remote._v)||0);
 }
+// حماية من فقد تعديل محلي: في التحميل الأولي / السحب اليدوي (skipConflictDetection) نسخة السيرفر ممكن تبقى أقدم من تعديل
+// عملناه على الجهاز ده ولسه ما وصلش السيرفر (اتعمل أوفلاين وقفلنا التطبيق قبل الرفع، أو الرفع فشل). قبل كده كانت بتستبدله
+// بنسخة السيرفر الأقدم وتضيع التعديل. دلوقتي بنسيب السجل المحلي لو: آخر تعديل عليه من الجهاز ده + رقم نسخته (_v) أكبر
+// من اللي على السيرفر + وقت تعديله (_updatedAt) مش أقدم. بعدها pushSyncSnapshot هيرفعه لأن كاش المقارنة فيه نسخة السيرفر.
+// أي حالة تانية (نسخة السيرفر أحدث أو مساوية، سجل قديم من غير _v، جهاز تاني) = نفس السلوك القديم بالظبط.
+function _isLocalNewerUnsynced(local, remote){
+  return !!local && local._updatedBy===__deviceId
+    && (Number(local._v)||0) > (Number(remote._v)||0)
+    && (Number(local._updatedAt)||0) >= (Number(remote._updatedAt)||0);
+}
 // اسم قصير مفهوم للسجل عشان يتعرض في سجل الحذف والتعديل عند اكتشاف تعارض - بيجرب أشهر الحقول
 // المستخدمة زي الاسم/الرقم/الملاحظة، وبيرجع جزء من الـid لو معرفش حقل مناسب
 function _syncItemLabel(item){
@@ -3940,11 +4150,13 @@ function applyIncomingChanges(additions,updates,skipConflictDetection){
     if(map[key]) map[key].push(...additions[key]);
   });
   const _conflicts=[];
+  let _kept=0; // عدد السجلات المحلية اللي اتسابت لأنها أحدث من نسخة السيرفر
   Object.keys(updates).forEach(key=>{
     const arr=map[key]; if(!arr) return;
     updates[key].forEach(remoteItem=>{
       const idx=arr.findIndex(x=>x&&x.id===remoteItem.id);
       if(idx>-1){
+        if(skipConflictDetection && _isLocalNewerUnsynced(arr[idx],remoteItem)){ _kept++; return; }
         if(!skipConflictDetection && _isSyncConflict(arr[idx],remoteItem)) _conflicts.push({key,item:arr[idx]});
         arr[idx]=remoteItem;
       }
@@ -3959,6 +4171,7 @@ function applyIncomingChanges(additions,updates,skipConflictDetection){
     auditLog.sort((a,b)=>(b.ts||0)-(a.ts||0));
     if(auditLog.length>500) auditLog.length=500;
   }
+  return _kept;
 }
 
 // الزرار اللي بيستلم التحديثات فعليًا - بيجيب آخر نسخة من السيرفر،
@@ -8559,7 +8772,7 @@ function importData(){
           // ملفات قديمة اتصدّرت قبل الإصلاح ده مش هيبقى فيها الحقول دي، فبنسيب البيانات المحلية زي ما هي بدل ما نمسحها بالغلط
           if(Array.isArray(data.repNotes)){repNotes=data.repNotes;}
           if(Array.isArray(data.clientNotes)){clientNotes=data.clientNotes;}
-          if(data.deletedIds&&typeof data.deletedIds==='object'){deletedIds=data.deletedIds;}
+          if(data.deletedIds&&typeof data.deletedIds==='object'){deletedIds=data.deletedIds;try{ DB.set('_delLegacySent',''); }catch(e){}}
           if(typeof data.treasuryOpening!=='undefined'){treasuryOpening=Number(data.treasuryOpening)||0;}else{oldFileWarning=true;}
           if(typeof data.lowStockDefault!=='undefined'){lowStockDefault=Number(data.lowStockDefault)||10;}
           if(typeof data.expiryAlertMonths!=='undefined'){expiryAlertMonths=Number(data.expiryAlertMonths)||2;}
@@ -12607,6 +12820,15 @@ try{
     // بيانات الفواتير/المخزون فيها حقول اختيارية ممكن تبقى "undefined" (مثلاً خصم
     // مش متسجل)، وFirestore بيرفض القيمة دي ويوقف الحفظ كله لو معملناش الإعداد ده.
     __syncDB.settings({ ignoreUndefinedProperties: true });
+    // تجربة اختيارية (مقفولة افتراضيًا): كاش Firestore المحفوظ على الجهاز. بيقلل القراءات لما الاتصال بيقطع ويرجع في أقل من
+    // 30 دقيقة. بتتفعّل على جهاز معيّن بفتح التطبيق مرة بـ ?fsp=1 في آخر الرابط (و ?fsp=0 تقفلها). أي فشل = بيكمل من غيرها.
+    try{
+      const _fsp=new URLSearchParams(location.search).get('fsp');
+      if(_fsp==='1'||_fsp==='0') DB.set('_fsPersist', _fsp==='1'?1:0);
+      if(DB.get('_fsPersist')===1){
+        __syncDB.enablePersistence().catch(function(e){ console.warn('firestore persistence unavailable (ignored):', e && e.code); });
+      }
+    }catch(e){ console.warn('persistence flag skipped:', e); }
     // تسجيل الدخول بجوجل هنا للتوثيق الإضافي بس (خط دفاع أخير لو الجهاز نسي كل حاجة
     // بما فيها التفعيل) — مش شرط لاستخدام البرنامج، ومفيش أي واجهة إجبارية بتاعته.
     firebase.auth().onAuthStateChanged(function(user){
