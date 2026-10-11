@@ -8760,18 +8760,18 @@ function doExportDevice(){
   const blob=buildExportBlob();
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json');a.click();
+  a.href=url;a.download=_bkManualFileName('json');a.click();
   URL.revokeObjectURL(url);
   markExported();
   document.getElementById('exportModal').style.display='none';
 }
 async function doExportShare(){
   const blob=buildExportBlob();
-  const fileName=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.json');
+  const fileName=_bkManualFileName('json');
   // متصفحات أندرويد (كروم) بترفض مشاركة ملفات JSON تحديدًا (قيد أمان معروف في المتصفح نفسه —
   // بيسمح بمشاركة نصوص/صور/صوت بس)، فبنجهز نسخة بنفس المحتوى بالظبط بامتداد .txt عشان المشاركة
   // تعدي، من غير ما يأثر على البيانات جوه الملف ولا على استيرادها لاحقًا
-  const shareFileName=safeFileName('نسخة_احتياطية'+backupFileLabel()+'_'+today()+'.txt');
+  const shareFileName=_bkManualFileName('txt');
   const file=new File([blob],shareFileName,{type:'text/plain'});
   document.getElementById('exportModal').style.display='none';
   // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
@@ -8806,14 +8806,15 @@ function hideExportReminder(){
 }
 // ============================================================
 // النسخ الاحتياطي اليومي (أوفلاين بالكامل — من غير أي سيرفر)
-// 1) أول فتح كل يوم: محاولة تنزيل تلقائي لملف "back up SM <التاريخ>.json"
+// 1) أول فتح كل يوم: محاولة تنزيل تلقائي لملف "back up SM auto <التاريخ>.json" (والتصدير اليدوي: "back up SM <التاريخ>.json")
 // 2) المتصفح مش بيقول لو التنزيل التلقائي اتحجب ولا لأ — فبنفضل نعرض شريط بيسأل المستخدم يتأكد،
 //    ومبنقولش "تم الحفظ بنجاح" غير لما هو يضغط (نزّلها دلوقتي / لقيتها)
 // 3) لقطة داخلية كل يوم (آخر 7 أيام) في قاعدة بيانات منفصلة — بتحمي من تلف جزئي، ومنها بيرجع
 //    الاسترجاع التلقائي لو البيانات اتمسحت لوحدها
 // ============================================================
 let __bkBarHidden=false, __bkAutoErr=false, __snapLastAt=0;
-function _bkDailyFileName(){ return 'back up SM '+today()+'.json'; }
+function _bkDailyFileName(){ return 'back up SM auto '+today()+'.json'; }   // التلقائي: فيه كلمة auto
+function _bkManualFileName(ext){ return 'back up SM '+today()+'.'+(ext||'json'); }   // اليدوي: نفس الاسم من غير auto
 function _bkDownloadDaily(){
   const blob=buildExportBlob();
   const url=URL.createObjectURL(blob);
