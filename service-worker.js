@@ -1,6 +1,10 @@
 // اسم الكاش - ثابت عمدًا (متغيّرش لـ v4) عشان مكتبات قارئ الباركود المتخزنة عند العملاء ماتتمسحش
 const CACHE_NAME = 'elnokhba-cache-v3';
 
+// بادئة أسماء كاشات البرنامج ده بس. التنضيف وقت التفعيل بيمسح الإصدارات القديمة اللي بتبدأ بالبادئة دي،
+// ومبيلمسش أي كاش لتطبيق تاني على نفس الدومين (زي برنامج الكتاكيت) لأن الكاش مشترك على مستوى الدومين
+const CACHE_PREFIX = 'elnokhba-cache-';
+
 // مهلة انتظار النت للصفحة الرئيسية: لو النت بطيء أو إشارته ضعيفة وفي نسخة محفوظة،
 // نفتح من النسخة المحفوظة بعد المدة دي بدل ما العميل يشوف شاشة بيضا، والتحديث يكمل في الخلفية
 const NAV_TIMEOUT_MS = 4000;
@@ -42,13 +46,13 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// وقت التفعيل: امسح أي كاش قديم باسم مختلف، وامسح بس بقايا مكتبات الفاير بيز من الكاش الحالي،
+// وقت التفعيل: امسح إصدارات الكاش القديمة بتاعة البرنامج ده بس، وامسح بس بقايا مكتبات الفاير بيز من الكاش الحالي،
 // وخد تحكم في الصفحات المفتوحة فورًا من غير ما يحتاج المستخدم يعمل reload يدوي
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then(names => Promise.all(
-        names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n))
+        names.filter(n => n.startsWith(CACHE_PREFIX) && n !== CACHE_NAME).map(n => caches.delete(n))
       ))
       .then(() => caches.open(CACHE_NAME))
       .then(cache => cache.keys().then(reqs => Promise.all(
