@@ -608,7 +608,6 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button class="hdr-btn" onclick="openGlobalSearch()">🔍 بحث</button>
     <button class="hdr-btn" onclick="exportData()">💾 تصدير</button>
     <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
-    <button class="hdr-btn" onclick="openSyncModal()">🔗 ربط الأجهزة</button>
     <button class="hdr-btn" onclick="openPinModal()">🔑 PIN المالك</button>
     <button class="hdr-btn" onclick="openWorkerPinModal()">👤 الصلاحيات</button>
     <button class="hdr-btn" id="handoverBtn" style="display:none;background:#8E44AD;color:#fff" onclick="handoverToWorker()">🔒 تسليم للعامل</button>
@@ -626,6 +625,15 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
   </div>
 </div>
 
+<div id="dailyBackupBar" style="display:none;background:#FCF3CF;border-bottom:2px solid #F1C40F;padding:8px 12px;align-items:center;justify-content:space-between;gap:8px;font-size:12px;">
+  <span class="bk-text" style="color:#7D6608;flex:1;line-height:1.7"></span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+    <button onclick="_bkBarDownload()" style="background:#27AE60;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer;white-space:nowrap">نزّلها دلوقتي</button>
+    <button onclick="_bkBarConfirm()" style="background:#2E86C1;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer;white-space:nowrap">✓ لقيتها</button>
+    <button onclick="_bkBarHide()" style="background:none;border:none;color:#7D6608;font-size:14px;cursor:pointer;padding:0 4px">✕</button>
+  </div>
+</div>
+
 <div id="exportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
   <div class="modal-card mc-narrow" style="background:#fff;border-radius:12px;width:100%">
     <div class="modal-title" style="margin-bottom:4px">💾 تصدير النسخة الاحتياطية</div>
@@ -633,7 +641,6 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportDevice()" class="modal-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:8px">📱 حفظ على الجهاز</button>
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:#B2BABB;margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
-    <div id="exportModalGoogleLinkRow" style="border-top:1px solid #ECF0F1;padding-top:12px;margin-bottom:8px"></div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:#ECF0F1;color:#717D7E;border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
   </div>
 </div>
@@ -2027,6 +2034,7 @@ function _diagInit(){
         'آخر خطأ استماع: '+er(d.listenErr),
         'نسخة احتياطية رئيسية: '+_diagAgo(d.bkOk),
         'لقطة يومية: '+_diagAgo(d.bkDailyOk),
+        'آخر استرجاع داخلي: '+(()=>{ const l=DB.get('_restoreLog')||[]; const x=l[l.length-1]; return x?(x.at.slice(0,10)+' من لقطة '+x.snapDay):'—'; })(),
         'آخر خطأ نسخ: '+er(d.bkErr),
         'تاب قديم: '+(__tabStale?'نعم':'لا')
       ].join('\n');
@@ -3229,7 +3237,7 @@ function resetTabOrder(){
 // لـ Firestore من هنا. يعني حتى لو المستخدم "فعّل" الميزة دلوقتي،
 // مفيش أي بيانات بتتحرك لحد المرحلة الجاية.
 // ============================================================
-let syncEnabled = DB.get('_syncEnabled') || false;
+let syncEnabled = false; // الربط اتلغى نهائيًا — البرنامج أوفلاين بالكامل (نفس حالة أي جهاز عمره ما اتربط)
 let syncCode = DB.get('_syncCode') || '';
 // ===== حالة نظام المزامنة الجديد (مستند مستقل لكل سجل بدل مستند واحد ضخم) =====
 // __syncPushReady: هيبقى true بس بعد ما نخلص أول تحميل من السيرفر لكل الكولكشنز - قبل
@@ -8746,6 +8754,7 @@ function buildExportBlob(){
 function markExported(){
   DB.set('_lastExport', new Date().toISOString());
   hideExportReminder();
+  try{ _renderDailyBackupBar(); }catch(e){}
 }
 function doExportDevice(){
   const blob=buildExportBlob();
@@ -8795,49 +8804,175 @@ function hideExportReminder(){
   const el=document.getElementById('exportReminder');
   if(el) el.style.display='none';
 }
-// نسخة احتياطية تلقائية فعلية: بتنزل ملف الباك أب لوحدها في مجلد التنزيلات
-// من غير ما ينتظر المستخدم يدوس على أي زرار — بتحمي البيانات حتى لو حد مسح بيانات كروم بعد كده
+// ============================================================
+// النسخ الاحتياطي اليومي (أوفلاين بالكامل — من غير أي سيرفر)
+// 1) أول فتح كل يوم: محاولة تنزيل تلقائي لملف "back up SM <التاريخ>.json"
+// 2) المتصفح مش بيقول لو التنزيل التلقائي اتحجب ولا لأ — فبنفضل نعرض شريط بيسأل المستخدم يتأكد،
+//    ومبنقولش "تم الحفظ بنجاح" غير لما هو يضغط (نزّلها دلوقتي / لقيتها)
+// 3) لقطة داخلية كل يوم (آخر 7 أيام) في قاعدة بيانات منفصلة — بتحمي من تلف جزئي، ومنها بيرجع
+//    الاسترجاع التلقائي لو البيانات اتمسحت لوحدها
+// ============================================================
+let __bkBarHidden=false, __bkAutoErr=false, __snapLastAt=0;
+function _bkDailyFileName(){ return 'back up SM '+today()+'.json'; }
+function _bkDownloadDaily(){
+  const blob=buildExportBlob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=_bkDailyFileName();
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+}
+function _bkLastOkMs(){
+  const a=DB.get('_lastExport'), b=DB.get('_bkOkAt');
+  const ta=a?new Date(a).getTime():0, tb=b?new Date(b).getTime():0;
+  return Math.max(ta||0, tb||0);
+}
+function _bkOkToday(){
+  const t=_bkLastOkMs();
+  return !!t && toLocalDateStr(new Date(t))===today();
+}
 function checkAutoBackup(){
   const hasData = clients.length>0 || invoices.length>0 || purchases.length>0 || suppliers.length>0 || stock.length>0;
-  if(!hasData) return; // مفيش داعي لباك أب فاضي على جهاز جديد لسه ملوش بيانات
-  const last = DB.get('_lastAutoExport');
-  const daysSince = last ? (Date.now()-new Date(last).getTime())/(1000*60*60*24) : Infinity;
-  if(daysSince < 3) return; // باك أب تلقائي كل 3 أيام بحد أقصى
-  try{
-    const blob = buildExportBlob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = safeFileName('نسخة_احتياطية_تلقائية'+backupFileLabel()+'_'+today()+'.json');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url), 3000);
-    const now = new Date().toISOString();
-    DB.set('_lastAutoExport', now);
-    // ملحوظة: مبقيناش نحدّث _lastExport هنا. التنزيل التلقائي من غير ضغطة من المستخدم بيتحجب بصمت في
-    // متصفحات كتير، فمينفعش نعتبره نسخة مضمونة ونخفي تذكير النسخ اليدوي (مشاركة → Drive).
-  }catch(e){
-    console.error('فشل الباك أب التلقائي', e);
+  if(!hasData || !__dataLoaded) return; // مفيش داعي لباك أب فاضي على جهاز جديد لسه ملوش بيانات
+  if(DB.get('_bkAutoDay')!==today()){
+    __bkAutoErr=false;
+    try{ _bkDownloadDaily(); }catch(e){ __bkAutoErr=true; console.error('فشل الباك أب التلقائي', e); }
+    DB.set('_bkAutoDay', today());
   }
+  try{ _snapWrite(true).catch(e=>console.warn('snapshot failed (ignored):', e)); }catch(e){}
+  try{ _renderDailyBackupBar(); }catch(e){}
 }
+function _renderDailyBackupBar(){
+  const el=document.getElementById('dailyBackupBar');
+  if(!el) return;
+  if(__bkBarHidden || DB.get('_bkAutoDay')!==today() || _bkOkToday() || isRestrictedRole() || !_hasAnyBusinessData()){
+    el.style.display='none'; return;
+  }
+  const last=_bkLastOkMs();
+  const days=last?Math.floor((Date.now()-last)/86400000):null;
+  const stale=(days===null || days>=3);
+  let txt = __bkAutoErr
+    ? '⚠️ النسخة التلقائية لليوم ما نزلتش. اضغط «نزّلها دلوقتي».'
+    : '📥 اتجهّزت نسخة اليوم تلقائيًا باسم «'+_bkDailyFileName()+'». اتأكد إنها في مجلد التنزيلات — ولو مش لاقيها اضغط «نزّلها دلوقتي».';
+  if(days===null) txt+=' (لسه مفيش نسخة مؤكدة)';
+  else if(days>=3) txt+=' (آخر نسخة مؤكدة من '+days+' يوم)';
+  el.querySelector('.bk-text').textContent=txt;
+  el.style.background=stale?'#FADBD8':'#FCF3CF';
+  el.style.borderBottomColor=stale?'#E74C3C':'#F1C40F';
+  el.querySelector('.bk-text').style.color=stale?'#922B21':'#7D6608';
+  el.style.display='flex';
+}
+function _bkBarDownload(){
+  try{
+    _bkDownloadDaily();
+    DB.set('_bkOkAt', new Date().toISOString());
+    __bkAutoErr=false;
+    showToast('✅ تم تنزيل النسخة الاحتياطية — راجعها في مجلد التنزيلات');
+  }catch(e){ showToast('❌ معرفناش ننزّل النسخة. جرّب زرار 💾 تصدير'); }
+  _renderDailyBackupBar();
+}
+function _bkBarConfirm(){
+  DB.set('_bkOkAt', new Date().toISOString());
+  showToast('✅ تم حفظ النسخة الاحتياطية بنجاح');
+  _renderDailyBackupBar();
+}
+function _bkBarHide(){ __bkBarHidden=true; _renderDailyBackupBar(); }
+
+// ----- اللقطات الداخلية (آخر 7 أيام) — قاعدة بيانات منفصلة عن بيانات البرنامج -----
+const _SNAP_DB=DB_NAME+'_snap', _SNAP_STORE='snaps';
+function _snapOpen(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(_SNAP_DB,1);
+    r.onupgradeneeded=()=>{ r.result.createObjectStore(_SNAP_STORE); };
+    r.onsuccess=()=>res(r.result);
+    r.onerror=()=>rej(r.error);
+    r.onblocked=()=>rej(new Error('snap db blocked'));
+  });
+}
+async function _snapWrite(force){
+  if(!__dataLoaded || !_hasAnyBusinessData()) return; // مبنكتبش لقطة فاضية أبدًا
+  const now=Date.now();
+  if(!force && __snapLastAt && now-__snapLastAt<1800000) return;
+  __snapLastAt=now;
+  const payload=_bkPayload();
+  const rec={savedAt:now, day:today(), score:_backupScore(payload), json:JSON.stringify(payload)};
+  const db=await _snapOpen();
+  try{
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(_SNAP_STORE,'readwrite');
+      tx.objectStore(_SNAP_STORE).put(rec,'d'+new Date().getDay());
+      tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); tx.onabort=()=>rej(tx.error);
+    });
+  }finally{ try{ db.close(); }catch(e){} }
+}
+async function _snapReadAll(){
+  const db=await _snapOpen();
+  try{
+    return await new Promise((res,rej)=>{
+      const out=[]; const tx=db.transaction(_SNAP_STORE,'readonly');
+      const rq=tx.objectStore(_SNAP_STORE).openCursor();
+      rq.onsuccess=e=>{ const c=e.target.result; if(c){ out.push(c.value); c.continue(); } else res(out); };
+      rq.onerror=()=>rej(rq.error);
+    });
+  }finally{ try{ db.close(); }catch(e){} }
+}
+// استرجاع من اللقطات الداخلية — بيتنادى بس لما البرنامج يبقى فاضي تمامًا (صفر في كل حاجة).
+// بيرجّع: 'ok' = استرجع بصمت | 'deleted' = اللي في اللقطات كله اتحذف عمدًا من جوه البرنامج (مفيش فقد) |
+// 'none' = مفيش لقطات فيها بيانات. أي سجل ليه علامة حذف (deletedIds) مبيترجعش أبدًا.
+async function _restoreFromLocalSnapshot(){
+  const rows=await _snapReadAll();
+  const found=[];
+  rows.forEach(r=>{
+    try{
+      const d=JSON.parse(r.json);
+      if(_backupHasRealData(d)) found.push({data:d, t:r.savedAt||0, day:r.day});
+    }catch(e){}
+  });
+  if(!found.length) return 'none';
+  const dels=deletedIds||{};
+  const keepDel={}; Object.keys(dels).forEach(k=>{ keepDel[k]=Array.isArray(dels[k])?dels[k].slice():[]; });
+  // نشيل من كل لقطة أي سجل اتحذف عمدًا، وبعدين نختار الأنسب (الأحدث، إلا لو أصغر من نص أغنى لقطة)
+  found.forEach(f=>{
+    _BK_CORE.forEach(k=>{
+      if(Array.isArray(f.data[k]) && keepDel[k] && keepDel[k].length){
+        const del=new Set(keepDel[k]);
+        f.data[k]=f.data[k].filter(r=>!(r && del.has(r.id)));
+      }
+    });
+    f.score=_backupScore(f.data);
+  });
+  const live=found.filter(f=>_backupHasRealData(f.data));
+  if(!live.length) return 'deleted';
+  const newest=live.reduce((a,b)=>b.t>a.t?b:a);
+  const richest=live.reduce((a,b)=>b.score>a.score?b:a);
+  const best=(newest.score*2<richest.score)?richest:newest;
+  _applyBackupData(best.data);
+  // نحافظ على علامات الحذف الحالية (الأحدث) مع اللي في اللقطة
+  Object.keys(keepDel).forEach(k=>{
+    const cur=Array.isArray(deletedIds[k])?deletedIds[k]:[];
+    deletedIds[k]=Array.from(new Set(cur.concat(keepDel[k])));
+  });
+  try{ _markHadRealData(); }catch(e){}
+  save();
+  // بصمت تام للعميل — بس سطر في سجل داخلي (بيبان في صندوق التشخيص ?diag=1)
+  try{
+    const lg=DB.get('_restoreLog')||[];
+    lg.push({at:new Date().toISOString(), snapDay:best.day||'', n:best.score});
+    DB.set('_restoreLog', lg.slice(-10));
+  }catch(e){}
+  return 'ok';
+}
+document.addEventListener('visibilitychange',()=>{
+  try{
+    if(document.visibilityState==='hidden'){ _snapWrite(false).catch(()=>{}); }
+    else if(__dataLoaded && DB.get('_bkAutoDay')!==today()){ setTimeout(checkAutoBackup,1500); }
+  }catch(e){}
+});
 
 function checkExportReminder(){
-  const last=DB.get('_lastExport');
-  const banner=document.getElementById('exportReminder');
-  if(!banner)return;
-  if(!last){
-    banner.style.display='flex';
-    banner.querySelector('.reminder-text').textContent='⚠️ متعملتش نسخة احتياطية لسه — يفضل تصدّر بياناتك بانتظام.';
-    return;
-  }
-  const daysSince=(Date.now()-new Date(last).getTime())/(1000*60*60*24);
-  if(daysSince>=7){
-    banner.style.display='flex';
-    banner.querySelector('.reminder-text').textContent=`⚠️ آخر تصدير كان من ${Math.floor(daysSince)} يوم — يفضل تعمل نسخة احتياطية جديدة.`;
-  }else{
-    banner.style.display='none';
-  }
+  // الشريط اليومي الجديد (dailyBackupBar) بقى هو المسؤول عن التذكير
+  hideExportReminder();
+  try{ _renderDailyBackupBar(); }catch(e){}
 }
 function importData(){
   if(isRestrictedRole()) return;
@@ -12012,13 +12147,13 @@ function _showWipeWarning(){
   el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
   el.innerHTML=`
     <div class="ww-card" style="background:#fff;border-radius:14px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div class="ww-icon" style="margin-bottom:10px">🔄</div>
-      <div class="modal-title" style="margin-bottom:10px">بنجهزلك بياناتك</div>
+      <div class="ww-icon" style="margin-bottom:10px">📂</div>
+      <div class="modal-title" style="margin-bottom:10px">بياناتك مش موجودة على الجهاز ده</div>
       <div class="warn-body" style="color:#555;line-height:1.8;margin-bottom:18px">
-        محتاجين شوية وقت أو نت أحسن. جرّب تاني بعد شوية، ولو استمرت لفترة كلّمنا وهنظبطهالك على طول.
+        غالبًا اتمسحت بسبب مسح بيانات المتصفح. لو عندك ملف النسخة الاحتياطية (اسمه <strong>back up SM</strong> وتاريخه) اضغط الزرار تحت واختاره، وكل بياناتك هترجع.
       </div>
-      <button onclick="_handlePossibleWipe()" class="warn-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-weight:bold;cursor:pointer;margin-bottom:10px">🔄 حاول تاني</button>
-      <a href="https://wa.me/201552623744" target="_blank" class="warn-btn" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-weight:bold;margin-bottom:10px">📞 كلّمنا على واتساب</a>
+      <button onclick="document.getElementById('wipeWarningScreen').remove();importData()" class="warn-btn" style="width:100%;background:#2E86C1;color:#fff;border:none;border-radius:8px;padding:13px;font-weight:bold;cursor:pointer;margin-bottom:10px">📂 استيراد ملف النسخة الاحتياطية</button>
+      <a href="https://wa.me/201552623744" target="_blank" class="warn-btn" style="display:block;background:#25D366;color:#fff;text-decoration:none;border-radius:8px;padding:13px;font-weight:bold;margin-bottom:10px">📞 كلّم المبرمج على واتساب</a>
       <button onclick="document.getElementById('wipeWarningScreen').remove()" class="modal-tiny" style="background:none;border:none;color:#95A5A6;cursor:pointer;text-decoration:underline">تجاهل والمتابعة</button>
     </div>`;
   document.body.appendChild(el);
@@ -12027,20 +12162,20 @@ function _showWipeWarning(){
 // التلقائي الصامت (من غير ما العميل ياخد باله أصلاً) — بالكامل بصمت تام، من غير أي
 // رسالة أو تنبيه، حتى لو نجح. بيانات العميل بترجع وخلاص، وكأن حاجة معملتش أصلاً
 async function _handlePossibleWipe(){
-  // مصادر الاسترجاع: معرّف الجهاز + حساب جوجل (لو كان مربوط قبل كده — الـ uid متخزن محليًا) —
-  // وكل مصدر بنقرا منه النسخة الرئيسية + لقطات آخر 7 أيام، ونختار الأنسب
-  const bases=[__deviceId];
-  const gu=DB.get('_googleLinked') || (__googleUser && __googleUser.uid);
-  if(gu) bases.push('g_'+gu);
-  const recovered = await _recoverFromBases(bases);
-  if(recovered){
+  // أول محاولة: لقطات داخلية على الجهاز نفسه (بصمت تام). لو مفيش لقطات، نطلب ملف النسخة الاحتياطية.
+  let r='none';
+  try{ r=await _restoreFromLocalSnapshot(); }catch(e){ console.warn('local snapshot restore failed:', e); }
+  if(r==='ok'){
     const w=document.getElementById('wipeWarningScreen');
     if(w) w.remove();
     render();
+  }else if(r==='deleted'){
+    // العميل مسح كل حاجة بنفسه من جوه البرنامج — ده مش فقد بيانات، مفيش حاجة تترجع ومفيش رسالة
+    return;
   }else{
-    // معرفناش نسترجع: نعلّم الجهاز عشان أي بيانات جديدة تتحفظ في مكان منفصل ومتكتبش فوق النسخة الأصلية
-    __wipeUnresolved=true; DB.set('_wipeUnresolved',1);
-    _showWipeWarning();
+    // مفيش لقطات. لو فيه علامات حذف متسجلة يبقى البرنامج اتفضّى بإيد العميل، مفيش داعي لشاشة التحذير
+    const hasTomb=Object.keys(deletedIds||{}).some(k=>_BK_CORE.includes(k) && Array.isArray(deletedIds[k]) && deletedIds[k].length);
+    if(!hasTomb) _showWipeWarning();
   }
 }
 
@@ -12303,7 +12438,6 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
       width:100%;max-width:320px;-webkit-appearance:none;
     ">✓ تفعيل النسخة الدائمة</button>
     <div id="activationMsg" class="ls-msg" style="margin-top:14px;min-height:20px;"></div>
-    <button onclick="_recoverViaGoogleFromLockScreen()" class="ls-link" style="background:none;border:none;color:rgba(255,255,255,.7);text-decoration:underline;cursor:pointer;margin-top:18px;padding:4px">عندك بيانات قديمة اتسجلت على الجهاز ده قبل كده؟ اضغط هنا</button>
     <div class="ls-footer" style="margin-top:16px;opacity:.7;">
       للتفعيل تواصل مع المبرمج على واتساب<br>
       <strong>01552623744</strong>
@@ -12889,56 +13023,10 @@ if('serviceWorker' in navigator){
 }
 </script>
 
-<!-- ===== مرحلة 1: تجهيز مزامنة الأجهزة (Firebase) =====
-     ملاحظة: بيانات الاتصال دي "مفاتيح عميل" عادية بيتم حمايتها من خلال
-     قواعد الحماية (Security Rules) على السيرفر نفسه، مش بيانات سرية.
-     لسه مفيش أي قراءة أو كتابة أو استدعاء فعلي لأي حاجة في التطبيق -
-     بس تجهيز الاتصال، والخطوة دي لوحدها صفر تأثير على أي مستخدم حالي. -->
-<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.11.0/firebase-auth-compat.js"></script>
+<!-- الفاير بيز اتشال نهائيًا: البرنامج أوفلاين بالكامل (مفيش مزامنة ولا حساب جوجل).
+     __syncDB فاضل null عشان كل الكود القديم اللي بيفحصه يتخطى نفسه بأمان. -->
 <script>
-const __syncFirebaseConfig = {
-  apiKey: "AIzaSyB7VZ6oWoZjut_Gosj2cMqjrNRY_Bl-WEU",
-  authDomain: "sadykak-elmohasby-sync.firebaseapp.com",
-  projectId: "sadykak-elmohasby-sync",
-  storageBucket: "sadykak-elmohasby-sync.firebasestorage.app",
-  messagingSenderId: "571913921467",
-  appId: "1:571913921467:web:464f97579ca83a22815a9e"
-};
 let __syncDB = null;
-try{
-  if(typeof firebase !== 'undefined'){
-    firebase.initializeApp(__syncFirebaseConfig);
-    __syncDB = firebase.firestore();
-    // بيانات الفواتير/المخزون فيها حقول اختيارية ممكن تبقى "undefined" (مثلاً خصم
-    // مش متسجل)، وFirestore بيرفض القيمة دي ويوقف الحفظ كله لو معملناش الإعداد ده.
-    __syncDB.settings({ ignoreUndefinedProperties: true });
-    // تجربة اختيارية (مقفولة افتراضيًا): كاش Firestore المحفوظ على الجهاز. بيقلل القراءات لما الاتصال بيقطع ويرجع في أقل من
-    // 30 دقيقة. بتتفعّل على جهاز معيّن بفتح التطبيق مرة بـ ?fsp=1 في آخر الرابط (و ?fsp=0 تقفلها). أي فشل = بيكمل من غيرها.
-    try{
-      const _fsp=new URLSearchParams(location.search).get('fsp');
-      if(_fsp==='1'||_fsp==='0') DB.set('_fsPersist', _fsp==='1'?1:0);
-      if(DB.get('_fsPersist')===1){
-        __syncDB.enablePersistence().catch(function(e){ console.warn('firestore persistence unavailable (ignored):', e && e.code); });
-      }
-    }catch(e){ console.warn('persistence flag skipped:', e); }
-    // تسجيل الدخول بجوجل هنا للتوثيق الإضافي بس (خط دفاع أخير لو الجهاز نسي كل حاجة
-    // بما فيها التفعيل) — مش شرط لاستخدام البرنامج، ومفيش أي واجهة إجبارية بتاعته.
-    firebase.auth().onAuthStateChanged(function(user){
-      __googleUser = user;
-      if(user){ DB.set('_googleLinked', user.uid); }
-      try{ if(typeof _onGoogleAuthReady==='function') _onGoogleAuthReady(); }catch(e){}
-    });
-    firebase.auth().getRedirectResult().catch(function(e){ console.warn('redirect sign-in check:', e); });
-  }
-}catch(e){
-  // لو حصل أي خطأ (مفيش نت، الملف اتحجب، إلخ) التطبيق يكمل شغاله عادي
-  console.warn('sync init skipped:', e);
-}
-// ملاحظة: استدعاء startSyncListener() اتنقل لجوه DOMContentLoaded (بعد ما await loadAllData()
-// يخلص) - راجع تعليق "إصلاح حرج" هناك. منادتها هنا مباشرة كانت بتسبق تحميل البيانات المحلية
-// وتسبب مسح بيانات حقيقي عند أول مزامنة على أي جهاز.
 </script>
 </body>
 </html>
