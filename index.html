@@ -2781,12 +2781,15 @@ function seedAccountingIfNeeded(){
       [{accountId:'inventory',debit:pur.total,credit:0},{accountId:'ap',debit:0,credit:pur.total}]);
   });
   payments.forEach(p=>{
-    postJournal('payment',p.id,p.date,'تحصيل من عميل',
-      [{accountId:'cash',debit:p.amount,credit:0},{accountId:'ar',debit:0,credit:p.amount}]);
+    const _d=Number(p.discount)||0, _c=p.amount-_d;
+    const _l=[]; if(_c>0)_l.push({accountId:'cash',debit:_c,credit:0}); if(_d>0)_l.push({accountId:'discountAllowed',debit:_d,credit:0});
+    _l.push({accountId:'ar',debit:0,credit:p.amount});
+    postJournal('payment',p.id,p.date,'تحصيل من عميل',_l);
   });
   supplierPayments.forEach(p=>{
-    postJournal('supplierPayment',p.id,p.date,'سداد لمورد',
-      [{accountId:'ap',debit:p.amount,credit:0},{accountId:'cash',debit:0,credit:p.amount}]);
+    const _d=Number(p.discount)||0, _c=p.amount-_d;
+    const _l=[{accountId:'ap',debit:p.amount,credit:0}]; if(_c>0)_l.push({accountId:'cash',debit:0,credit:_c}); if(_d>0)_l.push({accountId:'discountEarned',debit:0,credit:_d});
+    postJournal('supplierPayment',p.id,p.date,'سداد لمورد',_l);
   });
   expenses.forEach(e=>{
     const expAccount=e.costType==='direct'?'directcost':'opex';
@@ -5194,8 +5197,8 @@ function renderHome(){
 
   const salesToday=invoices.filter(i=>i.date===day).reduce((s,i)=>s+i.total,0);
   const salesMonth=invoices.filter(i=>inMonth(i.date)).reduce((s,i)=>s+i.total,0);
-  const collToday=payments.filter(p=>p.date===day).reduce((s,p)=>s+p.amount,0);
-  const collMonth=payments.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.amount,0);
+  const collToday=payments.filter(p=>p.date===day).reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
+  const collMonth=payments.filter(p=>inMonth(p.date)).reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const purchToday=purchases.filter(p=>p.date===day).reduce((s,p)=>s+p.total,0);
   const purchMonth=purchases.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.total,0);
 
@@ -7008,9 +7011,9 @@ async function printCollectionsSummaryPdf(from,to){
   const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount-(Number(p.discount)||0))}${p.discount?` <span style="font-size:10px;color:#D68910">(+ خصم ${fmt(p.discount)})</span>`:''}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
-  const total=sorted.reduce((s,p)=>s+p.amount,0);
+  const total=sorted.reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ التقرير:</strong> ${today()}</div>
@@ -7034,7 +7037,7 @@ function renderPayments(){
   const _payFormSnap=(showPayForm&&!_payEditFresh)?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice','pay_bookno']):null;
   _payEditFresh=false;
   const sorted=[...payments].filter(p=>(!isRestrictedRole()||roleCanSee(p))&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
-  const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
+  const payPeriodTotal=sorted.reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const debtors=clients.filter(c=>clientBalance(c.id)>0);
   const clientOptsArr=debtors.map(c=>({id:c.id,label:c.name,sub:`مستحق: ${fmt(clientBalance(c.id))} ج`}));
   // في التعديل: عميل التحصيل لازم يفضل ظاهر في القايمة حتى لو رصيده بقى صفر
@@ -7061,7 +7064,7 @@ function renderPayments(){
         </div>
         <div id="pay_inv_row"></div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="pay_amount" placeholder="0.00" min="0" value="${_editingPay?(Math.round((Number(_editingPay.amount)-(Number(_editingPay.discount)||0))*100)/100):''}"></div>
+          <div class="form-group"><div class="lbl">المبلغ المدفوع نقدًا (ج) * — من غير الخصم</div><input type="number" id="pay_amount" placeholder="0.00" min="0" value="${_editingPay?(Math.round((Number(_editingPay.amount)-(Number(_editingPay.discount)||0))*100)/100):''}"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="pay_date" value="${_editingPay?_editingPay.date:businessDate()}"></div>
         </div>
         <div class="form-row">
@@ -9323,7 +9326,7 @@ function treasuryData(day){
   day=day||today();
   const incoming=payments.filter(p=>p.date===day).map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:p.amount};
+    return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:(p.amount-(Number(p.discount)||0))};
   });
   const inChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   incoming.push(...inChecks);
@@ -9338,7 +9341,7 @@ function treasuryData(day){
   incoming.sort((a,b)=>a.date.localeCompare(b.date));
   const outSup=supplierPayments.filter(p=>p.date===day).map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:p.amount};
+    return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:(p.amount-(Number(p.discount)||0))};
   });
   const outExp=expenses.filter(e=>e.date===day&&e.paidFrom!=='bank').map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
   const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
@@ -9351,10 +9354,10 @@ function treasuryData(day){
   const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds,...outBankDep].sort((a,b)=>a.date.localeCompare(b.date));
 
   // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً والمردودات النقدية؛ شيكات البنك ليها حساباتها الخاصة)
-  const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
+  const priorIn=payments.filter(p=>p.date<day).reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorInPurRetRefunds=purchaseReturns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
-  const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+p.amount,0);
+  const priorOutSup=supplierPayments.filter(p=>p.date<day).reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const priorOutExp=expenses.filter(e=>e.date<day&&e.paidFrom!=='bank').reduce((s,e)=>s+e.amount,0);
   const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutRetRefunds=returns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
@@ -11482,9 +11485,9 @@ async function printSupplierPaymentsSummaryPdf(){
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount-(Number(p.discount)||0))}${p.discount?` <span style="font-size:10px;color:#D68910">(+ خصم ${fmt(p.discount)})</span>`:''}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
-  const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
+  const total=supplierPayments.reduce((s,p)=>s+(p.amount-(Number(p.discount)||0)),0);
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ التقرير:</strong> ${today()}</div>
@@ -11530,7 +11533,7 @@ function renderSupPayTab(){
           </div>
         </div>
         <div class="form-row">
-          <div class="form-group"><div class="lbl">المبلغ المدفوع (ج) *</div><input type="number" id="sp2_amount" placeholder="0.00" min="0" value="${_editingSp?(Math.round((Number(_editingSp.amount)-(Number(_editingSp.discount)||0))*100)/100):''}"></div>
+          <div class="form-group"><div class="lbl">المبلغ المدفوع نقدًا (ج) * — من غير الخصم</div><input type="number" id="sp2_amount" placeholder="0.00" min="0" value="${_editingSp?(Math.round((Number(_editingSp.amount)-(Number(_editingSp.discount)||0))*100)/100):''}"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="sp2_date" data-rec="${editSupPayId||'new'}" value="${_editingSp?_editingSp.date:today()}"></div>
         </div>
         <div class="form-row">
