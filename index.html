@@ -1148,7 +1148,7 @@ let __pinUnlockCallback = null;
 function _resetPinInactivity(){ __pinLastActivity = Date.now(); __pinHiddenAt = null; }
 
 function _startPinInactivityWatch(){
-  if(!appOpenLockOn()) return; // مفيش قفل تلقائي لما قفل الفتح مش مفعّل على الجهاز ده
+  if(!APP_OPEN_PIN_LOCK) return; // مفيش قفل تلقائي لما قفل الفتح مقفول
   if(!hasPinSet()) return;
   if(__pinWatchStarted) return;
   __pinWatchStarted = true;
@@ -1239,14 +1239,16 @@ async function _submitPinUnlock(){
 }
 
 // ============================================================
-// قفل فتح البرنامج — اختياري لكل جهاز على حدة (الافتراضي: مقفول يعني البرنامج بيفتح عادي من غير PIN).
-// بيتفعّل من زرار 🔑 PIN المالك (محتاج PIN المالك يكون مفعّل)، وبيستخدم نفس PIN المالك ونفس سؤال الأمان.
-// الأوضاع المقيّدة (العامل / الشخص 1) مبتتقفلش عند الفتح — دخولهم متحكم فيه من التسليم/الرجوع للمالك.
-// الإعداد محفوظ على الجهاز نفسه (_openLock) — مش بيتزامن مع أجهزة تانية ومش بيدخل في التصدير.
+// مفيش PIN لفتح البرنامج على أي جهاز/وضع (مالك أو مندوب أو عامل أو الشخص 1).
+// الـ PINs الموجودة بتنقل بين الأوضاع بس:
+//   • PIN كل شخص (الشخص 1 / العامل) → بيتطلب عند التسليم (🔒 تسليم)
+//   • PIN المالك → بيتطلب للرجوع لوضع المالك (🔓 رجوع للمالك)
+// مفتاح واحد: false = مفيش قفل عند الفتح خالص | true = الرجوع للسلوك القديم لوضع المالك بس
+// (الأوضاع المقيّدة مبتتقفلش عند الفتح في الحالتين).
 // ============================================================
-function appOpenLockOn(){ return hasPinSet() && DB.get('_openLock')===true; }
+const APP_OPEN_PIN_LOCK = false;
 function showAppLockScreen(onUnlock){
-  if(!appOpenLockOn() || isRestrictedRole()){
+  if(!APP_OPEN_PIN_LOCK || isRestrictedRole()){
     _resetPinInactivity();
     if(onUnlock) onUnlock();
     return;
@@ -1311,7 +1313,7 @@ function renderPinModalContent(){
   if(!has){
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 تفعيل PIN المالك</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب بس للرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). ولو عايز البرنامج نفسه يطلب الـ PIN عند الفتح علّم على الخيار اللي تحت (اختياري). مش بديل عن كود التفعيل.</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب بس للرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). البرنامج نفسه بيفتح على طول من غير أي PIN. مش بديل عن كود التفعيل.</div>
       <div class="form-row">
         <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1322,25 +1324,13 @@ function renderPinModalContent(){
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">إجابة السؤال</div><input type="text" id="setupPinA"></div>
       </div>
-      <label style="display:flex;align-items:flex-start;gap:8px;padding:2px 0 12px;cursor:pointer"><input type="checkbox" id="setupOpenLock" style="width:18px;height:18px;margin-top:2px;flex-shrink:0"><span>🔒 اطلب الـ PIN كمان عند فتح البرنامج على الجهاز ده <span style="color:var(--tx-717d7e,#717D7E)">(اختياري — من غيره البرنامج بيفتح عادي)</span></span></label>
       <button class="btn blue" style="width:100%" onclick="_submitSetupPin()">تفعيل PIN المالك</button>
       <div id="pinSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
     `;
   } else {
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 PIN المالك مفعّل</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب للرجوع لوضعك بعد التسليم، وكمان عند فتح البرنامج لو فعّلت قفل الفتح من تحت. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
-      <div style="background:var(--bg-f8f9f9,#F8F9F9);border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:8px;padding:10px 12px;margin:0 0 14px">
-        <div class="pm-sub" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:6px">🔒 قفل فتح البرنامج (على الجهاز ده بس)</div>
-        ${appOpenLockOn()?`
-        <div class="pm-desc" style="color:var(--tx-1e8449,#1E8449);margin-bottom:8px">✅ مفعّل — البرنامج بيطلب الـ PIN كل ما يتفتح، وبيتقفل لوحده بعد ${durLabel} من عدم الاستخدام.</div>
-        <div class="lbl">الـ PIN الحالي (عشان توقف القفل)</div>
-        <input type="password" inputmode="numeric" id="openLockCur" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px;margin-bottom:8px">
-        <button class="btn red" style="width:100%" onclick="_disableOpenLock()">إيقاف قفل الفتح</button>`:`
-        <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:8px">مش مفعّل — البرنامج بيفتح عادي من غير PIN. فعّله لو الجهاز بيتساب في المحل أو حد تاني بيمسكه.</div>
-        <button class="btn blue" style="width:100%" onclick="_enableOpenLock()">تفعيل قفل الفتح</button>`}
-        <div id="openLockMsg" class="pm-msg" style="min-height:16px;margin-top:6px"></div>
-      </div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب للرجوع لوضعك بعد التسليم بس — البرنامج نفسه بيفتح من غير أي PIN. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
       <div class="pm-sub" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:8px">تغيير الـ PIN</div>
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1375,28 +1365,10 @@ async function _submitSetupPin(){
   await _setPinHash(p1);
   DB.set('_pinQ', q);
   await _setSecurityAnswerHash(a);
-  if(document.getElementById('setupOpenLock')?.checked) DB.set('_openLock', true);
   msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل PIN المالك بنجاح';
   _resetPinInactivity();
   _startPinInactivityWatch();
   setTimeout(()=>renderPinModalContent(), 900);
-}
-
-function _enableOpenLock(){
-  if(!hasPinSet()) return;
-  DB.set('_openLock', true);
-  _resetPinInactivity();
-  _startPinInactivityWatch();
-  renderPinModalContent();
-  showToast('🔒 اتفعّل قفل فتح البرنامج على الجهاز ده');
-}
-async function _disableOpenLock(){
-  const cur=(document.getElementById('openLockCur')?.value||'').trim();
-  const msg=document.getElementById('openLockMsg');
-  if(!(await verifyPin(cur))){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
-  DB.set('_openLock', null);
-  renderPinModalContent();
-  showToast('🔓 اتوقف قفل فتح البرنامج');
 }
 
 async function _submitChangePin(){
@@ -1421,7 +1393,6 @@ async function _submitRemovePin(){
   DB.set('_pinHash', null);
   DB.set('_pinQ', null);
   DB.set('_pinA', null);
-  DB.set('_openLock', null);
   msg.style.color='#27AE60'; msg.textContent='✅ اتلغى PIN المالك';
   setTimeout(()=>renderPinModalContent(), 900);
 }
@@ -2993,11 +2964,11 @@ function seedAccountingIfNeeded(){
   });
   payments.forEach(p=>{
     postJournal('payment',p.id,p.date,'تحصيل من عميل',
-      [{accountId:(p.via==='wallet'?'wallet':'cash'),debit:p.amount,credit:0},{accountId:'ar',debit:0,credit:p.amount}]);
+      [{accountId:viaAccountId(p),debit:p.amount,credit:0},{accountId:'ar',debit:0,credit:p.amount}]);
   });
   supplierPayments.forEach(p=>{
     postJournal('supplierPayment',p.id,p.date,'سداد لمورد',
-      [{accountId:'ap',debit:p.amount,credit:0},{accountId:(p.via==='wallet'?'wallet':'cash'),debit:0,credit:p.amount}]);
+      [{accountId:'ap',debit:p.amount,credit:0},{accountId:viaAccountId(p),debit:0,credit:p.amount}]);
   });
   expenses.forEach(e=>{
     const expAccount=e.costType==='direct'?'directcost':'opex';
@@ -5406,8 +5377,8 @@ function renderHome(){
 
   const salesToday=invoices.filter(i=>i.date===day).reduce((s,i)=>s+i.total,0);
   const salesMonth=invoices.filter(i=>inMonth(i.date)).reduce((s,i)=>s+i.total,0);
-  const collToday=payments.filter(p=>p.date===day).reduce((s,p)=>s+(Number(p.amount)||0)-(Number(p.discount)||0),0);
-  const collMonth=payments.filter(p=>inMonth(p.date)).reduce((s,p)=>s+(Number(p.amount)||0)-(Number(p.discount)||0),0);
+  const collToday=payments.filter(p=>p.date===day).reduce((s,p)=>s+p.amount,0);
+  const collMonth=payments.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.amount,0);
   const purchToday=purchases.filter(p=>p.date===day).reduce((s,p)=>s+p.total,0);
   const purchMonth=purchases.filter(p=>inMonth(p.date)).reduce((s,p)=>s+p.total,0);
 
@@ -7243,7 +7214,7 @@ function renderPayments(){
   // إصلاح: فلتر تاريخ قايمة التحصيلات كان بيمسح فورم التحصيل المفتوح (العميل/المبلغ/التاريخ/الخصم/الملاحظة)
   if(!showPayForm) editPayId=null;
   const _editingPay=editPayId?(payments.find(p=>p.id===editPayId)||null):null;
-  const _payFormSnap=(showPayForm&&!_payEditFresh)?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice','pay_via','pay_bookno']):null;
+  const _payFormSnap=(showPayForm&&!_payEditFresh)?formSnap(['pay_client','pay_amount','pay_date','pay_discount','pay_note','pay_invoice','pay_via','pay_bank','pay_ref','pay_bookno']):null;
   _payEditFresh=false;
   const sorted=[...payments].filter(p=>(!isRestrictedRole()||roleCanSee(p))&&(!payFromDate||p.date>=payFromDate)&&(!payToDate||p.date<=payToDate)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const payPeriodTotal=sorted.reduce((s,p)=>s+p.amount,0);
@@ -7254,7 +7225,7 @@ function renderPayments(){
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(c?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(c?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
         ${roleCanModify(p)?`${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
@@ -7282,7 +7253,7 @@ function renderPayments(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="pay_note" placeholder="كاش / شيك / تحويل..." value="${_editingPay?esc(_editingPay.note||''):''}"></div>
         </div>
-        ${viaSelectHtml('pay_via','اتحصّل في',_editingPay?_editingPay.via:'')}
+        ${viaSelectHtml('pay_via','اتحصّل في',_editingPay?_editingPay.via:'',_editingPay)}
         ${bkInputHtml('pay_bookno',_editingPay?bookNoOf(_editingPay):'')}
         <div class="btn-row">
           <button class="btn ${_editingPay?'orange':'green'}" onclick="savePayment()">${_editingPay?'✓ حفظ التعديل':'✓ تسجيل'}</button>
@@ -7310,7 +7281,7 @@ function renderPayments(){
       <span>إجمالي التحصيل (${sorted.length} عملية)</span><span>${fmt(payPeriodTotal)} ج</span>
     </div>`}`;
   if(_payFormSnap){
-    formRestore(_payFormSnap);
+    formRestore(_payFormSnap); viaToggle('pay');
     if(_payFormSnap.pay_client){
       renderPayClientInvoices(); // بيعيد بناء قايمة فواتير العميل، وبعدها نرجّع الفاتورة المختارة (لو كانت)
       const _pi=document.getElementById('pay_invoice'); if(_pi&&_payFormSnap.pay_invoice!==undefined) _pi.value=_payFormSnap.pay_invoice;
@@ -7334,11 +7305,12 @@ async function printPaymentReceipt(pid){
       ${c?.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
       ${bkRow(p)}
+      ${viaDocRow(p)}
       <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المحصّل نقدًا</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">${viaIsInstapay(p)?'المبلغ المحصّل عبر إنستا باي':'المبلغ المحصّل نقدًا'}</div></div>
       ${p.discount?`<div class="doc-sum-box"><div class="n">${fmt(p.discount)}</div><div class="l">خصم مسموح به</div></div>`:''}
       ${c?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'الرصيد المتبقي عليه':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
     </div>
@@ -7362,7 +7334,8 @@ function renderPaymentDetail(){
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
         ${bkRow(p,'margin-bottom:10px')}
-        <div style="margin-bottom:10px"><strong>المبلغ المحصّل نقدًا:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
+        ${viaDetailRow(p)}
+        <div style="margin-bottom:10px"><strong>${viaIsInstapay(p)?'المبلغ المحصّل عبر إنستا باي':'المبلغ المحصّل نقدًا'}:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مسموح به:</strong> <span style="color:var(--tx-d68910,#D68910);font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
@@ -7424,6 +7397,7 @@ function savePayment(){
   const _oldPay=editPayId?(payments.find(p=>p.id===editPayId)||null):null;
   if(_oldPay && (_oldPay.isCashAuto||_oldPay.isDownPaymentAuto)){showToast('التحصيل ده اتسجل تلقائيًا مع فاتورة — عدّله من الفاتورة نفسها');return;}
   if(_oldPay && isRestrictedRole() && !roleCanModify(_oldPay)) return;
+  const _vp=viaRead('pay',_oldPay); if(_vp===null) return;
   const pay=_oldPay?{..._oldPay,clientId,invoiceId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldPay){
     payments=payments.filter(p=>p.id!==_oldPay.id);
@@ -7431,12 +7405,10 @@ function savePayment(){
     logActivity('edit','تحصيل من عميل',(clients.find(c=>c.id===clientId)?.name||''),fmt(amount)+' ج');
   } else if(isRestrictedRole()) pay.createdBy=currentRole;
   // فودافون كاش (اختياري): لو اتحدد إن التحصيل اتعمل عن طريق المحفظة، بيتسجل على حساب المحفظة بدل الخزنة. من غير العلامة = زي ما كان بالظبط
-  const _viaEl=document.getElementById('pay_via');
-  const _via=_viaEl?(_viaEl.value==='wallet'?'wallet':''):((_oldPay&&_oldPay.via==='wallet')?'wallet':'');
-  if(_via) pay.via=_via; else delete pay.via;
+  viaApply(pay,_vp);
   payments.push(pay);
   const lines=[];
-  if(cashAmount>0) lines.push({accountId:(_via==='wallet'?'wallet':'cash'),debit:cashAmount,credit:0});
+  if(cashAmount>0) lines.push({accountId:viaAccountId(pay),debit:cashAmount,credit:0});
   if(discount>0) lines.push({accountId:'discountAllowed',debit:discount,credit:0});
   lines.push({accountId:'ar',debit:0,credit:amount});
   postJournal('payment', pay.id, date, discount>0?`تحصيل من عميل (شامل خصم مسموح ${fmt(discount)} ج)`:'تحصيل من عميل', lines);
@@ -9314,7 +9286,7 @@ function renderExpenses(){
   const rows=filtered.map(e=>`
     <div class="list-item">
       <div class="list-item-head">
-        <div><div class="list-item-name">${esc(e.label)}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}${e.paidFrom==='bank'?` · 🏦 ${esc(bankAccountLabel(e.bankAccountId))}`:''}${e.paidFrom==='wallet'?' · 📱 فودافون كاش':''}</div></div>
+        <div><div class="list-item-name">${esc(e.label)}</div><div class="list-item-sub">📅 ${e.date}${e.costType||e.costNature?` · ${[costTypeLabel[e.costType],costNatureLabel[e.costNature]].filter(Boolean).join(' · ')}`:''}${e.paidFrom==='bank'?` · ${e.method==='instapay'?'📲 إنستا باي — ':'🏦 '}${esc(bankAccountLabel(e.bankAccountId))}`:''}${e.paidFrom==='wallet'?' · 📱 فودافون كاش':''}</div></div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:var(--tx-c0392b,#C0392B)">${fmt(e.amount)} ج</div></div>
       </div>
       <div class="list-item-actions">
@@ -9357,9 +9329,9 @@ function renderExpenses(){
           ${(!isRestrictedRole()&&(bankAccounts.length>0||walletEnabled()))?`
           <div class="form-row">
             <div class="form-group"><div class="lbl">اتدفع من</div>
-              <select id="exp_paid_from" onchange="const w=document.getElementById('exp_bank_wrap');if(w)w.style.display=(this.value==='bank'?'block':'none')">
+              <select id="exp_paid_from" onchange="const w=document.getElementById('exp_bank_wrap');if(w)w.style.display=((this.value==='bank'||this.value==='instapay')?'block':'none')">
                 <option value="cash"${_presetBank?'':' selected'}>💵 الخزنة (كاش)</option>
-                ${bankAccounts.length>0?`<option value="bank"${_presetBank?' selected':''}>🏦 حساب بنكي</option>`:''}${walletEnabled()?'<option value="wallet">📱 فودافون كاش</option>':''}
+                ${bankAccounts.length>0?`<option value="bank"${_presetBank?' selected':''}>🏦 حساب بنكي</option><option value="instapay">📲 إنستا باي</option>`:''}${walletEnabled()?'<option value="wallet">📱 فودافون كاش</option>':''}
               </select>
             </div>
             ${bankAccounts.length>1?`<div class="form-group" id="exp_bank_wrap" style="display:${_presetBank?'block':'none'}"><div class="lbl">الحساب البنكي</div>
@@ -9505,7 +9477,8 @@ function addExpense(){
   if(!label){showToast('اختار بند المصروف');return;}
   if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
   // مصدر الدفع: الخزنة (الافتراضي، زي ما كان بالظبط) أو حساب بنكي (الدور المقيّد ملوش الخيار ده)
-  const paidFromBank=(!isRestrictedRole() && document.getElementById('exp_paid_from')?.value==='bank');
+  const _paidFromVal=document.getElementById('exp_paid_from')?.value;
+  const paidFromBank=(!isRestrictedRole() && (_paidFromVal==='bank'||_paidFromVal==='instapay'));
   const paidFromWallet=(!isRestrictedRole() && walletEnabled() && document.getElementById('exp_paid_from')?.value==='wallet');
   let expBankAccountId='';
   if(paidFromBank){
@@ -9513,7 +9486,7 @@ function addExpense(){
     if(!expBankAccountId||!bankAccounts.find(a=>a.id===expBankAccountId)){showToast('اختار الحساب البنكي اللي اتدفع منه');return;}
   }
   const exp={id:uid(),label,amount,date,costType,costNature};
-  if(paidFromBank){ exp.paidFrom='bank'; exp.bankAccountId=expBankAccountId; }
+  if(paidFromBank){ exp.paidFrom='bank'; exp.bankAccountId=expBankAccountId; if(_paidFromVal==='instapay') exp.method='instapay'; }
   else if(paidFromWallet){ exp.paidFrom='wallet'; }
   if(isRestrictedRole()) exp.createdBy=currentRole;
   expenses.push(exp);
@@ -9542,9 +9515,9 @@ let treasuryDate='';
 // بتجمع "وارد" و"صادر" ليوم معين بس (افتراضيًا النهاردة) — ورصيد أول اليوم ده بيتحسب تلقائي = رصيد أول الخزنة + كل حركات الأيام اللي فاتت
 function treasuryData(day){
   day=day||today();
-  const incoming=payments.filter(p=>p.date===day&&p.via!=='wallet').map(p=>{
+  const incoming=payments.filter(p=>p.date===day&&viaIsCashBox(p)).map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return {date:p.date,label:c?.name||'عميل',note:p.note||'',amount:(Number(p.amount)||0)-(Number(p.discount)||0)}; // الخزنة = الكاش الفعلي بس (من غير الخصم المسموح)
+    return {date:p.date,label:c?.name||'عميل',note:(p.note||'')+(p.discount?` (خصم ${fmt(p.discount)})`:''),amount:p.amount-(Number(p.discount)||0)};
   });
   const inChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   incoming.push(...inChecks);
@@ -9560,9 +9533,9 @@ function treasuryData(day){
   const inWalletWd=walletTransactions.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من فودافون كاش',note:t.note||'تحويل',amount:Number(t.amount)||0}));
   incoming.push(...inWalletWd);
   incoming.sort((a,b)=>a.date.localeCompare(b.date));
-  const outSup=supplierPayments.filter(p=>p.date===day&&p.via!=='wallet').map(p=>{
+  const outSup=supplierPayments.filter(p=>p.date===day&&viaIsCashBox(p)).map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return {date:p.date,label:s?.name||'مورد',note:p.note||'سداد مورد',amount:(Number(p.amount)||0)-(Number(p.discount)||0)}; // الخزنة = الكاش الفعلي بس (من غير الخصم المكتسب)
+    return {date:p.date,label:s?.name||'مورد',note:(p.note||'سداد مورد')+(p.discount?` (خصم ${fmt(p.discount)})`:''),amount:p.amount-(Number(p.discount)||0)};
   });
   const outExp=expenses.filter(e=>e.date===day&&e.paidFrom!=='bank'&&e.paidFrom!=='wallet').map(e=>({date:e.date,label:e.label,note:'مصروف',amount:e.amount}));
   const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
@@ -9577,10 +9550,10 @@ function treasuryData(day){
   const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds,...outBankDep,...outWalletDep].sort((a,b)=>a.date.localeCompare(b.date));
 
   // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً والمردودات النقدية؛ شيكات البنك ليها حساباتها الخاصة)
-  const priorIn=payments.filter(p=>p.date<day&&p.via!=='wallet').reduce((s,p)=>s+(Number(p.amount)||0)-(Number(p.discount)||0),0);
+  const priorIn=payments.filter(p=>p.date<day&&viaIsCashBox(p)).reduce((s,p)=>s+p.amount-(Number(p.discount)||0),0);
   const priorInChecks=checksReceivable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorInPurRetRefunds=purchaseReturns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
-  const priorOutSup=supplierPayments.filter(p=>p.date<day&&p.via!=='wallet').reduce((s,p)=>s+(Number(p.amount)||0)-(Number(p.discount)||0),0);
+  const priorOutSup=supplierPayments.filter(p=>p.date<day&&viaIsCashBox(p)).reduce((s,p)=>s+p.amount-(Number(p.discount)||0),0);
   const priorOutExp=expenses.filter(e=>e.date<day&&e.paidFrom!=='bank'&&e.paidFrom!=='wallet').reduce((s,e)=>s+e.amount,0);
   const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutRetRefunds=returns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
@@ -9802,12 +9775,66 @@ function treasurySegHtml(){
   return `<div class="btn-row" style="margin-bottom:14px">${seg('cash','💵 الخزنة')}${seg('wallet','📱 فودافون كاش'+wl)}</div>`;
 }
 // اختيار "اتحصّل/اتدفع من" في فورمات التحصيل والسداد — بيظهر بس لو المحفظة متفعّلة ولغير الأدوار المقيّدة
-function viaSelectHtml(id,label,cur){
-  if(!walletEnabled()||isRestrictedRole()) return '';
+// ===== طرق الدفع في التحصيل والسداد: الخزنة (الافتراضي) / فودافون كاش / إنستا باي =====
+// via:'wallet' = المحفظة (زي ما كان). via:'instapay' = إنستا باي: بيدخل/بيخرج من حساب بنكي (bankAccountId) + رقم العملية اختياري (ref).
+// من غير via = كاش على الخزنة بالظبط زي ما كان. السلكت بيظهر لغير الأدوار المقيّدة، ولو فيه محفظة متفعّلة أو حساب بنكي واحد على الأقل.
+function viaIsInstapay(r){ return !!r && r.via==='instapay'; }
+function viaIsCashBox(r){ return !r || (r.via!=='wallet' && r.via!=='instapay'); } // بيدخل/بيخرج من الخزنة فعلًا
+function viaAccountId(r){ return !r?'cash':(r.via==='wallet'?'wallet':(r.via==='instapay'?'bank':'cash')); }
+function viaCashPart(r){ return (Number(r.amount)||0)-(Number(r.discount)||0); } // الفلوس الفعلية اللي اتحركت (من غير الخصم)
+function viaSelectHtml(id,label,cur,rec){
+  if(isRestrictedRole()) return '';
+  const hasWallet=walletEnabled(), hasBank=bankAccounts.length>0;
+  if(!hasWallet&&!hasBank) return '';
+  const pfx=id.replace(/_via$/,'');
+  const isIp=cur==='instapay';
+  let bankPart='';
+  if(bankAccounts.length===1){
+    bankPart=`<div style="font-size:12px;color:var(--tx-5d6d7e,#5D6D7E);margin-bottom:6px">الحساب البنكي: <strong>${esc(bankAccountLabel(bankAccounts[0].id))}</strong></div>`;
+  }else if(bankAccounts.length>1){
+    const curAcc=(rec&&rec.bankAccountId)||'';
+    bankPart=`<div class="lbl">الحساب البنكي المربوط بإنستا باي *</div>
+      <select id="${pfx}_bank">
+        <option value=""${curAcc?'':' selected'} disabled>— اختار الحساب —</option>
+        ${bankAccounts.map(a=>`<option value="${a.id}"${a.id===curAcc?' selected':''}>${esc(bankAccountLabel(a.id))}</option>`).join('')}
+      </select>`;
+  }
   return `<div class="form-row"><div class="form-group"><div class="lbl">${label}</div>
-    <select id="${id}"><option value="">💵 الخزنة (كاش)</option><option value="wallet"${cur==='wallet'?' selected':''}>📱 فودافون كاش</option></select>
-  </div></div>`;
+    <select id="${id}" onchange="viaToggle('${pfx}')"><option value="">💵 الخزنة (كاش)</option>${hasWallet?`<option value="wallet"${cur==='wallet'?' selected':''}>📱 فودافون كاش</option>`:''}${hasBank?`<option value="instapay"${isIp?' selected':''}>📲 إنستا باي</option>`:''}</select>
+  </div></div>
+  ${hasBank?`<div class="form-row" id="${pfx}_ip_wrap" style="display:${isIp?'flex':'none'}">
+    <div class="form-group">${bankPart}</div>
+    <div class="form-group"><div class="lbl">رقم العملية (اختياري)</div><input type="text" id="${pfx}_ref" placeholder="مرجع التحويل من التطبيق" maxlength="60" value="${rec&&rec.ref?esc(rec.ref):''}"></div>
+  </div>`:''}`;
 }
+function viaToggle(pfx){
+  const w=document.getElementById(pfx+'_ip_wrap'); if(!w) return;
+  w.style.display=(document.getElementById(pfx+'_via')?.value==='instapay')?'flex':'none';
+}
+// بترجّع {via,bankAccountId?,ref?} أو null لو فيه خطأ (بتعرض رسالة وبتوقف الحفظ). لو السلكت مش ظاهر (دور مقيّد...) بتحافظ على اللي كان متسجل
+function viaRead(pfx,old){
+  const el=document.getElementById(pfx+'_via');
+  if(!el){
+    const ov=(old&&old.via)||'';
+    return ov==='instapay'?{via:'instapay',bankAccountId:old.bankAccountId,ref:old.ref}:{via:ov};
+  }
+  if(el.value==='wallet') return {via:'wallet'};
+  if(el.value==='instapay'){
+    const accId=bankAccounts.length===1?bankAccounts[0].id:(document.getElementById(pfx+'_bank')?.value||'');
+    if(!accId||!bankAccounts.find(a=>a.id===accId)){ showToast('اختار الحساب البنكي لإنستا باي'); return null; }
+    const ref=String(document.getElementById(pfx+'_ref')?.value||'').trim().slice(0,60);
+    return {via:'instapay',bankAccountId:accId,ref:ref||undefined};
+  }
+  return {via:''};
+}
+function viaApply(rec,v){
+  delete rec.via; delete rec.bankAccountId; delete rec.ref;
+  if(v&&v.via){ rec.via=v.via; if(v.via==='instapay'){ rec.bankAccountId=v.bankAccountId; if(v.ref) rec.ref=v.ref; } }
+  return rec;
+}
+function viaBadgeHtml(r){ return viaIsInstapay(r)?' <span title="إنستا باي">📲</span>':''; }
+function viaDetailRow(r){ return viaIsInstapay(r)?`<div style="margin-bottom:10px"><strong>طريقة الدفع:</strong> 📲 إنستا باي — ${esc(bankAccountLabel(r.bankAccountId))}${r.ref?` · رقم العملية: ${esc(r.ref)}`:''}</div>`:''; }
+function viaDocRow(r){ return viaIsInstapay(r)?`<div><strong>طريقة الدفع:</strong> إنستا باي${r.ref?` (رقم العملية: ${esc(r.ref)})`:''}</div>`:''; }
 function walletFeeFieldsHtml(p){
   const c=walletFeeCfg();
   const f=(id,v,ph)=>`<input type="number" id="${p}${id}" min="0" step="any" placeholder="${ph}" value="${v?v:''}">`;
@@ -10248,14 +10275,18 @@ function bankAccountBalance(id){
   const depSum=bankTransactions.filter(t=>t.bankAccountId===id&&t.kind==='deposit').reduce((s,t)=>s+Number(t.amount),0);
   const wdSum=bankTransactions.filter(t=>t.bankAccountId===id&&t.kind==='withdraw').reduce((s,t)=>s+Number(t.amount),0);
   const expSum=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).reduce((s,e)=>s+Number(e.amount),0);
-  return Number(acc.opening||0)+inSum-outSum+depSum-wdSum-expSum;
+  const ipIn=payments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).reduce((s,p)=>s+viaCashPart(p),0);
+  const ipOut=supplierPayments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).reduce((s,p)=>s+viaCashPart(p),0);
+  return Number(acc.opening||0)+inSum-outSum+depSum-wdSum-expSum+ipIn-ipOut;
 }
 function bankAccountTransactions(id){
   const inTx=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'in',label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   const outTx=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'out',label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
   const movTx=bankTransactions.filter(t=>t.bankAccountId===id).map(t=>({date:t.date,type:t.kind==='deposit'?'in':'out',label:t.kind==='deposit'?'إيداع نقدي من الخزنة':'سحب إلى الخزنة',note:t.note||(t.kind==='deposit'?'إيداع':'سحب'),amount:t.amount,txId:t.id}));
-  const expTx=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).map(e=>({date:e.date,type:'out',label:e.label,note:'مصروف مدفوع من البنك',amount:e.amount}));
-  return [...inTx,...outTx,...movTx,...expTx].sort((a,b)=>a.date.localeCompare(b.date));
+  const expTx=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).map(e=>({date:e.date,type:'out',label:e.label,note:e.method==='instapay'?'مصروف مدفوع عبر إنستا باي':'مصروف مدفوع من البنك',amount:e.amount}));
+  const ipInTx=payments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).map(p=>({date:p.date,type:'in',label:clients.find(c=>c.id===p.clientId)?.name||'عميل',note:'تحصيل عبر إنستا باي'+(p.ref?' #'+p.ref:''),amount:viaCashPart(p)}));
+  const ipOutTx=supplierPayments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).map(p=>({date:p.date,type:'out',label:suppliers.find(x=>x.id===p.supplierId)?.name||'مورد',note:'سداد عبر إنستا باي'+(p.ref?' #'+p.ref:''),amount:viaCashPart(p)}));
+  return [...inTx,...outTx,...movTx,...expTx,...ipInTx,...ipOutTx].sort((a,b)=>a.date.localeCompare(b.date));
 }
 // إيداع نقدي من الخزنة / سحب من البنك للخزنة — من شاشة الحساب البنكي
 let bankTxForm='', bankTxFormAcc='';
@@ -10316,7 +10347,9 @@ function saveBankAccount(){
 function deleteBankAccount(id){
   const hasTx=[...checksPayable,...checksReceivable].some(c=>c.destination==='bank'&&c.bankAccountId===id)
     ||bankTransactions.some(t=>t.bankAccountId===id)
-    ||expenses.some(e=>e.paidFrom==='bank'&&e.bankAccountId===id);
+    ||expenses.some(e=>e.paidFrom==='bank'&&e.bankAccountId===id)
+    ||payments.some(p=>viaIsInstapay(p)&&p.bankAccountId===id)
+    ||supplierPayments.some(p=>viaIsInstapay(p)&&p.bankAccountId===id);
   const msg=hasTx?'الحساب ده متسجل عليه حركات فعلية (شيكات / إيداع / سحب / مصاريف). حذفه هيمسح بياناته بس الحركات هتفضل موجودة في سجلاتها. متأكد؟':'متأكد من حذف الحساب البنكي ده؟';
   showConfirm(msg, function(){
     const _acc=bankAccounts.find(a=>a.id===id);
@@ -12062,21 +12095,19 @@ async function printSupplierPaymentsSummaryPdf(){
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt((Number(p.amount)||0)-(Number(p.discount)||0))}${p.discount?`<div style="font-size:10px;color:#D68910;font-weight:normal">+ خصم مكتسب ${fmt(p.discount)}</div>`:''}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
-  const total=supplierPayments.reduce((s,p)=>s+(Number(p.amount)||0)-(Number(p.discount)||0),0); // المدفوع نقدًا فعليًا (من غير الخصم المكتسب)
-  const totalDisc=supplierPayments.reduce((s,p)=>s+(Number(p.discount)||0),0);
+  const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
   const body=`
     <div class="doc-info">
       <div><strong>تاريخ التقرير:</strong> ${today()}</div>
       <div><strong>عدد عمليات السداد:</strong> ${supplierPayments.length}</div>
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(total)}</div><div class="l">إجمالي السداد للموردين (نقدًا)</div></div>
-      ${totalDisc>0?`<div class="doc-sum-box"><div class="n">${fmt(totalDisc)}</div><div class="l">خصم مكتسب</div></div>`:''}
+      <div class="doc-sum-box"><div class="n">${fmt(total)}</div><div class="l">إجمالي السداد للموردين</div></div>
     </div>
     ${sorted.length===0?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد عمليات سداد</div>':`<table><thead><tr><th>التاريخ</th><th>المورد</th><th>المبلغ</th><th>ملاحظة</th></tr></thead><tbody>${rows}</tbody></table>`}
-    <div class="doc-total">إجمالي السداد نقدًا: ${fmt(total)} جنيه${totalDisc>0?` (+ خصم مكتسب ${fmt(totalDisc)} ج)`:''}</div>`;
+    <div class="doc-total">إجمالي السداد: ${fmt(total)} جنيه</div>`;
   await sendDocument('تقرير سداد الموردين', body, `سداد-الموردين-${today()}.pdf`);
 }
 
@@ -12084,7 +12115,7 @@ function renderSupPayTab(){
   if(supPayTabDetailId){renderSupPayTabDetail();return;}
   if(!showSupPayTabForm) editSupPayId=null;
   // إصلاح: أي إعادة رسم (بحث/فلتر/مزامنة) كانت بتمسح فورم السداد المفتوح (المورد/المبلغ/التاريخ/الخصم/الملاحظة) وترجّع التاريخ لليوم
-  const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note','sp2_via','sp2_bookno']):null;
+  const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note','sp2_via','sp2_bank','sp2_ref','sp2_bookno']):null;
   const _editingSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
   const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
@@ -12094,7 +12125,7 @@ function renderSupPayTab(){
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(s?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(s?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
         ${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editSupplierPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
@@ -12121,7 +12152,7 @@ function renderSupPayTab(){
         <div class="form-row">
           <div class="form-group"><div class="lbl">ملاحظة</div><input type="text" id="sp2_note" placeholder="كاش / شيك / تحويل..." value="${_editingSp?esc(_editingSp.note||''):''}"></div>
         </div>
-        ${viaSelectHtml('sp2_via','اتدفع من',_editingSp?_editingSp.via:'')}
+        ${viaSelectHtml('sp2_via','اتدفع من',_editingSp?_editingSp.via:'',_editingSp)}
         ${bkInputHtml('sp2_bookno',_editingSp?bookNoOf(_editingSp):'')}
         <div class="btn-row">
           <button class="btn ${_editingSp?'orange':'green'}" onclick="saveSupplierPaymentTab()">${_editingSp?'✓ حفظ التعديل':'✓ تسجيل'}</button>
@@ -12134,7 +12165,7 @@ function renderSupPayTab(){
       ${!showSupPayTabForm?`<button class="btn green" onclick="showSupPayTabForm=true;editSupPayId=null;renderSupPayTab()">+ تسجيل سداد للمورد</button>`:''}
     </div>
     ${sorted.length===0?'<div class="empty">لا توجد مدفوعات للموردين</div>':`<div class="card tbl-wrap"><table><thead><tr><th>المورد</th><th>التاريخ</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`}`;
-  formRestore(_sp2Snap);
+  formRestore(_sp2Snap); viaToggle('sp2');
 }
 
 function saveSupplierPaymentTab(){
@@ -12150,6 +12181,7 @@ function saveSupplierPaymentTab(){
   // تعديل سداد موجود: نفس الـid ونفس تاريخ الإنشاء، وبنشيل قيده القديم ونرحّل قيد جديد بالقيم الجديدة
   const _oldSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   if(_oldSp && (_oldSp.isCashAuto||_oldSp.isDownPaymentAuto)){showToast('السداد ده اتسجل تلقائيًا مع فاتورة مشتريات — عدّله من الفاتورة نفسها');return;}
+  const _vp=viaRead('sp2',_oldSp); if(_vp===null) return;
   const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),supplierId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldSp){
     supplierPayments=supplierPayments.filter(p=>p.id!==_oldSp.id);
@@ -12157,12 +12189,10 @@ function saveSupplierPaymentTab(){
     logActivity('edit','سداد مورد',(suppliers.find(s=>s.id===supplierId)?.name||''),fmt(amount)+' ج');
   }
   // فودافون كاش (اختياري): السداد عن طريق المحفظة بيتسجل على حساب المحفظة بدل الخزنة. من غير العلامة = زي ما كان بالظبط
-  const _viaEl=document.getElementById('sp2_via');
-  const _via=_viaEl?(_viaEl.value==='wallet'?'wallet':''):((_oldSp&&_oldSp.via==='wallet')?'wallet':'');
-  if(_via) sp.via=_via; else delete sp.via;
+  viaApply(sp,_vp);
   supplierPayments.push(sp);
   const lines=[{accountId:'ap',debit:amount,credit:0}];
-  if(cashAmount>0) lines.push({accountId:(_via==='wallet'?'wallet':'cash'),debit:0,credit:cashAmount});
+  if(cashAmount>0) lines.push({accountId:viaAccountId(sp),debit:0,credit:cashAmount});
   if(discount>0) lines.push({accountId:'discountEarned',debit:0,credit:discount});
   postJournal('supplierPayment', sp.id, date, discount>0?`سداد لمورد (شامل خصم مكتسب ${fmt(discount)} ج)`:'سداد لمورد', lines);
   save();showSupPayTabForm=false;editSupPayId=null;renderSupPayTab();
@@ -12179,10 +12209,11 @@ async function printSupplierPaymentReceipt(pid){
       ${s?.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
       ${bkRow(p)}
+      ${viaDocRow(p)}
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
-      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">المبلغ المدفوع نقدًا</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(p.amount-(p.discount||0))}</div><div class="l">${viaIsInstapay(p)?'المبلغ المدفوع عبر إنستا باي':'المبلغ المدفوع نقدًا'}</div></div>
       ${p.discount?`<div class="doc-sum-box"><div class="n">${fmt(p.discount)}</div><div class="l">خصم مكتسب</div></div>`:''}
       ${s?`<div class="doc-sum-box"><div class="n">${fmt(Math.abs(bal))}</div><div class="l">${bal>0?'المتبقي له علينا':bal<0?'له رصيد':'الحساب صافي'}</div></div>`:''}
     </div>
@@ -12204,7 +12235,8 @@ function renderSupPayTabDetail(){
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
         ${bkRow(p,'margin-bottom:10px')}
-        <div style="margin-bottom:10px"><strong>المبلغ المدفوع نقدًا:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
+        ${viaDetailRow(p)}
+        <div style="margin-bottom:10px"><strong>${viaIsInstapay(p)?'المبلغ المدفوع عبر إنستا باي':'المبلغ المدفوع نقدًا'}:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مكتسب:</strong> <span style="color:var(--tx-d68910,#D68910);font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
