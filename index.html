@@ -1239,14 +1239,14 @@ async function _submitPinUnlock(){
 }
 
 // ============================================================
-// مفيش PIN لفتح البرنامج على أي جهاز/وضع (مالك أو مندوب أو عامل أو الشخص 1).
+// PIN لفتح البرنامج في وضع المالك بس (لو الـ PIN متفعّل). الأوضاع المقيّدة (مندوب / عامل / الشخص 1) بتفتح من غير PIN.
 // الـ PINs الموجودة بتنقل بين الأوضاع بس:
 //   • PIN كل شخص (الشخص 1 / العامل) → بيتطلب عند التسليم (🔒 تسليم)
 //   • PIN المالك → بيتطلب للرجوع لوضع المالك (🔓 رجوع للمالك)
-// مفتاح واحد: false = مفيش قفل عند الفتح خالص | true = الرجوع للسلوك القديم لوضع المالك بس
+// مفتاح واحد: false = مفيش قفل عند الفتح خالص | true = قفل الفتح لوضع المالك بس (الحالي)
 // (الأوضاع المقيّدة مبتتقفلش عند الفتح في الحالتين).
 // ============================================================
-const APP_OPEN_PIN_LOCK = false;
+const APP_OPEN_PIN_LOCK = true;
 function showAppLockScreen(onUnlock){
   if(!APP_OPEN_PIN_LOCK || isRestrictedRole()){
     _resetPinInactivity();
@@ -1313,7 +1313,7 @@ function renderPinModalContent(){
   if(!has){
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 تفعيل PIN المالك</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب بس للرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). البرنامج نفسه بيفتح على طول من غير أي PIN. مش بديل عن كود التفعيل.</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب لفتح البرنامج في وضع المالك (وبعد ${durLabel} من عدم الاستخدام)، وللرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). أوضاع التسليم (الشخص 1 / العامل) بتفتح من غير PIN. مش بديل عن كود التفعيل.</div>
       <div class="form-row">
         <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1330,7 +1330,7 @@ function renderPinModalContent(){
   } else {
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 PIN المالك مفعّل</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب للرجوع لوضعك بعد التسليم بس — البرنامج نفسه بيفتح من غير أي PIN. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب لفتح البرنامج في وضع المالك (وبعد ${durLabel} من عدم الاستخدام) وللرجوع لوضعك بعد التسليم. أوضاع التسليم بتفتح من غير PIN. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
       <div class="pm-sub" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:8px">تغيير الـ PIN</div>
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
