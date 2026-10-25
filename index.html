@@ -1008,7 +1008,7 @@ const DB={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
 };
 
-const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',expenseCategories:'vs_expense_categories',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',bankTransactions:'vs_bank_transactions',subStock:'vs_sub_stock',subTransfers:'vs_sub_transfers',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log',walletTransactions:'vs_wallet_transactions'};
+const KEYS={clients:'vs_clients',invoices:'vs_invoices',payments:'vs_payments',stock:'vs_stock',movements:'vs_movements',returns:'vs_returns',suppliers:'vs_suppliers',purchases:'vs_purchases',supplierPayments:'vs_supplier_payments',purchaseReturns:'vs_purchase_returns',companyProfile:'vs_company_profile',expenses:'vs_expenses',expenseCategories:'vs_expense_categories',treasuryOpening:'vs_treasury_opening',repNotes:'vs_rep_notes',clientNotes:'vs_client_notes',checksPayable:'vs_checks_payable',checksReceivable:'vs_checks_receivable',bankAccounts:'vs_bank_accounts',bankTransactions:'vs_bank_transactions',subStock:'vs_sub_stock',subTransfers:'vs_sub_transfers',chartOfAccounts:'vs_chart_of_accounts',journalEntries:'vs_journal_entries',productions:'vs_productions',lowStockDefault:'vs_low_stock_default',expiryAlertMonths:'vs_expiry_alert_months',deletedIds:'vs_deleted_ids',docNumberCounters:'vs_doc_number_counters',heldInvoices:'vs_held_invoices',heldPurchases:'vs_held_purchases',auditLog:'vs_audit_log',walletTransactions:'vs_wallet_transactions',subCashTx:'vs_sub_cash_tx'};
 
 // ============================================================
 // قفل PIN على البرنامج — طبقة حماية منفصلة تمامًا عن نظام التفعيل.
@@ -1713,6 +1713,7 @@ let clients=[],invoices=[],payments=[],stock=[],movements=[],returns=[],supplier
 let checksPayable=[],checksReceivable=[]; // شيكات الدفع (للموردين/غيرهم) وشيكات القبض (من العملاء/غيرهم)
 let bankAccounts=[]; // حسابات الشركة البنكية
 let subStock=[],subTransfers=[]; // المخزن الفرعي (اختياري): أرصدة أصناف مش في المخزن الرئيسي + سجل تحويلاتها للرئيسي
+let subCashTx=[]; // حركات الخزنة الفرعية (اختياري): تحويل من الخزنة الرئيسية للفرعية (deposit) / من الفرعية للرئيسية (withdraw)
 let walletTransactions=[]; // حركات فودافون كاش: تحويل من الخزنة للمحفظة (deposit) / من المحفظة للخزنة (withdraw) — العمولة بتتسجل كمصروف paidFrom:'wallet'
 let bankTransactions=[]; // حركات البنك: إيداع نقدي من الخزنة / سحب من البنك للخزنة (المصاريف المدفوعة من البنك بتتسجل في expenses بعلامة paidFrom:'bank')
 let chartOfAccounts=[]; // دليل الحسابات (المرحلة الأولى من نظام المحاسبة)
@@ -2250,6 +2251,7 @@ const save=()=>{
   idbSet(KEYS.subStock,subStock);
   idbSet(KEYS.subTransfers,subTransfers);
   idbSet(KEYS.walletTransactions,walletTransactions);
+  idbSet(KEYS.subCashTx,subCashTx);
   idbSet(KEYS.chartOfAccounts,chartOfAccounts);
   idbSet(KEYS.journalEntries,journalEntries);
   idbSet(KEYS.productions,productions);
@@ -2263,8 +2265,8 @@ const save=()=>{
 };
 
 async function loadAllData(){
-  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog,KEYS.expenseCategories,KEYS.bankTransactions,KEYS.subStock,KEYS.subTransfers,KEYS.walletTransactions];
-  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog,expCats,bTx,sStock,sTrans,wTx]=await Promise.all(keys.map(k=>idbGet(k)));
+  const keys=[KEYS.clients,KEYS.invoices,KEYS.payments,KEYS.stock,KEYS.movements,KEYS.returns,KEYS.suppliers,KEYS.purchases,KEYS.supplierPayments,KEYS.purchaseReturns,KEYS.companyProfile,KEYS.expenses,KEYS.treasuryOpening,KEYS.repNotes,KEYS.clientNotes,KEYS.checksPayable,KEYS.checksReceivable,KEYS.bankAccounts,KEYS.chartOfAccounts,KEYS.journalEntries,KEYS.productions,KEYS.lowStockDefault,KEYS.expiryAlertMonths,KEYS.deletedIds,KEYS.docNumberCounters,KEYS.heldInvoices,KEYS.heldPurchases,KEYS.auditLog,KEYS.expenseCategories,KEYS.bankTransactions,KEYS.subStock,KEYS.subTransfers,KEYS.walletTransactions,KEYS.subCashTx];
+  const [c,i,p,s,m,r,sup,pur,spay,pret,comp,exp,tOpen,rNotes,cNotes,chkPay,chkRec,bAcc,coa,jrnl,prod,lsd,eam,delIds,dnc,hInv,hPur,aLog,expCats,bTx,sStock,sTrans,wTx,scTx]=await Promise.all(keys.map(k=>idbGet(k)));
   clients  = c || JSON.parse(localStorage.getItem(KEYS.clients)||'[]');
   invoices = i || JSON.parse(localStorage.getItem(KEYS.invoices)||'[]');
   payments = p || JSON.parse(localStorage.getItem(KEYS.payments)||'[]');
@@ -2288,6 +2290,7 @@ async function loadAllData(){
   subStock=sStock||[];
   subTransfers=sTrans||[];
   walletTransactions=wTx||[];
+  subCashTx=scTx||[];
   chartOfAccounts=coa||[];
   journalEntries=jrnl||[];
   productions=prod||[];
@@ -2391,6 +2394,7 @@ const DEFAULT_CHART_OF_ACCOUNTS=[
   {id:'cash',    code:'1110', name:'الخزنة',                     type:'asset'},
   {id:'bank',    code:'1120', name:'البنوك',                     type:'asset'},
   {id:'wallet',  code:'1115', name:'فودافون كاش (المحفظة)',       type:'asset'},
+  {id:'subcash', code:'1116', name:'الخزنة الفرعية',              type:'asset'},
   {id:'ar',      code:'1200', name:'العملاء',                     type:'asset'},
   {id:'notesReceivable',code:'1210',name:'أوراق القبض',           type:'asset'},
   {id:'inventory',code:'1300',name:'المخزون',                    type:'asset'},
@@ -2861,6 +2865,7 @@ function cleanupOrphanJournals(){
   const expenseIds=new Set(expenses.map(e=>e.id));
   const bankTxIds=new Set(bankTransactions.map(t=>t.id));
   const walletTxIds=new Set(walletTransactions.map(t=>t.id));
+  const subCashTxIds=new Set(subCashTx.map(t=>t.id));
   const subTransferIds=new Set(subTransfers.map(t=>t.id));
   const clientOpeningIds=new Set(clients.map(c=>'client-opening-'+c.id));
   const supplierOpeningIds=new Set(suppliers.map(s=>'supplier-opening-'+s.id));
@@ -2879,6 +2884,7 @@ function cleanupOrphanJournals(){
       case 'expense': return expenseIds.has(j.sourceId);
       case 'bankTx': return bankTxIds.has(j.sourceId);
       case 'walletTx': return walletTxIds.has(j.sourceId);
+      case 'subCashTx': return subCashTxIds.has(j.sourceId);
       case 'stockTransfer': return subTransferIds.has(j.sourceId);
       case 'opening':
         if(j.sourceId==='treasury-opening') return true; // ده مالوش عنصر مصدر منفصل، دايمًا صالح
@@ -2927,6 +2933,7 @@ function seedAccountingIfNeeded(){
     backfillOpeningBalanceJournals(); // إصلاح رجعي: عملاء/موردين/خزنة برصيد افتتاحي اتسجل قبل ما ترحيله للقيود يتضاف
     backfillBankJournals(); // ترحيل رصيد افتتاحي الحسابات البنكية + حركات البنك (لو ناقصين)
     backfillWalletJournals(); // ترحيل رصيد افتتاحي وحركات فودافون كاش (لو ناقصين)
+    backfillSubCashJournals(); // ترحيل رصيد افتتاحي وحركات الخزنة الفرعية (لو ناقصين)
     backfillSubTransferJournals(); // تحويلات المخزن الفرعي (لو قيدها ناقص)
     cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
     save();
@@ -2981,6 +2988,7 @@ function seedAccountingIfNeeded(){
   reconcileCheckNoteJournals();
   backfillBankJournals();
   backfillWalletJournals();
+  backfillSubCashJournals();
   backfillSubTransferJournals();
   save();
 }
@@ -3535,7 +3543,7 @@ function _bkPayload(){
     clients, invoices, payments, stock, movements, returns,
     suppliers, purchases, supplierPayments, purchaseReturns,
     expenses, expenseCategories, treasuryOpening, repNotes, clientNotes,
-    checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers, walletTransactions,
+    checksPayable, checksReceivable, bankAccounts, bankTransactions, subStock, subTransfers, walletTransactions, subCashTx,
     chartOfAccounts, journalEntries, productions,
     companyProfile, lowStockDefault, expiryAlertMonths, deletedIds, docNumberCounters
   };
@@ -3744,7 +3752,7 @@ function _applyBackupData(data){
   returns=data.returns||[];suppliers=data.suppliers||[];purchases=data.purchases||[];supplierPayments=data.supplierPayments||[];
   purchaseReturns=data.purchaseReturns||[];expenses=data.expenses||[];expenseCategories=data.expenseCategories||[];treasuryOpening=Number(data.treasuryOpening)||0;
   repNotes=data.repNotes||[];clientNotes=data.clientNotes||[];checksPayable=data.checksPayable||[];checksReceivable=data.checksReceivable||[];
-  bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];walletTransactions=data.walletTransactions||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
+  bankAccounts=data.bankAccounts||[];bankTransactions=data.bankTransactions||[];subStock=data.subStock||[];subTransfers=data.subTransfers||[];walletTransactions=data.walletTransactions||[];subCashTx=data.subCashTx||[];chartOfAccounts=data.chartOfAccounts||[];journalEntries=data.journalEntries||[];
   productions=data.productions||[];companyProfile=data.companyProfile||{name:'',phone:'',businessType:''};lowStockDefault=Number(data.lowStockDefault)||10;expiryAlertMonths=(typeof data.expiryAlertMonths!=='undefined'&&!isNaN(Number(data.expiryAlertMonths)))?Number(data.expiryAlertMonths):2;
   deletedIds=data.deletedIds||{};
 try{ DB.set('_delLegacySent',''); }catch(e){}
@@ -4279,14 +4287,14 @@ async function _pullAllSyncData(){
 // **الحذف بقى بيتزامن دلوقتي (مرحلة 8) بنظام سجل حذف صريح - شوف الشرح
 // فوق عند مرحلة 8. الفقرة دي فضلت هنا كأرشيف لسبب القرار الأصلي.**
 // ============================================================
-const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','bankTransactions','subStock','subTransfers','walletTransactions','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases','auditLog'];
+const SYNC_ARRAY_KEYS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','bankTransactions','subStock','subTransfers','walletTransactions','subCashTx','chartOfAccounts','journalEntries','repNotes','clientNotes','heldInvoices','heldPurchases','auditLog'];
 
 const SYNC_ARRAY_LABELS={
   clients:'عملاء', invoices:'فواتير مبيعات', payments:'تحصيلات', stock:'أصناف',
   movements:'حركات مخزون', returns:'مرتجعات مبيعات', suppliers:'موردين',
   purchases:'فواتير مشتريات', supplierPayments:'مدفوعات موردين',
   purchaseReturns:'مرتجعات مشتريات', expenses:'مصاريف', productions:'عمليات تصنيع',
-  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية', bankTransactions:'حركات بنكية', subStock:'أصناف المخزن الفرعي', subTransfers:'تحويلات المخزن الفرعي', walletTransactions:'حركات فودافون كاش',
+  checksPayable:'شيكات دفع', checksReceivable:'شيكات قبض', bankAccounts:'حسابات بنكية', bankTransactions:'حركات بنكية', subStock:'أصناف المخزن الفرعي', subTransfers:'تحويلات المخزن الفرعي', walletTransactions:'حركات فودافون كاش', subCashTx:'حركات الخزنة الفرعية',
   chartOfAccounts:'دليل حسابات', journalEntries:'قيود يومية', repNotes:'ملاحظات المندوب',
   clientNotes:'ملاحظات عملاء', heldInvoices:'فواتير معلقة', heldPurchases:'مشتريات معلقة',
   auditLog:'سجل حذف وتعديل'
@@ -4315,7 +4323,7 @@ function logActivity(action, entityLabel, itemName, detail){
 function getSyncArrayMap(){
   return {clients,invoices,payments,stock,movements,returns,suppliers,purchases,
     supplierPayments,purchaseReturns,expenses,productions,checksPayable,
-    checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,walletTransactions,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases,auditLog};
+    checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,walletTransactions,subCashTx,chartOfAccounts,journalEntries,repNotes,clientNotes,heldInvoices,heldPurchases,auditLog};
 }
 
 // بيقارن البيانات الجاية من السيرفر بالبيانات المحلية، وبيرجع نوعين:
@@ -8937,7 +8945,7 @@ function buildExportBlob(){
   // (pushSyncSnapshot)، فلو حد استرجع نسخة احتياطية يدوية على جهاز جديد كان بيفقد
   // ملاحظات المندوب والعملاء بصمت من غير أي تحذير، وسجل الحذف مايترحلش معاها
   const data={clients,invoices,payments,stock,movements,returns,suppliers,purchases,supplierPayments,purchaseReturns,expenses,expenseCategories,
-    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,walletTransactions,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
+    treasuryOpening,repNotes,clientNotes,checksPayable,checksReceivable,bankAccounts,bankTransactions,subStock,subTransfers,walletTransactions,subCashTx,companyProfile,chartOfAccounts,journalEntries,productions,lowStockDefault,expiryAlertMonths,deletedIds,docNumberCounters,
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
@@ -9200,6 +9208,7 @@ function importData(){
           if(Array.isArray(data.checksReceivable)){checksReceivable=data.checksReceivable;}else{oldFileWarning=true;}
           if(Array.isArray(data.bankAccounts)){bankAccounts=data.bankAccounts;}else{oldFileWarning=true;}
           subStock=Array.isArray(data.subStock)?data.subStock:[]; subTransfers=Array.isArray(data.subTransfers)?data.subTransfers:[]; // ملف قديم من غير المخزن الفرعي = مفيش مخزن فرعي (نفس منطق الحركات البنكية)
+          subCashTx=Array.isArray(data.subCashTx)?data.subCashTx:[]; // ملف قديم من غير الخزنة الفرعية = مفيش حركات
           walletTransactions=Array.isArray(data.walletTransactions)?data.walletTransactions:[]; // ملف قديم من غير فودافون كاش = مفيش حركات محفظة
           bankTransactions=Array.isArray(data.bankTransactions)?data.bankTransactions:[]; // استيراد كامل: ملف قديم من غير الحركات البنكية = مفيش حركات (مش بنسيب حركات محلية قديمة متطابقة مع بيانات مستوردة)
           if(data.companyProfile&&typeof data.companyProfile==='object'){companyProfile=data.companyProfile;}else{oldFileWarning=true;}
@@ -9532,6 +9541,9 @@ function treasuryData(day){
   // سحب من فودافون كاش للخزنة = وارد للخزنة (تحويل داخلي؛ عمولة السحب بتتخصم من رصيد المحفظة مش الخزنة)
   const inWalletWd=walletTransactions.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من فودافون كاش',note:t.note||'تحويل',amount:Number(t.amount)||0}));
   incoming.push(...inWalletWd);
+  // سحب من الخزنة الفرعية للرئيسية = وارد للرئيسية (تحويل داخلي)
+  const inSubWd=subCashTx.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من '+subCashName(),note:t.note||'تحويل',amount:Number(t.amount)||0}));
+  incoming.push(...inSubWd);
   incoming.sort((a,b)=>a.date.localeCompare(b.date));
   const outSup=supplierPayments.filter(p=>p.date===day&&viaIsCashBox(p)).map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
@@ -9547,7 +9559,9 @@ function treasuryData(day){
   const outBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'إيداع في البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
   // إيداع من الخزنة في فودافون كاش = صادر من الخزنة
   const outWalletDep=walletTransactions.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'تحويل إلى فودافون كاش',note:t.note||'تحويل',amount:Number(t.amount)||0}));
-  const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds,...outBankDep,...outWalletDep].sort((a,b)=>a.date.localeCompare(b.date));
+  // تحويل من الخزنة الرئيسية للفرعية = صادر من الرئيسية (تحويل داخلي)
+  const outSubDep=subCashTx.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'تحويل إلى '+subCashName(),note:t.note||'تحويل',amount:Number(t.amount)||0}));
+  const outgoing=[...outSup,...outExp,...outChecks,...outRetRefunds,...outBankDep,...outWalletDep,...outSubDep].sort((a,b)=>a.date.localeCompare(b.date));
 
   // رصيد أول اليوم ده = رصيد أول الخزنة الأساسي + كل ما قبل هذا اليوم من وارد وصادر (شامل الشيكات "الكاش" المحصّلة/المصروفة فعلياً والمردودات النقدية؛ شيكات البنك ليها حساباتها الخاصة)
   const priorIn=payments.filter(p=>p.date<day&&viaIsCashBox(p)).reduce((s,p)=>s+p.amount-(Number(p.discount)||0),0);
@@ -9561,7 +9575,9 @@ function treasuryData(day){
   const priorOutBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
   const priorInWalletWd=walletTransactions.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
   const priorOutWalletDep=walletTransactions.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
-  const dayOpening=treasuryOpening+priorIn+priorInChecks+priorInPurRetRefunds+priorInBankWd+priorInWalletWd-priorOutSup-priorOutExp-priorOutChecks-priorOutRetRefunds-priorOutBankDep-priorOutWalletDep;
+  const priorInSubWd=subCashTx.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const priorOutSubDep=subCashTx.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const dayOpening=treasuryOpening+priorIn+priorInChecks+priorInPurRetRefunds+priorInBankWd+priorInWalletWd+priorInSubWd-priorOutSup-priorOutExp-priorOutChecks-priorOutRetRefunds-priorOutBankDep-priorOutWalletDep-priorOutSubDep;
 
   const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
   const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
@@ -9577,6 +9593,7 @@ function saveTreasuryOpening(){
 }
 function renderTreasury(){
   if(treasurySubView==='wallet'){ renderWallet(); return; }
+  if(treasurySubView==='sub'){ renderSubCash(); return; }
   if(!treasuryDate) treasuryDate=today();
   const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=treasuryData(treasuryDate);
   const isToday=day===today();
@@ -9768,11 +9785,11 @@ function walletData(day){
 }
 
 // ===== الواجهة =====
-function switchTreasurySubView(k){ treasurySubView=k; walletForm=''; renderTreasury(); }
+function switchTreasurySubView(k){ treasurySubView=k; walletForm=''; subCashForm=''; renderTreasury(); }
 function treasurySegHtml(){
   const wl=walletEnabled()?` · ${fmt(walletData(today()).closing)} ج`:'';
   const seg=(key,label)=>`<button class="btn-sm" style="padding:9px 14px;font-size:13px;background:${treasurySubView===key?'var(--bg-1a5276,#1A5276)':'var(--bg-d5d8dc,#D5D8DC)'};color:${treasurySubView===key?'#fff':'var(--tx-333,#333)'}" onclick="switchTreasurySubView('${key}')">${label}</button>`;
-  return `<div class="btn-row" style="margin-bottom:14px">${seg('cash','💵 الخزنة')}${seg('wallet','📱 فودافون كاش'+wl)}</div>`;
+  return `<div class="btn-row" style="margin-bottom:14px">${seg('cash','💵 الخزنة')}${seg('wallet','📱 فودافون كاش'+wl)}${seg('sub','🗄️ '+esc(subCashName())+(subCashEnabled()?` · ${fmt(subCashData(today()).closing)} ج`:''))}</div>`;
 }
 // اختيار "اتحصّل/اتدفع من" في فورمات التحصيل والسداد — بيظهر بس لو المحفظة متفعّلة ولغير الأدوار المقيّدة
 // ===== طرق الدفع في التحصيل والسداد: الخزنة (الافتراضي) / فودافون كاش / إنستا باي =====
@@ -10056,6 +10073,267 @@ async function printWalletPdf(){
     ${outgoing.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات صادر</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows}</tbody></table>`}
     <div class="doc-total">رصيد آخر يوم ${day}: ${fmt(closing)} جنيه</div>`;
   await sendDocument(`تقرير فودافون كاش - ${day}`, body, `تقرير-فودافون-كاش-${day}.pdf`);
+}
+
+// ===== الخزنة الفرعية (اختياري) — خزنة تانية جنب الخزنة الرئيسية =====
+// فكرة التصميم: حساب مستقل في دليل الحسابات (subcash). التحويل بينها وبين الخزنة الرئيسية قيد داخلي بين حسابين أصول،
+// يعني مفيش أي مساس بالأرباح ولا المصروفات ولا أي رصيد تاني. إيداع (deposit) = من الرئيسية للفرعية، سحب (withdraw) = من الفرعية للرئيسية.
+// الميزة opt-in بالكامل: من غير "تفعيل" مفيش أي أثر على أي شاشة أو رصيد أو تقرير.
+// التحصيل والسداد والمصروفات بتفضل على الخزنة الرئيسية زي ما هي (مفيش ربط بيها في الإصدار ده).
+let subCashDate='';
+let subCashForm=''; // '' | 'deposit' | 'withdraw' | 'settings'
+
+function subCashEnabled(){ return !!(companyProfile&&companyProfile.subCashEnabled)||subCashTx.length>0; }
+function subCashOpeningAmt(){ return Number(companyProfile&&companyProfile.subCashOpening)||0; }
+function subCashName(){ const n=String((companyProfile&&companyProfile.subCashName)||'').trim(); return n||'الخزنة الفرعية'; }
+function _subCashReadName(id){ return String(document.getElementById(id)?.value||'').trim().slice(0,40); }
+
+// ===== القيود المحاسبية =====
+// إيداع (رئيسية -> فرعية): مدين الفرعية / دائن الخزنة — سحب (فرعية -> رئيسية): مدين الخزنة / دائن الفرعية
+function subCashTxJournalLines(t){
+  const amt=Number(t.amount)||0;
+  return t.kind==='deposit'
+    ? [{accountId:'subcash',debit:amt,credit:0},{accountId:'cash',debit:0,credit:amt}]
+    : [{accountId:'cash',debit:amt,credit:0},{accountId:'subcash',debit:0,credit:amt}];
+}
+function postSubCashTxJournal(t){
+  removeJournalBySource('subCashTx',t.id);
+  postJournal('subCashTx',t.id,t.date,(t.kind==='deposit'?'تحويل من الخزنة إلى '+subCashName():'تحويل من '+subCashName()+' إلى الخزنة')+(t.note?' - '+t.note:''),subCashTxJournalLines(t));
+}
+// نفس أسلوب رصيد افتتاحي الخزنة والمحفظة بالظبط
+function postSubCashOpeningJournal(){
+  removeJournalBySource('opening','subcash-opening');
+  const amt=subCashOpeningAmt();
+  if(!amt) return;
+  postJournal('opening','subcash-opening',today(),'رصيد افتتاحي - '+subCashName(),
+    amt>=0 ? [{accountId:'subcash',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+           : [{accountId:'equity',debit:-amt,credit:0},{accountId:'subcash',debit:0,credit:-amt}]);
+}
+// ترحيل ناقص (idempotent — مبيلمسش أي قيد صح)
+function backfillSubCashJournals(){
+  let changed=false;
+  if(subCashOpeningAmt() && !journalEntries.some(j=>j.sourceType==='opening'&&j.sourceId==='subcash-opening')){ postSubCashOpeningJournal(); changed=true; }
+  subCashTx.forEach(t=>{
+    if(!journalEntries.some(j=>j.sourceType==='subCashTx'&&j.sourceId===t.id)){ postSubCashTxJournal(t); changed=true; }
+  });
+  return changed;
+}
+
+// ===== حركات الخزنة الفرعية (وارد/صادر) =====
+function subCashMovements(){
+  const mv=[];
+  subCashTx.forEach(t=>{
+    if(t.kind==='deposit') mv.push({date:t.date||'',type:'in',label:'تحويل من الخزنة الرئيسية',note:t.note||'',amount:Number(t.amount)||0,txId:t.id});
+    else if(t.kind==='withdraw') mv.push({date:t.date||'',type:'out',label:'تحويل إلى الخزنة الرئيسية',note:t.note||'',amount:Number(t.amount)||0,txId:t.id});
+  });
+  return mv.sort((a,b)=>a.date.localeCompare(b.date));
+}
+// نفس منطق treasuryData/walletData: وارد/صادر يوم معين + رصيد أول اليوم (= رصيد أول الفرعية + كل اللي قبل اليوم ده) + رصيد آخر اليوم
+function subCashData(day){
+  day=day||today();
+  const mv=subCashMovements();
+  const incoming=mv.filter(x=>x.type==='in'&&x.date===day);
+  const outgoing=mv.filter(x=>x.type==='out'&&x.date===day);
+  const prior=mv.filter(x=>x.date<day).reduce((s,x)=>s+(x.type==='in'?x.amount:-x.amount),0);
+  const dayOpening=subCashOpeningAmt()+prior;
+  const totalIn=incoming.reduce((s,x)=>s+x.amount,0);
+  const totalOut=outgoing.reduce((s,x)=>s+x.amount,0);
+  return {incoming,outgoing,totalIn,totalOut,dayOpening,closing:dayOpening+totalIn-totalOut,day};
+}
+
+// ===== الواجهة =====
+function subCashActivationHtml(){
+  return `<div class="card"><div class="card-head blue">🗄️ الخزنة الفرعية</div><div class="card-body">
+    <div style="font-size:13px;line-height:1.8;margin-bottom:10px">خزنة تانية جنب الخزنة الرئيسية (خزنة مكتب تاني، عهدة، درج...)، ليها رصيدها الخاص، وتقدر تحوّل فلوس بينها وبين الخزنة الرئيسية في الاتجاهين. التحويل حركة داخلية بس — مش بيأثر على الأرباح ولا المصروفات. التحصيل والسداد والمصروفات بتفضل على الخزنة الرئيسية زي ما هي.</div>
+    <div class="form-row">
+      <div class="form-group"><div class="lbl">اسم الخزنة (اختياري)</div><input type="text" id="sc_act_name" maxlength="40" placeholder="الخزنة الفرعية"></div>
+      <div class="form-group"><div class="lbl">💰 رصيد أول الخزنة الفرعية</div><input type="number" id="sc_act_open" placeholder="0"></div>
+    </div>
+    <div style="font-size:11px;color:var(--tx-717d7e,#717D7E);margin-top:6px;line-height:1.7">💡 لو الفلوس اللي في الخزنة الفرعية متحسوبة أصلًا جوه رصيد الخزنة الرئيسية، سيب الرصيد الأول 0 وحوّلها بعد التفعيل — عشان متتحسبش مرتين.</div>
+    <div class="btn-row" style="margin-top:12px"><button class="btn green" onclick="activateSubCash()">✓ تفعيل الخزنة الفرعية</button></div>
+  </div></div>`;
+}
+function activateSubCash(){
+  const open=_wlRound(document.getElementById('sc_act_open')?.value);
+  companyProfile={...companyProfile,subCashEnabled:true,subCashOpening:open,subCashName:_subCashReadName('sc_act_name')};
+  postSubCashOpeningJournal();
+  save();
+  renderSubCash();
+}
+function saveSubCashSettings(){
+  const open=_wlRound(document.getElementById('sc_set_open')?.value);
+  companyProfile={...companyProfile,subCashOpening:open,subCashName:_subCashReadName('sc_set_name')};
+  postSubCashOpeningJournal();
+  save();
+  subCashForm='';
+  renderSubCash();
+}
+function openSubCashForm(kind){ subCashForm=kind; renderSubCash(); }
+// معاينة لحظية بتوضح أثر العملية على الرصيدين قبل الحفظ
+function subCashFormPreview(){
+  const kind=subCashForm; if(kind!=='deposit'&&kind!=='withdraw') return;
+  const amount=_wlRound(document.getElementById('sc_amount')?.value);
+  const pv=document.getElementById('sc_preview'); if(!pv) return;
+  if(!(amount>0)){ pv.innerHTML=''; return; }
+  const nm=esc(subCashName());
+  const red='var(--tx-c0392b,#C0392B)', grn='var(--tx-1e8449,#1E8449)';
+  pv.innerHTML=kind==='deposit'
+    ? `الخزنة الرئيسية: <strong style="color:${red}">- ${fmt(amount)}</strong> &nbsp;|&nbsp; ${nm}: <strong style="color:${grn}">+ ${fmt(amount)}</strong>`
+    : `${nm}: <strong style="color:${red}">- ${fmt(amount)}</strong> &nbsp;|&nbsp; الخزنة الرئيسية: <strong style="color:${grn}">+ ${fmt(amount)}</strong>`;
+}
+function saveSubCashTransaction(){
+  const kind=subCashForm;
+  if(kind!=='deposit'&&kind!=='withdraw') return;
+  const amount=_wlRound(document.getElementById('sc_amount')?.value);
+  const date=document.getElementById('sc_date')?.value||businessDate();
+  const note=(document.getElementById('sc_note')?.value||'').trim();
+  if(!(amount>0)){showToast('أدخل مبلغ صحيح');return;}
+  const doSave=function(){
+    const t={id:uid(),kind,amount,date,note,createdDate:today()};
+    subCashTx.push(t);
+    postSubCashTxJournal(t);
+    save();
+    subCashForm=''; subCashDate=date;
+    renderSubCash();
+  };
+  // تحذير (مش منع): لو المبلغ أكبر من الرصيد المتاح في التاريخ ده في الخزنة المحوَّل منها
+  let short='';
+  if(kind==='withdraw'){ const bal=subCashData(date).closing; if(amount>bal+0.005) short='الخزنة الفرعية ('+fmt(bal)+' ج)'; }
+  else { const bal=treasuryData(date).closing; if(amount>bal+0.005) short='الخزنة الرئيسية ('+fmt(bal)+' ج)'; }
+  if(short) showConfirm('المبلغ أكبر من رصيد '+short+' في التاريخ ده. تكمّل برضه؟',doSave); else doSave();
+}
+function deleteSubCashTransaction(id){
+  const t=subCashTx.find(x=>x.id===id);
+  if(!t) return;
+  showConfirm('متأكد من حذف الحركة دي؟ رصيد الخزنة الفرعية والخزنة الرئيسية هيترجعوا تلقائي.', function(){
+    logActivity('delete','حركة الخزنة الفرعية',t.kind==='deposit'?'تحويل من الخزنة الرئيسية':'تحويل إلى الخزنة الرئيسية',fmt(t.amount)+' ج');
+    recordDeletion('subCashTx',id);
+    subCashTx=subCashTx.filter(x=>x.id!==id);
+    removeJournalBySource('subCashTx',id);
+    save();
+    renderSubCash();
+  });
+}
+function renderSubCash(){
+  const el=document.getElementById('tab-treasury'); if(!el) return;
+  if(!subCashEnabled()){ el.innerHTML=treasurySegHtml()+subCashActivationHtml(); return; }
+  if(!subCashDate) subCashDate=today();
+  const nm=esc(subCashName());
+  const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=subCashData(subCashDate);
+  const isToday=day===today();
+  const nowBal=subCashData(today()).closing;
+  const cashNow=treasuryData(today()).closing;
+  const clr=(v)=>v>=0?'var(--tx-1e8449,#1E8449)':'var(--tx-c0392b,#C0392B)';
+  const rowHtml=(x,sign,cls)=>`
+    <div class="tr-item">
+      <div class="tr-date">${x.date}</div>
+      <div class="tr-label">${esc(x.label)}${x.note?` <span class="tr-note">(${esc(x.note)})</span>`:''}${x.txId?` <span style="cursor:pointer;color:var(--tx-c0392b,#C0392B);font-size:12px" title="حذف الحركة" onclick="deleteSubCashTransaction('${x.txId}')">🗑</span>`:''}</div>
+      <div class="tr-amount ${cls}">${sign} ${fmt(x.amount)}</div>
+    </div>`;
+  const inRows=incoming.length?incoming.map(x=>rowHtml(x,'+','in')).join(''):`<div class="tr-empty">لا توجد عمليات وارد في هذا اليوم</div>`;
+  const outRows=outgoing.length?outgoing.map(x=>rowHtml(x,'-','out')).join(''):`<div class="tr-empty">لا توجد عمليات صادر في هذا اليوم</div>`;
+  const txForm=(subCashForm==='deposit'||subCashForm==='withdraw')?`
+    <div class="card entry-sheet" style="margin-bottom:14px">
+      <div class="card-head ${subCashForm==='deposit'?'green':'orange'}">${subCashForm==='deposit'?'⬇️ تحويل من الخزنة الرئيسية إلى '+nm:'⬆️ تحويل من '+nm+' إلى الخزنة الرئيسية'}</div>
+      <div class="card-body">
+        <div style="font-size:12px;color:var(--tx-717d7e,#717D7E);margin-bottom:8px">${subCashForm==='deposit'?`رصيد الخزنة الرئيسية النهارده: <strong>${fmt(cashNow)} ج</strong>`:`رصيد ${nm} النهارده: <strong>${fmt(nowBal)} ج</strong>`}</div>
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="sc_amount" min="0" placeholder="0" oninput="subCashFormPreview()"></div>
+          <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="sc_date" value="${businessDate()}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:2"><div class="lbl">ملاحظة (اختياري)</div><input type="text" id="sc_note" placeholder="مثال: عهدة / تغذية الدرج"></div>
+        </div>
+        <div id="sc_preview" style="font-size:13px;margin:4px 0 10px;min-height:18px"></div>
+        <div class="btn-row">
+          <button class="btn ${subCashForm==='deposit'?'green':'orange'}" onclick="saveSubCashTransaction()">✓ حفظ</button>
+          <button class="btn-outline" onclick="subCashForm='';renderSubCash()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:'';
+  const settingsForm=subCashForm==='settings'?`
+    <div class="card entry-sheet" style="margin-bottom:14px">
+      <div class="card-head blue">⚙️ اسم الخزنة ورصيدها الأول</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group"><div class="lbl">اسم الخزنة</div><input type="text" id="sc_set_name" maxlength="40" placeholder="الخزنة الفرعية" value="${esc((companyProfile&&companyProfile.subCashName)||'')}"></div>
+          <div class="form-group"><div class="lbl">💰 رصيد أول الخزنة الفرعية (الأساسي)</div><input type="number" id="sc_set_open" placeholder="0" value="${subCashOpeningAmt()||''}"></div>
+        </div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn blue" onclick="saveSubCashSettings()">💾 حفظ</button>
+          <button class="btn-outline" onclick="subCashForm='';renderSubCash()">إلغاء</button>
+        </div>
+      </div>
+    </div>`:'';
+  el.innerHTML=treasurySegHtml()+`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head blue">🗄️ ${nm}</div>
+      <div class="card-body">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div><div style="font-size:12px;color:var(--tx-717d7e,#717D7E)">رصيد ${nm} الحالي</div><div style="font-size:22px;font-weight:bold;color:${clr(nowBal)}">${fmt(nowBal)} ج</div></div>
+          <div><div style="font-size:12px;color:var(--tx-717d7e,#717D7E)">رصيد الخزنة الرئيسية الحالي</div><div style="font-size:22px;font-weight:bold;color:${clr(cashNow)}">${fmt(cashNow)} ج</div></div>
+        </div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn-sm green" onclick="openSubCashForm('deposit')">⬇️ تحويل من الرئيسية للفرعية</button>
+          <button class="btn-sm orange" onclick="openSubCashForm('withdraw')">⬆️ تحويل من الفرعية للرئيسية</button>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn-sm blue" onclick="subCashForm=(subCashForm==='settings'?'':'settings');renderSubCash()">⚙️ الاسم والرصيد الأول</button>
+          <button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printSubCashPdf().finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير الخزنة الفرعية PDF</button>
+        </div>
+      </div>
+    </div>
+    ${txForm}${settingsForm}
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-body">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="lbl" style="margin:0">📅 عرض يوم</div>
+          <input type="date" required id="subcash_date_input" value="${subCashDate}" onchange="subCashDate=this.value;renderSubCash()">
+          ${!isToday?`<button class="btn-outline" onclick="subCashDate=today();renderSubCash()">↩ اليوم</button>`:''}
+        </div>
+      </div>
+    </div>
+    <div class="treasury-day-label">
+      رصيد أول يوم ${day}: <strong style="color:${clr(dayOpening)}">${fmt(dayOpening)} ج</strong>
+      ${isToday?'<span class="badge-today">اليوم الحالي</span>':''}
+    </div>
+    <div class="treasury-cols">
+      <div class="treasury-col">
+        <div class="treasury-col-head in"><span>⬇️ وارد</span><span>${fmt(totalIn)}</span></div>
+        <div class="treasury-list">${inRows}</div>
+      </div>
+      <div class="treasury-col">
+        <div class="treasury-col-head out"><span>${fmt(totalOut)}</span><span>صادر ⬇️</span></div>
+        <div class="treasury-list">${outRows}</div>
+      </div>
+    </div>
+    <div class="treasury-closing-wrap">
+      <div class="treasury-closing">
+        <div class="l">رصيد آخر يوم ${day}</div>
+        <div class="n" style="color:${clr(closing)}">${fmt(closing)} ج</div>
+      </div>
+    </div>`;
+}
+async function printSubCashPdf(){
+  const {incoming,outgoing,totalIn,totalOut,closing,dayOpening,day}=subCashData(subCashDate||today());
+  const inRows=incoming.map(x=>`<tr><td>${x.date}</td><td>${esc(x.label)}${x.note?` (${esc(x.note)})`:''}</td><td style="color:#1E8449;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const outRows=outgoing.map(x=>`<tr><td>${x.date}</td><td>${esc(x.label)}${x.note?` (${esc(x.note)})`:''}</td><td style="color:#C0392B;font-weight:bold">${fmt(x.amount)}</td></tr>`).join('');
+  const body=`
+    <div class="doc-info">
+      <div><strong>اليوم:</strong> ${day}</div>
+      <div><strong>رصيد أول اليوم:</strong> ${fmt(dayOpening)} ج</div>
+    </div>
+    <div class="doc-summary">
+      <div class="doc-sum-box"><div class="n" style="color:#1E8449">${fmt(totalIn)}</div><div class="l">إجمالي الوارد</div></div>
+      <div class="doc-sum-box"><div class="n" style="color:#C0392B">${fmt(totalOut)}</div><div class="l">إجمالي الصادر</div></div>
+      <div class="doc-sum-box"><div class="n">${fmt(closing)}</div><div class="l">رصيد آخر اليوم</div></div>
+    </div>
+    <div style="font-weight:bold;color:#1E8449;margin:14px 0 6px">⬇️ الوارد</div>
+    ${incoming.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات وارد</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${inRows}</tbody></table>`}
+    <div style="font-weight:bold;color:#C0392B;margin:16px 0 6px">⬆️ الصادر</div>
+    ${outgoing.length===0?'<div style="text-align:center;color:#717D7E;padding:10px 0">لا توجد عمليات صادر</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${outRows}</tbody></table>`}
+    <div class="doc-total">رصيد آخر يوم ${day}: ${fmt(closing)} جنيه</div>`;
+  await sendDocument(`تقرير ${subCashName()} - ${day}`, body, `تقرير-الخزنة-الفرعية-${day}.pdf`);
 }
 
 // ===== قائمة الأسعار =====
@@ -10764,7 +11042,7 @@ function renderCashFlowHtml(fromVal,toVal){
   journalEntries.forEach(j=>{
     if(j.date<fromVal||j.date>toVal) return;
     j.lines.forEach(l=>{
-      if(l.accountId!=='cash'&&l.accountId!=='bank'&&l.accountId!=='wallet') return;
+      if(l.accountId!=='cash'&&l.accountId!=='bank'&&l.accountId!=='wallet'&&l.accountId!=='subcash') return;
       const debit=Number(l.debit)||0, credit=Number(l.credit)||0;
       if(j.sourceType==='opening'){ openingAdjust+=debit-credit; return; }
       if(j.sourceType==='payment') inClients+=debit-credit;
@@ -10785,7 +11063,7 @@ function renderCashFlowHtml(fromVal,toVal){
     journalEntries.forEach(j=>{
       const within=inclusive?(j.date<=date):(j.date<date);
       if(!within) return;
-      j.lines.forEach(l=>{ if(l.accountId==='cash'||l.accountId==='bank'||l.accountId==='wallet'){ d+=Number(l.debit)||0; c+=Number(l.credit)||0; } });
+      j.lines.forEach(l=>{ if(l.accountId==='cash'||l.accountId==='bank'||l.accountId==='wallet'||l.accountId==='subcash'){ d+=Number(l.debit)||0; c+=Number(l.credit)||0; } });
     });
     return d-c;
   };
@@ -11129,7 +11407,8 @@ function renderBalanceSheetHtml(toVal){
   const ar=accountBalance('ar',toVal).debit;
   const notesReceivable=accountBalance('notesReceivable',toVal).debit;
   const inventory=accountBalance('inventory',toVal).debit;
-  const totalAssets=cash+bank+wallet+ar+notesReceivable+inventory;
+  const _scB=accountBalance('subcash',toVal); const subcash=_scB.debit-_scB.credit; // الخزنة الفرعية (بتظهر في الميزانية بس لو فيها رصيد)
+  const totalAssets=cash+bank+wallet+subcash+ar+notesReceivable+inventory;
   const ap=accountBalance('ap',toVal).credit;
   const notesPayable=accountBalance('notesPayable',toVal).credit;
   const netIncomeToDate=accountBalance('sales',toVal).credit-accountBalance('cogs',toVal).debit-accountBalance('directcost',toVal).debit-accountBalance('opex',toVal).debit-accountBalance('discountAllowed',toVal).debit+accountBalance('discountEarned',toVal).credit;
@@ -11145,6 +11424,7 @@ function renderBalanceSheetHtml(toVal){
     ${row('الخزنة', cash)}
     ${row('البنوك', bank)}
     ${wallet!==0?row('فودافون كاش', wallet):''}
+    ${subcash!==0?row(esc(subCashName()), subcash):''}
     ${row('العملاء', ar)}
     ${row('أوراق القبض', notesReceivable)}
     ${row('المخزون', inventory)}
