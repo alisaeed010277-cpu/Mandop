@@ -2970,10 +2970,12 @@ function seedAccountingIfNeeded(){
       [{accountId:'inventory',debit:pur.total,credit:0},{accountId:'ap',debit:0,credit:pur.total}]);
   });
   payments.forEach(p=>{
+    if(p.isCheckAuto) return; // سجل تلقائي من شيك — قيده متسجل أصلًا من قيود الشيك
     postJournal('payment',p.id,p.date,'تحصيل من عميل',
       [{accountId:viaAccountId(p),debit:p.amount,credit:0},{accountId:'ar',debit:0,credit:p.amount}]);
   });
   supplierPayments.forEach(p=>{
+    if(p.isCheckAuto) return; // سجل تلقائي من شيك — قيده متسجل أصلًا من قيود الشيك
     postJournal('supplierPayment',p.id,p.date,'سداد لمورد',
       [{accountId:'ap',debit:p.amount,credit:0},{accountId:viaAccountId(p),debit:0,credit:p.amount}]);
   });
@@ -7236,7 +7238,7 @@ function renderPayments(){
       <td style="white-space:nowrap">${esc(c?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
-        ${roleCanModify(p)?`${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
+        ${roleCanModify(p)?`${(p.isCashAuto||p.isDownPaymentAuto||p.isCheckAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -7349,7 +7351,7 @@ function renderPaymentDetail(){
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
-          ${(roleCanModify(p)&&!p.isCashAuto&&!p.isDownPaymentAuto)?`<button class="btn orange" onclick="editPayment('${p.id}')">✏️ تعديل</button>`:''}
+          ${(roleCanModify(p)&&!p.isCashAuto&&!p.isDownPaymentAuto&&!p.isCheckAuto)?`<button class="btn orange" onclick="editPayment('${p.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
     </div>`;
@@ -7362,6 +7364,7 @@ function _scrollToEditForm(tabId){
 function editPayment(id){
   const p=payments.find(x=>x.id===id);
   if(!p) return;
+  if(p.isCheckAuto){showToast('التحصيل ده اتسجل تلقائيًا من شيك — عدّل حالة الشيك من تبويب البنوك');return;}
   if(p.isCashAuto||p.isDownPaymentAuto){showToast('التحصيل ده اتسجل تلقائيًا مع فاتورة — عدّله من الفاتورة نفسها');return;}
   if(isRestrictedRole() && !roleCanModify(p)) return;
   editPayId=id; showPayForm=true; payDetailId=null; _payEditFresh=true;
@@ -7370,6 +7373,7 @@ function editPayment(id){
 }
 
 function deletePayment(id){
+  { const _pc=payments.find(p=>p.id===id); if(_pc&&_pc.isCheckAuto){ showToast('التحصيل ده اتسجل تلقائيًا من شيك — لو عايز تلغيه ارجّع/عدّل حالة الشيك من تبويب البنوك'); return; } }
   if(isRestrictedRole()){ const _pp=payments.find(p=>p.id===id); if(!_pp||!roleCanModify(_pp)) return; }
   const _payItem=payments.find(p=>p.id===id);
   showConfirm('هتحذف عملية السداد دي؟', function(){
@@ -7403,6 +7407,7 @@ function savePayment(){
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد العميل (نقدي + خصم)
   // تعديل تحصيل موجود: نفس الـid ونفس تاريخ الإنشاء وصاحب العملية، وبنشيل قيده القديم ونرحّل قيد جديد بالقيم الجديدة
   const _oldPay=editPayId?(payments.find(p=>p.id===editPayId)||null):null;
+  if(_oldPay && _oldPay.isCheckAuto){showToast('التحصيل ده اتسجل تلقائيًا من شيك — عدّل حالة الشيك من تبويب البنوك');return;}
   if(_oldPay && (_oldPay.isCashAuto||_oldPay.isDownPaymentAuto)){showToast('التحصيل ده اتسجل تلقائيًا مع فاتورة — عدّله من الفاتورة نفسها');return;}
   if(_oldPay && isRestrictedRole() && !roleCanModify(_oldPay)) return;
   const _vp=viaRead('pay',_oldPay); if(_vp===null) return;
@@ -9796,7 +9801,7 @@ function treasurySegHtml(){
 // via:'wallet' = المحفظة (زي ما كان). via:'instapay' = إنستا باي: بيدخل/بيخرج من حساب بنكي (bankAccountId) + رقم العملية اختياري (ref).
 // من غير via = كاش على الخزنة بالظبط زي ما كان. السلكت بيظهر لغير الأدوار المقيّدة، ولو فيه محفظة متفعّلة أو حساب بنكي واحد على الأقل.
 function viaIsInstapay(r){ return !!r && r.via==='instapay'; }
-function viaIsCashBox(r){ return !r || (r.via!=='wallet' && r.via!=='instapay'); } // بيدخل/بيخرج من الخزنة فعلًا
+function viaIsCashBox(r){ return !r || (r.via!=='wallet' && r.via!=='instapay' && !r.isCheckAuto); } // بيدخل/بيخرج من الخزنة فعلًا
 function viaAccountId(r){ return !r?'cash':(r.via==='wallet'?'wallet':(r.via==='instapay'?'bank':'cash')); }
 function viaCashPart(r){ return (Number(r.amount)||0)-(Number(r.discount)||0); } // الفلوس الفعلية اللي اتحركت (من غير الخصم)
 function viaSelectHtml(id,label,cur,rec){
@@ -10420,6 +10425,65 @@ function checkHolderDisplay(c){
   return found?found.name:(c.holderName||'—');
 }
 
+// ===== ربط الشيك بكشف حساب المورد/العميل =====
+// لما شيك (مرتبط بمورد/عميل من القايمة) يتحوّل لـ "تم الصرف/التحصيل" بنسجّل له سداد/تحصيل تلقائي (isCheckAuto + checkId)
+// عشان يظهر في كشف الحساب ويخصم من الرصيد زي أي سداد. السجل ده بيأثر على رصيد/كشف المورد أو العميل بس —
+// مفيش له قيد يومية (قيد الشيك متسجل أصلًا بـ checkNote/check) ومش بيتحسب في الخزنة (شوف viaIsCashBox) ولا في البنك
+// (الشيك نفسه هو اللي بيحرّك الخزنة/البنك)، فمفيش أي حاجة بتتحسب مرتين.
+function removeCheckLinkedPayment(checkId,isPayable){
+  if(isPayable){
+    const old=supplierPayments.filter(p=>p.isCheckAuto&&p.checkId===checkId);
+    if(!old.length) return;
+    old.forEach(p=>{ recordDeletion('supplierPayments',p.id); removeJournalBySource('supplierPayment',p.id); });
+    supplierPayments=supplierPayments.filter(p=>!(p.isCheckAuto&&p.checkId===checkId));
+  }else{
+    const old=payments.filter(p=>p.isCheckAuto&&p.checkId===checkId);
+    if(!old.length) return;
+    old.forEach(p=>{ recordDeletion('payments',p.id); removeJournalBySource('payment',p.id); });
+    payments=payments.filter(p=>!(p.isCheckAuto&&p.checkId===checkId));
+  }
+}
+function syncCheckLinkedPayment(c,isPayable){
+  removeCheckLinkedPayment(c.id,isPayable);
+  if(!c||c.status!=='done') return false;
+  if(c.holderType!==(isPayable?'supplier':'client')||!c.holderId) return false; // اسم يدوي = مفيش حساب نربطه بيه
+  if(!(isPayable?suppliers:clients).some(x=>x.id===c.holderId)) return false;   // العميل/المورد اتمسح
+  const amt=Number(c.amount)||0;
+  if(amt<=0) return false;
+  const rec={id:uid(),amount:amt,discount:undefined,date:c.settledDate||today(),
+    note:(isPayable?'صرف شيك #':'تحصيل شيك #')+c.number,isCheckAuto:true,checkId:c.id,createdAt:new Date().toISOString()};
+  if(isPayable){ rec.supplierId=c.holderId; supplierPayments.push(rec); }
+  else{ rec.clientId=c.holderId; payments.push(rec); }
+  return true;
+}
+// شيكات اتصرفت/اتحصّلت قبل التحديث ده ومالهاش سجل في كشف الحساب. بنتخطى أي شيك فيه سداد/تحصيل يدوي
+// بنفس المبلغ لنفس الحساب وملاحظته فيها رقم الشيك (احتمال إن حد سجّلها بإيده زمان) عشان مانكرّرهاش.
+function unlinkedDoneChecks(isPayable){
+  const arr=isPayable?checksPayable:checksReceivable;
+  const recs=isPayable?supplierPayments:payments;
+  return arr.filter(c=>{
+    if(c.status!=='done') return false;
+    if(c.holderType!==(isPayable?'supplier':'client')||!c.holderId) return false;
+    if(!(isPayable?suppliers:clients).some(x=>x.id===c.holderId)) return false;
+    if(recs.some(p=>p.isCheckAuto&&p.checkId===c.id)) return false;
+    const num=String(c.number||'').trim();
+    const manual=recs.some(p=>!p.isCheckAuto&&(isPayable?p.supplierId:p.clientId)===c.holderId
+      &&Math.abs((Number(p.amount)||0)-(Number(c.amount)||0))<0.01&&num&&String(p.note||'').includes(num));
+    return !manual;
+  });
+}
+function linkOldChecksToStatements(isPayable){
+  const list=unlinkedDoneChecks(isPayable);
+  if(!list.length){ showToast('مفيش شيكات قديمة محتاجة ربط'); return; }
+  showConfirm('هيتسجل '+list.length+' '+(isPayable?'سداد':'تحصيل')+' في كشف '+(isPayable?'حساب الموردين':'حساب العملاء')+' للشيكات القديمة اللي '+(isPayable?'اتصرفت':'اتحصّلت')+'، وأرصدتهم هتتغير. لو كنت مسجّل نفس الشيك يدوي قبل كده بملاحظة مفيهاش رقم الشيك، راجعه الأول عشان ميتحسبش مرتين. متأكد؟', function(){
+    list.forEach(c=>syncCheckLinkedPayment(c,isPayable));
+    logActivity('edit','شيكات','ربط شيكات قديمة بكشف الحساب',list.length+' شيك');
+    save();
+    showToast('اتربط '+list.length+' شيك بكشف الحساب');
+    renderBanks();
+  });
+}
+
 function switchBanksSubView(v){
   banksSubView=v; editCheckId=null; showCheckForm=false; settlingCheckId=null; chkUseCustomHolder=false; banksStatusFilter='all'; banksSearch='';
   bankAccountDetailId=null; editBankAccId=null; bankAccUseCustomName=false; showAddAccountForm=false;
@@ -10476,6 +10540,7 @@ function deleteCheck(id){
     logActivity('delete','شيك','#'+(_chkItem?.number||''),(_chkItem?.holderName||'')+' • '+fmt(_chkItem?.amount||0)+' ج');
     removeJournalBySource('check',id);
     removeJournalBySource('checkNote',id);
+    removeCheckLinkedPayment(id,banksSubView==='payable');
     if(banksSubView==='payable'){ recordDeletion('checksPayable',id); checksPayable=checksPayable.filter(c=>c.id!==id); }
     else{ recordDeletion('checksReceivable',id); checksReceivable=checksReceivable.filter(c=>c.id!==id); }
     save();
@@ -10516,6 +10581,7 @@ function confirmSettleCheck(id){
     ? [{accountId:'notesPayable',debit:c.amount,credit:0},{accountId:acct,debit:0,credit:c.amount}]
     : [{accountId:acct,debit:c.amount,credit:0},{accountId:'notesReceivable',debit:0,credit:c.amount}];
   postJournal('check',c.id,dateVal,desc,lines);
+  syncCheckLinkedPayment(c,isPayable); // يظهر في كشف حساب المورد/العميل ويخصم من رصيده
   save();
   settlingCheckId=null;
   renderBanks();
@@ -10527,6 +10593,7 @@ function markCheckBounced(id){
     removeJournalBySource('check',c.id); // احتياطي لو كان له قيد تسوية سابق
     removeJournalBySource('checkNote',c.id); // الشيك ارتد يعني الورقة التجارية بطلت، والدين يرجع مفتوح زي ما كان
     c.status='bounced'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
+    removeCheckLinkedPayment(c.id,banksSubView==='payable'); // الشيك ارتد: الدين يرجع مفتوح في كشف الحساب
     save();
     renderBanks();
   });
@@ -10536,6 +10603,7 @@ function revertCheckStatus(id){
   if(!c)return;
   removeJournalBySource('check',c.id); // بيشيل قيد التسوية لو الشيك كان "تم التحصيل/الصرف"
   c.status='pending'; c.settledDate=null; c.destination=null; c.bankAccountId=null;
+  removeCheckLinkedPayment(c.id,banksSubView==='payable'); // رجوع لحالة لسه: يتشال من كشف الحساب
   save();
   renderBanks();
 }
@@ -10894,6 +10962,7 @@ function renderBanks(){
       </div>
     </div>
 
+    ${(()=>{const _n=unlinkedDoneChecks(isPayable).length;return _n?`<div class="card" style="border-right:4px solid #D68910;margin-bottom:14px;padding:12px 14px"><div style="font-size:13px;margin-bottom:8px">🔗 فيه <b>${_n}</b> شيك ${isPayable?'اتصرف':'اتحصّل'} قبل كده ومش ظاهر في كشف حساب ${isPayable?'المورد':'العميل'}.</div><button class="btn-sm orange" onclick="linkOldChecksToStatements(${isPayable})">🔗 اربطهم بكشف الحساب</button></div>`:''})()}
     <div class="search-row" style="align-items:center;flex-wrap:wrap">
       <input type="text" style="flex:1;min-width:140px;border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px" placeholder="🔍 بحث برقم الشيك/الاسم/البنك..." value="${esc(banksSearch)}" oninput="searchInputHandler(this,v=>banksSearch=v,renderBanks)">
       ${arrAll.length>0?`<button class="btn-sm purple" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳';printChecksPdf('${banksSubView}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 تقرير PDF</button>`:''}
@@ -12408,7 +12477,7 @@ function renderSupPayTab(){
       <td style="white-space:nowrap">${esc(s?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
-        ${(p.isCashAuto||p.isDownPaymentAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editSupplierPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
+        ${(p.isCashAuto||p.isDownPaymentAuto||p.isCheckAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editSupplierPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
       </td>
     </tr>`;
   }).join('');
@@ -12460,6 +12529,7 @@ function saveSupplierPaymentTab(){
   const amount=cashAmount+discount; // إجمالي اللي بيتقفل من رصيد المورد (نقدي + خصم)
   // تعديل سداد موجود: نفس الـid ونفس تاريخ الإنشاء، وبنشيل قيده القديم ونرحّل قيد جديد بالقيم الجديدة
   const _oldSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
+  if(_oldSp && _oldSp.isCheckAuto){showToast('السداد ده اتسجل تلقائيًا من شيك — عدّل حالة الشيك من تبويب البنوك');return;}
   if(_oldSp && (_oldSp.isCashAuto||_oldSp.isDownPaymentAuto)){showToast('السداد ده اتسجل تلقائيًا مع فاتورة مشتريات — عدّله من الفاتورة نفسها');return;}
   const _vp=viaRead('sp2',_oldSp); if(_vp===null) return;
   const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),supplierId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
@@ -12521,7 +12591,7 @@ function renderSupPayTabDetail(){
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للمورد</button>
-          ${(!p.isCashAuto&&!p.isDownPaymentAuto)?`<button class="btn orange" onclick="editSupplierPayment('${p.id}')">✏️ تعديل</button>`:''}
+          ${(!p.isCashAuto&&!p.isDownPaymentAuto&&!p.isCheckAuto)?`<button class="btn orange" onclick="editSupplierPayment('${p.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
     </div>`;
@@ -12530,6 +12600,7 @@ function renderSupPayTabDetail(){
 function editSupplierPayment(id){
   const p=supplierPayments.find(x=>x.id===id);
   if(!p) return;
+  if(p.isCheckAuto){showToast('السداد ده اتسجل تلقائيًا من شيك — عدّل حالة الشيك من تبويب البنوك');return;}
   if(p.isCashAuto||p.isDownPaymentAuto){showToast('السداد ده اتسجل تلقائيًا مع فاتورة مشتريات — عدّله من الفاتورة نفسها');return;}
   editSupPayId=id; showSupPayTabForm=true; supPayTabDetailId=null;
   renderSupPayTab();
@@ -12538,6 +12609,7 @@ function editSupplierPayment(id){
 
 function deleteSupplierPaymentTab(id){
   const _spItem=supplierPayments.find(p=>p.id===id);
+  if(_spItem&&_spItem.isCheckAuto){ showToast('السداد ده اتسجل تلقائيًا من شيك — لو عايز تلغيه ارجّع/عدّل حالة الشيك من تبويب البنوك'); return; }
   showConfirm('هتحذف عملية السداد دي؟', function(){
     logActivity('delete','سداد مورد',(suppliers.find(s=>s.id===_spItem?.supplierId)?.name||''),fmt(_spItem?.amount||0)+' ج');
     recordDeletion('supplierPayments',id);
