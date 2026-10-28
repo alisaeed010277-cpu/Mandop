@@ -2763,13 +2763,14 @@ function postTreasuryOpeningJournal(){
 // إيداع: مدين البنوك / دائن الخزنة — سحب: مدين الخزنة / دائن البنوك (تحويل داخلي، مفيش أي مساس بالأرباح)
 function bankTxJournalLines(t){
   const amt=Number(t.amount)||0;
+  const other=t.source==='wallet'?'wallet':'cash'; // الطرف التاني: الخزنة (الافتراضي) أو فودافون كاش
   return t.kind==='deposit'
-    ? [{accountId:'bank',debit:amt,credit:0},{accountId:'cash',debit:0,credit:amt}]
-    : [{accountId:'cash',debit:amt,credit:0},{accountId:'bank',debit:0,credit:amt}];
+    ? [{accountId:'bank',debit:amt,credit:0},{accountId:other,debit:0,credit:amt}]
+    : [{accountId:other,debit:amt,credit:0},{accountId:'bank',debit:0,credit:amt}];
 }
 function postBankTxJournal(t){
   removeJournalBySource('bankTx',t.id);
-  postJournal('bankTx',t.id,t.date,(t.kind==='deposit'?'إيداع نقدي في البنك':'سحب من البنك إلى الخزنة')+(t.note?' - '+t.note:''),bankTxJournalLines(t));
+  postJournal('bankTx',t.id,t.date,(t.source==='wallet'?(t.kind==='deposit'?'إيداع في البنك من فودافون كاش':'سحب من البنك إلى فودافون كاش'):(t.kind==='deposit'?'إيداع نقدي في البنك':'سحب من البنك إلى الخزنة'))+(t.note?' - '+t.note:''),bankTxJournalLines(t));
 }
 // نفس أسلوب رصيد افتتاحي الخزنة/العملاء/الموردين بالظبط، عشان رصيد "البنوك" في الميزانية يطابق رصيد الحساب البنكي في شاشته
 function postBankOpeningJournal(acc){
@@ -9541,7 +9542,7 @@ function treasuryData(day){
   });
   incoming.push(...inPurRetRefunds);
   // سحب من البنك للخزنة = وارد للخزنة
-  const inBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
+  const inBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.source!=='wallet'&&t.date===day).map(t=>({date:t.date,label:'سحب من البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
   incoming.push(...inBankWd);
   // سحب من فودافون كاش للخزنة = وارد للخزنة (تحويل داخلي؛ عمولة السحب بتتخصم من رصيد المحفظة مش الخزنة)
   const inWalletWd=walletTransactions.filter(t=>t.kind==='withdraw'&&t.date===day).map(t=>({date:t.date,label:'سحب من فودافون كاش',note:t.note||'تحويل',amount:Number(t.amount)||0}));
@@ -9561,7 +9562,7 @@ function treasuryData(day){
     return {date:r.date,label:c?.name||'عميل',note:`مردود نقدي #${r.number}`,amount:r.total};
   });
   // إيداع نقدي في البنك = صادر من الخزنة (والمصروف المدفوع من البنك مش بيدخل هنا خالص)
-  const outBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'إيداع في البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
+  const outBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.source!=='wallet'&&t.date===day).map(t=>({date:t.date,label:'إيداع في البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
   // إيداع من الخزنة في فودافون كاش = صادر من الخزنة
   const outWalletDep=walletTransactions.filter(t=>t.kind==='deposit'&&t.date===day).map(t=>({date:t.date,label:'تحويل إلى فودافون كاش',note:t.note||'تحويل',amount:Number(t.amount)||0}));
   // تحويل من الخزنة الرئيسية للفرعية = صادر من الرئيسية (تحويل داخلي)
@@ -9576,8 +9577,8 @@ function treasuryData(day){
   const priorOutExp=expenses.filter(e=>e.date<day&&e.paidFrom!=='bank'&&e.paidFrom!=='wallet').reduce((s,e)=>s+e.amount,0);
   const priorOutChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate<day&&c.destination!=='bank').reduce((s,c)=>s+c.amount,0);
   const priorOutRetRefunds=returns.filter(r=>r.cashRefund&&r.date<day).reduce((s,r)=>s+r.total,0);
-  const priorInBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
-  const priorOutBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
+  const priorInBankWd=bankTransactions.filter(t=>t.kind==='withdraw'&&t.source!=='wallet'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
+  const priorOutBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.source!=='wallet'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
   const priorInWalletWd=walletTransactions.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
   const priorOutWalletDep=walletTransactions.filter(t=>t.kind==='deposit'&&t.date<day).reduce((s,t)=>s+Number(t.amount),0);
   const priorInSubWd=subCashTx.filter(t=>t.kind==='withdraw'&&t.date<day).reduce((s,t)=>s+(Number(t.amount)||0),0);
@@ -9769,6 +9770,12 @@ function walletMovements(){
   expenses.forEach(e=>{
     if(e.paidFrom!=='wallet') return;
     mv.push({date:e.date||'',type:'out',label:e.label,note:e.walletTxId?'عمولة تحويل':'مصروف',amount:Number(e.amount)||0});
+  });
+  bankTransactions.forEach(t=>{
+    if(t.source!=='wallet') return;
+    const bl=bankAccountLabel(t.bankAccountId);
+    if(t.kind==='deposit') mv.push({date:t.date||'',type:'out',label:'إيداع في البنك',note:bl+(t.note?' - '+t.note:''),amount:Number(t.amount)||0});
+    else mv.push({date:t.date||'',type:'in',label:'سحب من البنك',note:bl+(t.note?' - '+t.note:''),amount:Number(t.amount)||0});
   });
   walletTransactions.forEach(t=>{
     if(t.kind==='deposit') mv.push({date:t.date||'',type:'in',label:'تحويل من الخزنة',note:t.note||'إيداع في المحفظة',amount:Number(t.amount)||0,txId:t.id});
@@ -10628,14 +10635,14 @@ function bankAccountBalance(id){
 function bankAccountTransactions(id){
   const inTx=checksReceivable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'in',label:checkHolderDisplay(c),note:`تحصيل شيك #${c.number}`,amount:c.amount}));
   const outTx=checksPayable.filter(c=>c.status==='done'&&c.destination==='bank'&&c.bankAccountId===id).map(c=>({date:c.settledDate,type:'out',label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
-  const movTx=bankTransactions.filter(t=>t.bankAccountId===id).map(t=>({date:t.date,type:t.kind==='deposit'?'in':'out',label:t.kind==='deposit'?'إيداع نقدي من الخزنة':'سحب إلى الخزنة',note:t.note||(t.kind==='deposit'?'إيداع':'سحب'),amount:t.amount,txId:t.id}));
+  const movTx=bankTransactions.filter(t=>t.bankAccountId===id).map(t=>({date:t.date,type:t.kind==='deposit'?'in':'out',label:t.source==='wallet'?(t.kind==='deposit'?'إيداع من فودافون كاش':'سحب إلى فودافون كاش'):(t.kind==='deposit'?'إيداع نقدي من الخزنة':'سحب إلى الخزنة'),note:t.note||(t.kind==='deposit'?'إيداع':'سحب'),amount:t.amount,txId:t.id}));
   const expTx=expenses.filter(e=>e.paidFrom==='bank'&&e.bankAccountId===id).map(e=>({date:e.date,type:'out',label:e.label,note:e.method==='instapay'?'مصروف مدفوع عبر إنستا باي':'مصروف مدفوع من البنك',amount:e.amount}));
   const ipInTx=payments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).map(p=>({date:p.date,type:'in',label:clients.find(c=>c.id===p.clientId)?.name||'عميل',note:'تحصيل عبر إنستا باي'+(p.ref?' #'+p.ref:''),amount:viaCashPart(p)}));
   const ipOutTx=supplierPayments.filter(p=>viaIsInstapay(p)&&p.bankAccountId===id).map(p=>({date:p.date,type:'out',label:suppliers.find(x=>x.id===p.supplierId)?.name||'مورد',note:'سداد عبر إنستا باي'+(p.ref?' #'+p.ref:''),amount:viaCashPart(p)}));
   return [...inTx,...outTx,...movTx,...expTx,...ipInTx,...ipOutTx].sort((a,b)=>a.date.localeCompare(b.date));
 }
 // إيداع نقدي من الخزنة / سحب من البنك للخزنة — من شاشة الحساب البنكي
-let bankTxForm='', bankTxFormAcc='';
+let bankTxForm='', bankTxFormAcc='', bankTxSource='cash'; // bankTxSource: 'cash' (الخزنة) | 'wallet' (فودافون كاش)
 function saveBankTransaction(accId){
   const kind=bankTxForm;
   if(kind!=='deposit'&&kind!=='withdraw') return;
@@ -10644,18 +10651,20 @@ function saveBankTransaction(accId){
   const date=document.getElementById('banktx_date')?.value||businessDate();
   const note=(document.getElementById('banktx_note')?.value||'').trim();
   if(!amount||amount<=0){showToast('أدخل مبلغ صحيح');return;}
+  const src=(bankTxSource==='wallet'&&walletEnabled())?'wallet':'cash';
   const t={id:uid(),bankAccountId:accId,kind,amount,date,note,createdDate:today()};
+  if(src==='wallet') t.source='wallet';
   bankTransactions.push(t);
   postBankTxJournal(t);
   save();
-  bankTxForm=''; bankTxFormAcc='';
+  bankTxForm=''; bankTxFormAcc=''; bankTxSource='cash';
   renderBanks();
 }
 function deleteBankTransaction(id){
   const t=bankTransactions.find(x=>x.id===id);
   if(!t) return;
-  showConfirm('متأكد من حذف الحركة دي؟ رصيد الخزنة والحساب البنكي هيترجعوا تلقائي.', function(){
-    logActivity('delete','حركة بنكية',t.kind==='deposit'?'إيداع نقدي':'سحب إلى الخزنة',fmt(t.amount)+' ج');
+  showConfirm('متأكد من حذف الحركة دي؟ رصيد '+(t.source==='wallet'?'المحفظة':'الخزنة')+' والحساب البنكي هيترجعوا تلقائي.', function(){
+    logActivity('delete','حركة بنكية',t.source==='wallet'?(t.kind==='deposit'?'إيداع من فودافون كاش':'سحب إلى فودافون كاش'):(t.kind==='deposit'?'إيداع نقدي':'سحب إلى الخزنة'),fmt(t.amount)+' ج');
     recordDeletion('bankTransactions',id);
     bankTransactions=bankTransactions.filter(x=>x.id!==id);
     removeJournalBySource('bankTx',id);
@@ -10763,8 +10772,10 @@ function renderAccountDetail(acc){
           <div><div style="font-size:12px;color:var(--tx-717d7e,#717D7E)">الرصيد الحالي</div><div style="font-size:22px;font-weight:bold;color:${balance>=0?'var(--tx-1e8449,#1E8449)':'var(--tx-c0392b,#C0392B)'}">${fmt(balance)} ج</div></div>
         </div>
         <div class="btn-row" style="margin-top:12px">
-          <button class="btn-sm green" onclick="bankTxForm='deposit';bankTxFormAcc='${acc.id}';renderBanks()">⬇️ إيداع نقدي من الخزنة</button>
-          <button class="btn-sm orange" onclick="bankTxForm='withdraw';bankTxFormAcc='${acc.id}';renderBanks()">⬆️ سحب إلى الخزنة</button>
+          <button class="btn-sm green" onclick="bankTxForm='deposit';bankTxSource='cash';bankTxFormAcc='${acc.id}';renderBanks()">⬇️ إيداع نقدي من الخزنة</button>
+          <button class="btn-sm orange" onclick="bankTxForm='withdraw';bankTxSource='cash';bankTxFormAcc='${acc.id}';renderBanks()">⬆️ سحب إلى الخزنة</button>
+          ${walletEnabled()?`<button class="btn-sm green" onclick="bankTxForm='deposit';bankTxSource='wallet';bankTxFormAcc='${acc.id}';renderBanks()">📱 إيداع من فودافون كاش</button>
+          <button class="btn-sm orange" onclick="bankTxForm='withdraw';bankTxSource='wallet';bankTxFormAcc='${acc.id}';renderBanks()">📱 سحب إلى فودافون كاش</button>`:''}
           <button class="btn-sm purple" onclick="expensePresetBankId='${acc.id}';showExpenseForm=true;switchTab('expenses')">💸 مصروف من البنك</button>
         </div>
         <div class="btn-row" style="margin-top:10px">
@@ -10776,9 +10787,9 @@ function renderAccountDetail(acc){
     ${bankAccounts.length>1?`<button class="btn-outline" style="margin-bottom:12px" onclick="bankAccountDetailId=null;renderBanks()">→ كل الحسابات</button>`:''}
     ${(bankTxForm&&bankTxFormAcc===acc.id)?`
     <div class="card entry-sheet" style="margin-bottom:14px">
-      <div class="card-head ${bankTxForm==='deposit'?'green':'orange'}">${bankTxForm==='deposit'?'⬇️ إيداع نقدي من الخزنة في البنك':'⬆️ سحب من البنك إلى الخزنة'}</div>
+      <div class="card-head ${bankTxForm==='deposit'?'green':'orange'}">${bankTxSource==='wallet'?(bankTxForm==='deposit'?'📱 إيداع من فودافون كاش في البنك':'📱 سحب من البنك إلى فودافون كاش'):(bankTxForm==='deposit'?'⬇️ إيداع نقدي من الخزنة في البنك':'⬆️ سحب من البنك إلى الخزنة')}</div>
       <div class="card-body">
-        <div style="font-size:12px;color:var(--tx-717d7e,#717D7E);margin-bottom:8px">${bankTxForm==='deposit'?`رصيد الخزنة النهارده: <strong>${fmt(treasuryData(today()).closing)} ج</strong>`:`رصيد الحساب البنكي: <strong>${fmt(balance)} ج</strong>`}</div>
+        <div style="font-size:12px;color:var(--tx-717d7e,#717D7E);margin-bottom:8px">${bankTxForm==='deposit'?(bankTxSource==='wallet'?`رصيد المحفظة النهارده: <strong>${fmt(walletData(today()).closing)} ج</strong>`:`رصيد الخزنة النهارده: <strong>${fmt(treasuryData(today()).closing)} ج</strong>`):`رصيد الحساب البنكي: <strong>${fmt(balance)} ج</strong>`}</div>
         <div class="form-row">
           <div class="form-group"><div class="lbl">المبلغ *</div><input type="number" id="banktx_amount" min="0" placeholder="0"></div>
           <div class="form-group"><div class="lbl">التاريخ</div><input type="date" required id="banktx_date" value="${businessDate()}"></div>
@@ -10788,7 +10799,7 @@ function renderAccountDetail(acc){
         </div>
         <div class="btn-row">
           <button class="btn green" onclick="saveBankTransaction('${acc.id}')">✓ حفظ</button>
-          <button class="btn-outline" onclick="bankTxForm='';bankTxFormAcc='';renderBanks()">إلغاء</button>
+          <button class="btn-outline" onclick="bankTxForm='';bankTxFormAcc='';bankTxSource='cash';renderBanks()">إلغاء</button>
         </div>
       </div>
     </div>`:''}
