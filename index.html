@@ -12478,8 +12478,11 @@ function renderSupPayTab(){
   const _sp2Snap=(showSupPayTabForm&&document.getElementById('sp2_date')?.dataset.rec===String(editSupPayId||'new'))?formSnap(['sp2_supplier','sp2_amount','sp2_date','sp2_discount','sp2_note','sp2_via','sp2_bank','sp2_ref','sp2_bookno']):null;
   const _editingSp=editSupPayId?(supplierPayments.find(p=>p.id===editSupPayId)||null):null;
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
-  const debtors=suppliers.filter(s=>supplierBalance(s.id)>0);
-  const supOptsArr=debtors.map(s=>({id:s.id,label:s.name,sub:`مستحق: ${fmt(supplierBalance(s.id))} ج`}));
+  // كل الموردين متاحين للسداد — حتى لو رصيده صفر أو لسه مشترتش منه (السداد المقدّم بيخلّي رصيده بالسالب = له رصيد في كشف الحساب)
+  const supOptsArr=[...suppliers].sort((a,b)=>{const ba=supplierBalance(a.id)>0?0:1, bb=supplierBalance(b.id)>0?0:1; return ba-bb;}).map(s=>{
+    const _b=supplierBalance(s.id);
+    return {id:s.id,label:s.name,sub:_b>0?`مستحق: ${fmt(_b)} ج`:_b<0?`له رصيد: ${fmt(Math.abs(_b))} ج`:'الحساب صافي'};
+  });
   // في التعديل: مورد السداد لازم يفضل ظاهر في القايمة حتى لو رصيده بقى صفر
   if(_editingSp && !supOptsArr.some(o=>o.id===_editingSp.supplierId)){ const _es=suppliers.find(s=>s.id===_editingSp.supplierId); if(_es) supOptsArr.push({id:_es.id,label:_es.name,sub:`الرصيد الحالي: ${fmt(supplierBalance(_es.id))} ج`}); }
   const rows=sorted.map(p=>{
