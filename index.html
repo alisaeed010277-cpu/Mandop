@@ -2262,6 +2262,7 @@ const save=()=>{
   try{ pushSyncSnapshot(); }catch(e){} // مزامنة اختيارية بالخلفية - أي مشكلة فيها متأثرش على الحفظ المحلي فوق
   try{ pushSilentBackup(); }catch(e){} // نسخة احتياطية صامتة تلقائية لكل عميل - نفس مبدأ الأمان
   try{ _tabNotifySaved(); }catch(e){}
+  try{ _syncOnSave(); }catch(e){} // تتبع التغييرات للمزامنة: خامل تمامًا لو الجهاز مش مربوط
 };
 
 async function loadAllData(){
@@ -2339,6 +2340,8 @@ async function loadAllData(){
   // بيلمس بس الأصناف اللي معندهاش ذاكرة سعر متسجلة أصلاً - ومبيغيّرش أي قيمة اتسجلت بالفعل
   // من الاستخدام العادي بعد إضافة الميزة، فآمن يشتغل في كل تحميل من غير ما يأثر على حاجة موجودة.
   backfillPriceMemoryFromHistory();
+  try{ _scBoot(); }catch(e){} // المزامنة: خاملة تمامًا لو الجهاز مش مربوط
+  try{ _scUiInit(); }catch(e){} // شاشة الربط المخفية (7 ضغطات على سطر العنوان الفرعي)
 }
 
 function backfillPriceMemoryFromHistory(){
@@ -2419,7 +2422,7 @@ function postJournal(sourceType, sourceId, date, description, lines){
     return;
   }
   if(Math.abs(totalDebit)<0.01) return; // مفيش داعي نسجل قيد بصفر (بتسامح زي فحص التوازن فوق، عشان فروق فاصلة عائمة صغيرة جدًا ماتسجلش قيد وهمي)
-  journalEntries.push({id:uid(),date,description,sourceType,sourceId,lines,createdAt:new Date().toISOString()});
+  journalEntries.push({id:_scJournalId(sourceType,sourceId),date,description,sourceType,sourceId,lines,createdAt:new Date().toISOString()});
 }
 // مسح كل القيود المرتبطة بحركة معينة (بيتستخدم قبل إعادة الترحيل عند التعديل، أو عند الحذف)
 // بنسجل أي قيد بيتشال هنا في سجل الحذف عشان يتزامن ويتشال من باقي الأجهزة كمان
@@ -2618,13 +2621,13 @@ function reconcileCogsJournals(){
   invoices.forEach(inv=>{
     removeJournalBySource('invoiceCogs',inv.id);
     const cogsTotal=byInvoice.get(inv.id)||0;
-    if(cogsTotal>0) postJournal('invoiceCogs',inv.id,inv.date,'تكلفة بضاعة مباعة - فاتورة #'+inv.number,
+    if(cogsTotal>0) postJournal('invoiceCogs',inv.id,inv.date,'تكلفة بضاعة مباعة - فاتورة #'+docNo(inv),
       [{accountId:'cogs',debit:cogsTotal,credit:0},{accountId:'inventory',debit:0,credit:cogsTotal}]);
   });
   returns.forEach(ret=>{
     removeJournalBySource('returnCogs',ret.id);
     const cogsTotal=byReturn.get(ret.id)||0;
-    if(cogsTotal>0) postJournal('returnCogs',ret.id,ret.date,'استرجاع تكلفة - مردود مبيعات #'+ret.number,
+    if(cogsTotal>0) postJournal('returnCogs',ret.id,ret.date,'استرجاع تكلفة - مردود مبيعات #'+docNo(ret),
       [{accountId:'inventory',debit:cogsTotal,credit:0},{accountId:'cogs',debit:0,credit:cogsTotal}]);
   });
   // تسوية تكلفة مردود المشتريات: القيد الأصلي (purReturn) بيقفل "المخزون" بسعر المرتجع نفسه (عشان يفضل متطابق مع
@@ -2635,9 +2638,9 @@ function reconcileCogsJournals(){
     const avgCostTotal=byPurReturn.get(ret.id)||0;
     const diff=avgCostTotal-(Number(ret.total)||0); // فرق بين القيمة بمتوسط التكلفة الحقيقي واللي اتقفل بيه فعلاً
     if(Math.abs(diff)<0.01) return;
-    if(diff>0) postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+ret.number,
+    if(diff>0) postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+docNo(ret),
       [{accountId:'cogs',debit:diff,credit:0},{accountId:'inventory',debit:0,credit:diff}]);
-    else postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+ret.number,
+    else postJournal('purReturnCogsAdj',ret.id,ret.date,'تسوية تكلفة مردود مشتريات #'+docNo(ret),
       [{accountId:'inventory',debit:-diff,credit:0},{accountId:'cogs',debit:0,credit:-diff}]);
   });
   // تكلفة عمليات التصنيع: بتتحسب بمتوسط تكلفة كل خامة "وقت التصنيع نفسه" (مش دلوقتي) — لو اتسجلت عملية تصنيع بتاريخ
@@ -2658,14 +2661,14 @@ function backfillReturnJournals(){
   let changed=false;
   returns.forEach(ret=>{
     if(!journalEntries.some(j=>j.sourceType==='return'&&j.sourceId===ret.id)){
-      postJournal('return',ret.id,ret.date,'مردود مبيعات #'+ret.number,
+      postJournal('return',ret.id,ret.date,'مردود مبيعات #'+docNo(ret),
         [{accountId:'sales',debit:ret.total,credit:0},{accountId:'ar',debit:0,credit:ret.total}]);
       changed=true;
     }
   });
   purchaseReturns.forEach(ret=>{
     if(!journalEntries.some(j=>j.sourceType==='purReturn'&&j.sourceId===ret.id)){
-      postJournal('purReturn',ret.id,ret.date,'مردود مشتريات #'+ret.number,
+      postJournal('purReturn',ret.id,ret.date,'مردود مشتريات #'+docNo(ret),
         [{accountId:'ap',debit:ret.total,credit:0},{accountId:'inventory',debit:0,credit:ret.total}]);
       changed=true;
     }
@@ -2963,11 +2966,11 @@ function seedAccountingIfNeeded(){
              : [{accountId:'ap',debit:-amt,credit:0},{accountId:'equity',debit:0,credit:-amt}]);
   });
   invoices.forEach(inv=>{
-    postJournal('invoice',inv.id,inv.date,'فاتورة مبيعات #'+inv.number,
+    postJournal('invoice',inv.id,inv.date,'فاتورة مبيعات #'+docNo(inv),
       [{accountId:'ar',debit:inv.total,credit:0},{accountId:'sales',debit:0,credit:inv.total}]);
   });
   purchases.forEach(pur=>{
-    postJournal('purchase',pur.id,pur.date,'فاتورة مشتريات #'+pur.number,
+    postJournal('purchase',pur.id,pur.date,'فاتورة مشتريات #'+docNo(pur),
       [{accountId:'inventory',debit:pur.total,credit:0},{accountId:'ap',debit:0,credit:pur.total}]);
   });
   payments.forEach(p=>{
@@ -2998,7 +3001,569 @@ function seedAccountingIfNeeded(){
 // ====================================================================
 
 let _id=Date.now();
-const uid=()=>(++_id).toString(36);
+// لو الجهاز مربوط (مزامنة) بيتضاف رمز قصير للجهاز في آخر الـ id عشان جهازين ميطلّعوش نفس الـ id.
+// لو مش مربوط (كل العملاء دلوقتي) _scTag() بترجع نص فاضي، فالـ id بيطلع بالظبط زي الأول.
+const uid=()=>(++_id).toString(36)+_scTag();
+
+/* SYNC-CORE-BEGIN */
+// ============================================================
+// طبقة المزامنة — المرحلة 1: تتبع التغييرات فقط (من غير أي اتصال بالإنترنت)
+// خاملة تمامًا ما لم يكن الجهاز مربوط، يعني لما يبقى فيه مفتاح _syncLink في localStorage.
+// مفيش أي شاشة أو كود دلوقتي بيكتب المفتاح ده، فالبرنامج عند كل العملاء شغال بالظبط زي ما هو.
+// مبدأ التتبع: الحالة بتتخزن في مفتاح منفصل في IndexedDB ('vs_sync_state')، مش جوه بيانات العميل،
+// والسجلات نفسها مبتتعدلش ولا بيتضاف عليها أي حقل. اللي محتاج رفع بيتحسب بالمقارنة (بصمة السجل الحالي
+// مقابل بصمته وقت آخر مزامنة)، فمفيش قايمة معلّقة ممكن تبوظ أو تتكرر.
+// ============================================================
+const SYNC_COLLS=['clients','invoices','payments','stock','movements','returns','suppliers','purchases','supplierPayments','purchaseReturns','expenses','productions','checksPayable','checksReceivable','bankAccounts','bankTransactions','subStock','subTransfers','walletTransactions','subCashTx','chartOfAccounts','repNotes','clientNotes','journalEntries'];
+// حقول بتتملي أو بتتصلح تلقائيًا من التاريخ في كل جهاز لوحده، فتغييرها لوحده مش بيعتبر تعديل يتبعت
+const SYNC_VOLATILE={stock:['lastSalePrice','lastSalePriceDate','lastPurchasePrice','lastPurchasePriceDate','lastSaleReturnPrice','lastSaleReturnPriceDate','lastPurchaseReturnPrice','lastPurchaseReturnPriceDate']};
+const SYNC_ID_RE=/^[A-Za-z0-9_\-:.|]{1,120}$/;
+
+let __scLinkCache=null;
+function _scLink(){
+  if(__scLinkCache===null){
+    try{ const l=DB.get('_syncLink'); __scLinkCache=(l&&typeof l==='object'&&l.ws)?l:false; }catch(e){ __scLinkCache=false; }
+  }
+  return __scLinkCache;
+}
+function _scLinked(){ return !!_scLink(); }
+function _scResetLinkCache(){ __scLinkCache=null; __scTagVal=null; }
+
+let __scTagVal=null;
+function _scTag(){
+  try{
+    if(!_scLinked()) return '';
+    if(__scTagVal===null){
+      let t=DB.get('_syncTag');
+      if(typeof t!=='string' || !/^[a-z0-9]{3}$/.test(t)){
+        t=(Math.random().toString(36)+'000').slice(2,5);
+        DB.set('_syncTag',t);
+      }
+      __scTagVal=t;
+    }
+    return __scTagVal;
+  }catch(e){ return ''; }
+}
+
+// id القيد اليومي: لو مربوط بيبقى ثابت من (نوع المصدر + id المصدر + رقم)، فجهازين بيرحّلوا نفس العملية
+// بيطلّعوا نفس القيد ويتدمجوا في سجل واحد بدل ما المحاسبة تتضاعف. لو مش مربوط بيرجع uid() زي الأول بالظبط.
+function _scJournalId(sourceType,sourceId){
+  if(!_scLinked()) return uid();
+  try{
+    const base=String(sourceType)+'|'+String(sourceId);
+    const taken=new Set(journalEntries.map(j=>j.id));
+    let n=0; while(taken.has(base+'|'+n)) n++;
+    const id=base+'|'+n;
+    return SYNC_ID_RE.test(id)?id:uid();
+  }catch(e){ return uid(); }
+}
+
+// بصمة سريعة (cyrb53) لنص — للمقارنة بس، مش للأمان
+function _scHash(str){
+  let h1=0xdeadbeef, h2=0x41c6ce57;
+  for(let i=0;i<str.length;i++){ const ch=str.charCodeAt(i); h1=Math.imul(h1^ch,2654435761); h2=Math.imul(h2^ch,1597334677); }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return (4294967296*(2097151&h2)+(h1>>>0)).toString(36);
+}
+// تحويل لنص بترتيب مفاتيح ثابت، عشان تغيير ترتيب الحقول لوحده ميتحسبش تعديل
+function _scStable(v){
+  if(v===undefined) return 'null';
+  if(v===null || typeof v!=='object') return JSON.stringify(v);
+  if(Array.isArray(v)) return '['+v.map(_scStable).join(',')+']';
+  return '{'+Object.keys(v).sort().filter(k=>v[k]!==undefined).map(k=>JSON.stringify(k)+':'+_scStable(v[k])).join(',')+'}';
+}
+function _scFingerprint(coll,rec){
+  const skip=SYNC_VOLATILE[coll];
+  if(!skip) return _scHash(_scStable(rec));
+  const copy={}; Object.keys(rec).forEach(k=>{ if(!skip.includes(k)) copy[k]=rec[k]; });
+  return _scHash(_scStable(copy));
+}
+
+function _scGetColl(name){
+  switch(name){
+    case 'clients': return clients; case 'invoices': return invoices; case 'payments': return payments;
+    case 'stock': return stock; case 'movements': return movements; case 'returns': return returns;
+    case 'suppliers': return suppliers; case 'purchases': return purchases; case 'supplierPayments': return supplierPayments;
+    case 'purchaseReturns': return purchaseReturns; case 'expenses': return expenses; case 'productions': return productions;
+    case 'checksPayable': return checksPayable; case 'checksReceivable': return checksReceivable;
+    case 'bankAccounts': return bankAccounts; case 'bankTransactions': return bankTransactions;
+    case 'subStock': return subStock; case 'subTransfers': return subTransfers;
+    case 'walletTransactions': return walletTransactions; case 'subCashTx': return subCashTx;
+    case 'chartOfAccounts': return chartOfAccounts; case 'repNotes': return repNotes; case 'clientNotes': return clientNotes;
+    case 'journalEntries': return journalEntries;
+  }
+  return undefined;
+}
+
+// حالة التتبع: fp = بصمة كل سجل وقت آخر مزامنة ('del' = اتبعتله علامة حذف)، base = آخر رقم تسلسلي من الخادم للسجل
+let __scState=null;
+async function _scLoadState(){
+  try{
+    const s=await idbGet('vs_sync_state');
+    __scState=(s&&s.v===1&&s.fp&&s.base)?s:{v:1,fp:{},base:{},since:0};
+  }catch(e){ __scState=null; }   // مقدرناش نقرا الحالة = مفيش مزامنة (أوفلاين)، ومنفترضش إنها فاضية
+  return __scState;
+}
+async function _scSaveState(){
+  if(!__scState) return false;
+  try{ await idbSet('vs_sync_state',__scState); return true; }catch(e){ return false; }
+}
+function _scMarkSynced(coll,id,hash,seq){
+  if(!__scState) return;
+  (__scState.fp[coll]=__scState.fp[coll]||{})[id]=hash;
+  (__scState.base[coll]=__scState.base[coll]||{})[id]=Number(seq)||0;
+}
+function _scMarkDeleted(coll,id,seq){ _scMarkSynced(coll,id,'del',seq); }
+
+// اللي محتاج رفع دلوقتي. بترجع null لو أي حاجة مش جاهزة (أمان أولًا: null = متبعتش حاجة).
+function _scComputeDirty(){
+  if(!__scState || !__dataLoaded) return null;
+  const upserts=[], deletes=[]; let skipped=0;
+  for(const coll of SYNC_COLLS){
+    const arr=_scGetColl(coll);
+    if(!Array.isArray(arr)) return null;
+    const fp=__scState.fp[coll]||{}, base=__scState.base[coll]||{};
+    const present=new Set();
+    for(const rec of arr){
+      if(!rec || typeof rec!=='object' || typeof rec.id!=='string' || !SYNC_ID_RE.test(rec.id)){ skipped++; continue; }
+      present.add(rec.id);
+      const h=_scFingerprint(coll,rec);
+      if(fp[rec.id]!==h) upserts.push({coll,id:rec.id,hash:h,data:JSON.stringify(rec),base_seq:base[rec.id]||0,rec});
+    }
+    // الحذف بيتبعت بس لو المستخدم حذف فعلًا (مسجّل في deletedIds). غياب سجل لوحده مش دليل على حذفه،
+    // عشان لو البيانات اتمسحت بالغلط محدش يمسح بيانات باقي الأجهزة.
+    const dels=(deletedIds && Array.isArray(deletedIds[coll]))?deletedIds[coll]:[];
+    for(const id of dels){
+      if(typeof id!=='string' || !SYNC_ID_RE.test(id) || present.has(id)) continue;
+      if(fp[id]===undefined) continue;     // عمره ما اتزامن، مفيش حاجة نمسحها من الخادم
+      if(fp[id]==='del') continue;         // اتبعتله علامة الحذف قبل كده: مرة واحدة بس
+      deletes.push({coll,id,base_seq:base[id]||0});
+    }
+  }
+  return {upserts,deletes,skipped};
+}
+
+// بعد كل حفظ: لو الجهاز مربوط بس، استنى 8 ثواني من آخر تغيير وبعدين احسب اللي اتغيّر (مش مع كل save)
+let __scTimer=null, __scQuietHook=null;
+function _syncOnSave(){
+  if(!_scLinked()) return;
+  clearTimeout(__scTimer);
+  __scTimer=setTimeout(()=>{ try{ const d=_scComputeDirty(); if(d && __scQuietHook) __scQuietHook(d); }catch(e){} },8000);
+}
+
+// ---------- سلسلة ترقيم المستندات (للأجهزة المربوطة بس) ----------
+// رقم الجهاز في المساحة بييجي من الخادم (1 = الأول). الأول مبيتغيرش عنده حاجة، والباقي بياخدوا بادئة: ب- ج- ...
+function _scSeriesFor(n){ n=Number(n)||1; if(n<=1) return ''; return ['','ب','ج','د','هـ','و'][n-1]||('س'+n); }
+function _scSeries(){ try{ const l=_scLink(); return (l&&typeof l.series==='string')?l.series:''; }catch(e){ return ''; } }
+function _scSeriesField(old){ const s=old?(old.series||''):_scSeries(); return s?{series:s}:{}; }   // {} = مفيش حقل جديد على مستند العميل العادي
+function docNo(x){ return (x&&x.series)?(x.series+'-'+x.number):(x?x.number:undefined); }          // من غير سلسلة بيرجع الرقم زي ما هو بالظبط
+/* SYNC-CORE-END */
+/* SYNC-ENGINE-BEGIN */
+// ============================================================
+// محرك المزامنة — المرحلة 3: سحب ودمج ورفع، خامل تمامًا ما لم يكن الجهاز مربوط (_syncLink)
+// القواعد الأساسية: أي رد غريب أو ناقص = أوفلاين وبياناتك المحلية زي ما هي • مفيش حذف محلي إلا بعلامة حذف
+// من الخادم • سحب الأول ثم رفع • نسخة احتياطية قبل أي دمج • فرامل لو التغيير كبير • التعارض: الخادم هو
+// الأساسي ونسختك المحلية بتتحفظ في قائمة "تعارضات للمراجعة" ومبتتمسحش.
+// ============================================================
+const SYNC_PROTO=1;
+const SYNC_DEFAULT_URL='https://sahbk-sync.alisaeed010277.workers.dev';
+const SYNC_BATCH=100;                    // لازم يساوي أو يقل عن حد الخادم
+const SYNC_BRAKE_MIN=50, SYNC_BRAKE_PCT=0.05;
+const SYNC_LOCAL_REQ_CAP=2000;           // سقف طلبات الجهاز اليومي (حماية قبل سقف الخادم)
+const SYNC_BACKOFF=[30000,60000,300000]; // تباعد المحاولات عند الخطأ
+const SYNC_LATE_PARENTS=['invoices','purchases','returns','purchaseReturns','productions']; // الأب بيتبعت بعد أولاده
+
+let __scStatus={state:'off',last:0,error:'',conflicts:0,brake:null};
+let __scBusy=false, __scFails=0, __scNextAt=0, __scPollTimer=null, __scMaxBatch=SYNC_BATCH, __scConflicts=[];
+function _scSetStatus(state,extra){
+  __scStatus=Object.assign({},__scStatus,{state},extra||{});
+  try{ if(typeof window!=='undefined' && typeof window.__scOnStatus==='function') window.__scOnStatus(__scStatus); }catch(e){}
+}
+
+// ---------- الاتصال ----------
+async function _scPost(url,path,body){
+  let to=null;
+  try{
+    const ctl=new AbortController(); to=setTimeout(()=>ctl.abort(),20000);
+    const r=await fetch(url+path,{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify(Object.assign({v:SYNC_PROTO},body)),signal:ctl.signal});
+    let j=null; try{ j=await r.json(); }catch(e){}
+    if(!j || typeof j!=='object' || Array.isArray(j)) return {kind:'offline'};   // قاعدة: رد فاضي أو غريب = أوفلاين
+    if(r.status===426 || j.error==='upgrade_required') return {kind:'upgrade'};
+    if(j.error==='disabled') return {kind:'disabled'};
+    if(j.error==='bad_credentials') return {kind:'unauthorized'};
+    if(j.error==='not_registered') return {kind:'unregistered'};
+    if(j.error==='signup_closed') return {kind:'signup_closed'};
+    if(j.error==='device_limit') return {kind:'device_limit',j};
+    if(j.error==='daily_cap') return {kind:'cap',j};
+    if(r.ok && j.ok===true) return {kind:'ok',j};
+    return {kind:'offline'};
+  }catch(e){ return {kind:'offline'}; }
+  finally{ if(to) clearTimeout(to); }
+}
+function _scCountReq(){
+  if(!__scState) return true;
+  const day=new Date().toISOString().slice(0,10);
+  if(!__scState.use || __scState.use.day!==day) __scState.use={day,req:0};
+  if(__scState.use.req>=SYNC_LOCAL_REQ_CAP) return false;
+  __scState.use.req++; return true;
+}
+async function _scCall(path,extra){
+  const L=_scLink(); if(!L) return {kind:'off'};
+  if(!_scCountReq()) return {kind:'cap',j:{local:true}};
+  return _scPost(L.url||SYNC_DEFAULT_URL,path,Object.assign({ws:L.ws,secret:L.secret,device_id:L.dev},extra||{}));
+}
+
+// ---------- الربط وفكه (من غير شاشة لسه) ----------
+// عنوان الخادم: الافتراضي هو خادمك. ممكن يتغيّر بإعداد محلي _syncUrl (للتجربة على خادم تاني)، وبدونه مفيش أي تغيير
+function _scDefaultUrl(){ try{ const u=DB.get('_syncUrl'); return (typeof u==='string' && /^https?:\/\/[^\s]+$/.test(u))?u.replace(/\/$/,''):SYNC_DEFAULT_URL; }catch(e){ return SYNC_DEFAULT_URL; } }
+function _scNewDev(){ return 'd'+(Math.random().toString(36)+'0000000000').slice(2,12); }
+async function _scCreate(url,signupKey){
+  url=url||_scDefaultUrl(); const dev=_scNewDev();
+  const r=await _scPost(url,'/register',{device_id:dev,signup_key:signupKey||''});
+  if(r.kind!=='ok' || !r.j.ws || !r.j.secret) return {ok:false,error:r.kind};
+  DB.set('_syncLink',{ws:r.j.ws,secret:r.j.secret,url,dev,series:_scSeriesFor(r.j.device_no||1)}); _scResetLinkCache();
+  __scState={v:1,fp:{},base:{},since:0,hold:false}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
+  _scBoot(); return {ok:true,code:r.j.ws+'.'+r.j.secret};
+}
+async function _scJoin(code,url){
+  url=url||_scDefaultUrl(); const m=/^(w_[a-z0-9]{12})\.([A-Za-z0-9_\-]{20,100})$/.exec(String(code||'').trim());
+  if(!m) return {ok:false,error:'bad_code'};
+  const dev=_scNewDev(); const r=await _scPost(url,'/register',{ws:m[1],secret:m[2],device_id:dev});
+  if(r.kind!=='ok') return {ok:false,error:r.kind};
+  if(!Number.isInteger(r.j.device_no)) return {ok:false,error:'server_old'};   // الخادم لازم يتحدّث عشان نعرف سلسلة الجهاز (من غيرها الترقيم ممكن يتكرر)
+  DB.set('_syncLink',{ws:m[1],secret:m[2],url,dev,series:_scSeriesFor(r.j.device_no)}); _scResetLinkCache();
+  // الجهاز المنضم بيسحب الأول ومبيرفعش بياناته القديمة إلا بعد ما المستخدم يراجع ويأكد (_scReleaseHold)
+  __scState={v:1,fp:{},base:{},since:0,hold:true}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
+  _scBoot(); return {ok:true};
+}
+async function _scReleaseHold(){ if(__scState){ __scState.hold=false; await _scSaveState(); } }
+async function _scUnlink(){          // بيوقف المزامنة فورًا، من غير ما يمس أي بيانات محلية
+  try{ DB.set('_syncLink',null); }catch(e){}
+  _scResetLinkCache(); __scQuietHook=null; __scState=null;
+  if(__scPollTimer){ clearInterval(__scPollTimer); __scPollTimer=null; }
+  try{ await idbSet('vs_sync_state',null); }catch(e){}
+  _scSetStatus('off');
+}
+
+// ---------- التعارضات للمراجعة ----------
+async function _scLoadConflicts(){ try{ const c=await idbGet('vs_sync_conflicts'); __scConflicts=Array.isArray(c)?c:[]; }catch(e){ __scConflicts=[]; } _scSetStatus(__scStatus.state,{conflicts:__scConflicts.length}); }
+async function _scSaveConflicts(){ try{ await idbSet('vs_sync_conflicts',__scConflicts.slice(-500)); }catch(e){} _scSetStatus(__scStatus.state,{conflicts:__scConflicts.length}); }
+
+// ---------- السحب ----------
+function _scValidChange(c){
+  return c && typeof c==='object' && typeof c.coll==='string' && typeof c.id==='string' && Number.isInteger(c.seq)
+    && (c.deleted===0||c.deleted===1) && (c.deleted===1 || typeof c.data==='string');
+}
+async function _scPull(){
+  let since=__scState.since||0; const all=[]; let more=false;
+  for(let page=0;page<200;page++){
+    const r=await _scCall('/pull',{since});
+    if(r.kind!=='ok') return {r};
+    const j=r.j;
+    if(!Array.isArray(j.changes) || !Number.isInteger(j.seq) || j.seq<since || !j.changes.every(_scValidChange)) return {r:{kind:'offline'}}; // رد ناقص
+    all.push.apply(all,j.changes); since=j.seq; more=!!j.more;
+    if(!more) break;
+  }
+  return {changes:all,seq:since,more};
+}
+
+// ---------- الدمج ----------
+function _scPlan(changes){
+  const plan={adds:[],replaces:[],removes:[],marks:[],rebases:[],conflicts:[],bad:0};
+  const idx={};
+  const getIdx=coll=>{ if(!idx[coll]){ const m=new Map(); _scGetColl(coll).forEach((r,i)=>{ if(r && typeof r.id==='string') m.set(r.id,i); }); idx[coll]=m; } return idx[coll]; };
+  for(const c of changes){
+    if(!SYNC_COLLS.includes(c.coll)){ plan.bad++; continue; }       // مجموعة مش معروفة (نسخة أحدث): نتخطاها بس
+    const arr=_scGetColl(c.coll); if(!Array.isArray(arr)){ plan.bad++; continue; }
+    const i=getIdx(c.coll).get(c.id); const local=(i===undefined)?null:arr[i];
+    const synced=(__scState.fp[c.coll]||{})[c.id];
+    const lh=local?_scFingerprint(c.coll,local):null;
+    if(c.deleted===1){
+      if(!local){ plan.marks.push({coll:c.coll,id:c.id,hash:'del',seq:c.seq}); continue; }
+      if(lh===synced) plan.removes.push({coll:c.coll,id:c.id,seq:c.seq});
+      else{ // اتحذف من جهاز تاني وانت عدّلته عندك: بنسيبه عندك وبنبلّغك
+        plan.conflicts.push({kind:'deleted_remote',coll:c.coll,id:c.id,local:JSON.parse(JSON.stringify(local)),seq:c.seq,at:Date.now()});
+        plan.marks.push({coll:c.coll,id:c.id,hash:lh,seq:c.seq});
+      }
+      continue;
+    }
+    let rec; try{ rec=JSON.parse(c.data); }catch(e){ plan.bad++; continue; }
+    if(!rec || typeof rec!=='object' || Array.isArray(rec) || rec.id!==c.id){ plan.bad++; continue; }
+    const rh=_scFingerprint(c.coll,rec);
+    if(!local){ plan.adds.push({coll:c.coll,rec,hash:rh,seq:c.seq}); continue; }
+    if(lh===rh){ plan.marks.push({coll:c.coll,id:c.id,hash:rh,seq:c.seq}); continue; }
+    // الخادم لسه على نفس النسخة اللي إحنا عارفينها (غالبًا صدى لرفعنا إحنا)، وتعديلك المحلي لسه مستني الرفع:
+    // منلمسوش، وبس بنحدّث رقم القاعدة عشان الرفع الجاي ميتحسبش تعارض
+    if(rh===synced){ plan.rebases.push({coll:c.coll,id:c.id,seq:c.seq}); continue; }
+    // تعارض حقيقي = الخادم اتغيّر عن آخر نقطة متزامنة، وكمان انت معدّل عندك
+    if(lh!==synced) plan.conflicts.push({kind:'edit',coll:c.coll,id:c.id,local:JSON.parse(JSON.stringify(local)),seq:c.seq,at:Date.now()});
+    plan.replaces.push({coll:c.coll,rec,hash:rh,seq:c.seq});
+  }
+  return plan;
+}
+function _scBrakeCheck(plan){
+  const n={}; plan.replaces.concat(plan.removes).forEach(x=>{ n[x.coll]=(n[x.coll]||0)+1; });
+  const hit={};
+  for(const coll in n){
+    const total=(_scGetColl(coll)||[]).length;
+    if(n[coll]>Math.max(SYNC_BRAKE_MIN,Math.ceil(total*SYNC_BRAKE_PCT))) hit[coll]=n[coll];
+  }
+  return Object.keys(hit).length?hit:null;
+}
+function _scExecute(plan){
+  plan.adds.forEach(a=>{ _scGetColl(a.coll).push(a.rec); _scMarkSynced(a.coll,a.rec.id,a.hash,a.seq); });
+  plan.replaces.forEach(r=>{
+    const arr=_scGetColl(r.coll); const i=arr.findIndex(x=>x && x.id===r.rec.id);
+    if(i>=0) arr[i]=r.rec; else arr.push(r.rec);
+    _scMarkSynced(r.coll,r.rec.id,r.hash,r.seq);
+  });
+  const byColl={}; plan.removes.forEach(x=>{ (byColl[x.coll]=byColl[x.coll]||new Map()).set(x.id,x.seq); });
+  for(const coll in byColl){
+    const arr=_scGetColl(coll);
+    for(let i=arr.length-1;i>=0;i--){ if(arr[i] && byColl[coll].has(arr[i].id)) arr.splice(i,1); }
+    byColl[coll].forEach((seq,id)=>_scMarkDeleted(coll,id,seq));
+  }
+  plan.marks.forEach(m=>_scMarkSynced(m.coll,m.id,m.hash,m.seq));
+  plan.rebases.forEach(m=>{ if(__scState.base) (__scState.base[m.coll]=__scState.base[m.coll]||{})[m.id]=Number(m.seq)||0; });
+  plan.conflicts.forEach(c=>__scConflicts.push(c));
+}
+async function _scBackupBeforeMerge(){ if(typeof _snapWrite==='function') await _snapWrite(true); }
+async function _scApplyChanges(changes,seq,opts){
+  opts=opts||{};
+  let plan=_scPlan(changes);
+  const br=_scBrakeCheck(plan);
+  if(br && !opts.force) return {brake:br};
+  const touches=plan.adds.length+plan.replaces.length+plan.removes.length;
+  if(touches){
+    try{ await _scBackupBeforeMerge(); }catch(e){ return {error:'backup_failed'}; }   // مفيش دمج من غير نسخة احتياطية
+    plan=_scPlan(changes);   // البيانات ممكن اتغيّرت وإحنا بنعمل النسخة
+  }
+  _scExecute(plan);
+  if(Number.isInteger(seq) && seq>(__scState.since||0)) __scState.since=seq;
+  if(touches){ try{ save(); }catch(e){} try{ render(); }catch(e){} }
+  await _scSaveState(); await _scSaveConflicts();
+  return {applied:{adds:plan.adds.length,replaces:plan.replaces.length,removes:plan.removes.length},conflicts:plan.conflicts.length,bad:plan.bad};
+}
+
+// ---------- الرفع ----------
+function _scBundleKeys(){
+  const payKey={};
+  [['payments',payments],['supplierPayments',supplierPayments]].forEach(([n,arr])=>arr.forEach(p=>{ if(p&&p.id) payKey[p.id]=p.invoiceId||p.purchaseId||p.id; }));
+  return payKey;
+}
+function _scBundleOf(item,payKey){
+  const r=item.rec||{};
+  switch(item.coll){
+    case 'movements': return r.invoiceId||r.purchaseId||r.returnId||r.transferId||r.productionId||item.id;
+    case 'payments': case 'supplierPayments': return r.invoiceId||r.purchaseId||item.id;
+    case 'journalEntries': return payKey[r.sourceId]||r.sourceId||item.id;
+    default: return item.id;
+  }
+}
+// بنجمّع الفاتورة وحركاتها وتحصيلها وقيودها في نفس الدفعة (الخادم بيكتب الدفعة كلها في transaction واحدة)
+function _scPack(items,max){
+  const payKey=_scBundleKeys(); const groups=new Map();
+  items.forEach(it=>{ const k=_scBundleOf(it,payKey); (groups.get(k)||groups.set(k,[]).get(k)).push(it); });
+  const batches=[]; let cur=[];
+  const flush=()=>{ if(cur.length){ batches.push(cur); cur=[]; } };
+  groups.forEach(g=>{
+    g.sort((a,b)=>(SYNC_LATE_PARENTS.includes(a.coll)?1:0)-(SYNC_LATE_PARENTS.includes(b.coll)?1:0));   // الأب في الآخر لو الحزمة اتقسمت
+    if(g.length>max){ flush(); for(let i=0;i<g.length;i+=max) batches.push(g.slice(i,i+max)); return; }
+    if(cur.length+g.length>max) flush();
+    cur=cur.concat(g);
+  });
+  flush(); return batches;
+}
+async function _scPush(){
+  if(__scState.hold) return {kind:'hold'};
+  const d=_scComputeDirty(); if(!d) return {kind:'notready'};
+  const items=d.upserts.map(u=>Object.assign({del:false},u)).concat(d.deletes.map(x=>Object.assign({del:true},x)));
+  if(!items.length) return {kind:'ok',sent:0};
+  let sent=0, conflicts=0;
+  for(const b of _scPack(items,__scMaxBatch)){
+    const r=await _scCall('/push',{changes:b.map(it=>it.del?{coll:it.coll,id:it.id,base_seq:it.base_seq,deleted:true}:{coll:it.coll,id:it.id,base_seq:it.base_seq,data:it.data})});
+    if(r.kind==='cap'){
+      const rem=r.j&&Number.isInteger(r.j.remaining_writes)?r.j.remaining_writes:0;
+      if(rem>0 && rem<__scMaxBatch){ __scMaxBatch=rem; return {kind:'retry'}; }   // الباقي من الميزانية أقل من الدفعة: نصغّرها ونعيد
+      return {kind:'cap',sent,retry:r.j&&r.j.retry_after_utc};
+    }
+    if(r.kind!=='ok') return {kind:r.kind,sent};
+    const j=r.j;
+    if(!Array.isArray(j.accepted) || !Array.isArray(j.conflicts)) return {kind:'offline',sent};
+    const byKey=new Map(b.map(it=>[it.coll+'\u0000'+it.id,it]));
+    j.accepted.forEach(a=>{ const it=byKey.get(a.coll+'\u0000'+a.id); if(!it||!Number.isInteger(a.seq)) return; if(it.del) _scMarkDeleted(it.coll,it.id,a.seq); else _scMarkSynced(it.coll,it.id,it.hash,a.seq); sent++; });
+    if(j.conflicts.length){
+      const srv=[]; j.conflicts.forEach(c=>{ if(c && c.server && Number.isInteger(c.server.seq)) srv.push({coll:c.coll,id:c.id,seq:c.server.seq,deleted:c.server.deleted?1:0,data:c.server.data}); });
+      const ap=await _scApplyChanges(srv,null,{force:true});   // نسخة الخادم هي الأساسية، ونسختك بتتحفظ للمراجعة
+      conflicts+=srv.length; if(ap.error) return {kind:'offline',sent};
+    }
+    if(Number.isInteger(j.remaining_writes) && j.remaining_writes<__scMaxBatch) __scMaxBatch=Math.max(1,Math.min(SYNC_BATCH,j.remaining_writes||1));
+    await _scSaveState();
+  }
+  __scMaxBatch=SYNC_BATCH;
+  return {kind:'ok',sent,conflicts};
+}
+
+// ---------- دورة المزامنة ----------
+function _scFail(kind,detail){
+  if(kind==='upgrade'){ _scSetStatus('upgrade',{error:'حدّث البرنامج'}); return; }
+  if(kind==='disabled'){ _scSetStatus('disabled',{error:'المزامنة موقوفة من الخادم'}); return; }
+  if(kind==='unauthorized'){ _scSetStatus('unauthorized',{error:'رمز الربط غير صحيح'}); return; }
+  if(kind==='cap'){ __scNextAt=Date.now()+3600000; _scSetStatus('cap',{error:'وصلت للحد اليومي، شغلك محفوظ على الجهاز'}); return; }
+  __scFails++; __scNextAt=Date.now()+SYNC_BACKOFF[Math.min(__scFails-1,SYNC_BACKOFF.length-1)];
+  _scSetStatus('offline',{error:detail||''});
+}
+async function _scCycle(reason){
+  if(!_scLinked() || __scBusy) return;
+  if(reason!=='manual' && Date.now()<__scNextAt) return;
+  if(!__dataLoaded) return;
+  if(!__scState) await _scLoadState();
+  if(!__scState){ _scSetStatus('offline'); return; }
+  __scBusy=true; _scSetStatus('syncing');
+  try{
+    let pr=await _scPull();
+    if(pr.r && pr.r.kind==='unregistered'){
+      const L=_scLink(); const rg=await _scPost(L.url||SYNC_DEFAULT_URL,'/register',{ws:L.ws,secret:L.secret,device_id:L.dev});
+      if(rg.kind!=='ok'){ _scFail(rg.kind); return; }
+      pr=await _scPull();
+    }
+    if(pr.r){ _scFail(pr.r.kind); return; }
+    const ap=await _scApplyChanges(pr.changes,pr.seq,{force:false});
+    if(ap.brake){ _scSetStatus('brake',{brake:ap.brake}); return; }          // وقف وبيطلب تأكيد، ومبيرفعش حاجة
+    if(ap.error){ _scFail('offline',ap.error); return; }
+    const ps=await _scPush();
+    if(ps.kind==='retry'){ __scBusy=false; return _scCycle('manual'); }
+    if(ps.kind==='hold'){ _scSetStatus('hold',{last:Date.now(),error:'',brake:null}); __scFails=0; return; }
+    if(ps.kind==='ok'||ps.kind==='notready'){ __scFails=0; _scSetStatus(pr.more?'syncing':'ok',{last:Date.now(),error:'',brake:null}); if(pr.more) setTimeout(()=>_scCycle('manual'),500); return; }
+    _scFail(ps.kind);
+  }catch(e){ _scFail('offline',String(e&&e.message||e).slice(0,120)); }
+  finally{ __scBusy=false; try{ await _scSaveState(); }catch(e){} }
+}
+async function _scFullResync(){      // بيسحب كل حاجة من الأول (للجهاز اللي اتمسح أو اتسترجع). الدمج بيمشي بنفس القواعد: نسخة احتياطية وفرامل وتعارضات
+  if(!__scState || __scBusy) return false;
+  __scState.since=0; await _scSaveState(); await _scCycle('manual'); return true;
+}
+async function _scConfirmBrake(){     // المستخدم وافق على الدمج الكبير
+  if(__scBusy||!__scState) return; __scBusy=true;
+  try{ const pr=await _scPull(); if(pr.r){ _scFail(pr.r.kind); return; }
+    const ap=await _scApplyChanges(pr.changes,pr.seq,{force:true}); if(ap.error){ _scFail('offline',ap.error); return; }
+    _scSetStatus('ok',{last:Date.now(),brake:null,error:''}); }
+  catch(e){ _scFail('offline'); } finally{ __scBusy=false; }
+  _scCycle('manual');
+}
+async function _scBoot(){
+  try{
+    if(!_scLinked()) return;
+    if(!__scState) await _scLoadState();
+    await _scLoadConflicts();
+    __scQuietHook=()=>{ _scCycle('save'); };
+    if(!__scPollTimer && typeof document!=='undefined'){
+      __scPollTimer=setInterval(()=>{ if(document.visibilityState==='visible') _scCycle('poll'); },60000);
+      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') _scCycle('focus'); });
+    }
+    setTimeout(()=>_scCycle('boot'),2000);
+  }catch(e){}
+}
+/* SYNC-ENGINE-END */
+/* SYNC-UI-BEGIN */
+// ============================================================
+// شاشة "ربط الأجهزة" — مخفية: بتتفتح بـ 7 ضغطات سريعة على سطر العنوان الفرعي في الهيدر، ومفيش أي زرار أو علامة ظاهرة.
+// حتى لو اتفتحت بالصدفة، إنشاء مساحة جديدة محتاج كود تفعيل من صاحب البرنامج بيتراجع عليه الخادم نفسه.
+// ============================================================
+let __scUiTaps=[], __scUiOpen=false, __scUiMsg='', __scUiShowCode=false, __scUiArm='', __scUiArmT=null;
+function _scUiInit(){
+  try{
+    const el=document.querySelector('.header-sub'); if(!el || el.__scTap) return; el.__scTap=true;
+    el.addEventListener('click',()=>{
+      const n=Date.now(); __scUiTaps=__scUiTaps.filter(t=>n-t<4000); __scUiTaps.push(n);
+      if(__scUiTaps.length>=7){ __scUiTaps=[]; _scOpenPanel(); }
+    });
+  }catch(e){}
+  try{ window.__scOnStatus=()=>{ if(__scUiOpen) _scRenderPanel(); }; }catch(e){}
+}
+function _scOpenPanel(){ __scUiOpen=true; __scUiMsg=''; __scUiShowCode=false; _scRenderPanel(); }
+function _scClosePanel(){ __scUiOpen=false; const o=document.getElementById('scPanel'); if(o) o.remove(); }
+const SC_STATE_TXT={off:'غير مربوط',syncing:'⏳ جاري المزامنة…',ok:'✅ متزامن',offline:'📴 أوفلاين — شغلك محفوظ على الجهاز وهيتزامن لما الاتصال يرجع',hold:'✋ في انتظار مراجعتك',brake:'⚠️ وقفنا قبل دمج كبير',cap:'⏸ وصلت للحد اليومي',disabled:'⛔ المزامنة موقوفة من الخادم',upgrade:'⬆️ لازم تحدّث البرنامج',unauthorized:'⛔ كود الربط غير صحيح'};
+const SC_ERR_TXT={bad_code:'الكود غير صحيح',signup_closed:'كود التفعيل غلط',bad_credentials:'كود الربط غير صحيح',unauthorized:'كود الربط غير صحيح',device_limit:'وصلت للحد الأقصى للأجهزة',offline:'مفيش اتصال بالخادم، جرّب تاني',server_old:'الخادم محتاج تحديث',disabled:'الخادم موقوف حاليًا',upgrade:'لازم تحدّث البرنامج',cap:'وصلت للحد اليومي'};
+function _scRenderPanel(){
+  if(!__scUiOpen) return;
+  let o=document.getElementById('scPanel');
+  if(!o){ o=document.createElement('div'); o.id='scPanel'; o.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:14px;direction:rtl;font-family:inherit'; document.body.appendChild(o); }
+  const L=_scLink(), st=__scStatus, linked=!!L;
+  const btn=(label,act,color,arg)=>`<button onclick="_scUi('${act}'${arg!==undefined?`,${arg}`:''})" style="display:block;width:100%;margin-top:8px;padding:11px;border:none;border-radius:8px;background:${color||'#2E86C1'};color:#fff;font-weight:bold;font-size:14px;cursor:pointer;font-family:inherit">${label}</button>`;
+  const armed=(act)=>__scUiArm===act;
+  let h=`<div style="background:var(--bg-fff,#fff);color:var(--text,#222);border-radius:14px;width:100%;max-width:460px;padding:16px;box-shadow:0 8px 30px rgba(0,0,0,.35)">
+    <div style="display:flex;justify-content:space-between;align-items:center"><div style="font-size:17px;font-weight:bold">🔗 ربط الأجهزة</div><button onclick="_scUi('close')" style="border:none;background:none;font-size:22px;cursor:pointer;color:inherit">✕</button></div>`;
+  h+=`<div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(46,134,193,.12);font-size:13px;line-height:1.8"><b>الحالة:</b> ${esc(SC_STATE_TXT[st.state]||st.state)}`;
+  if(st.error && st.state!=='off') h+=`<br><span style="color:#C0392B">${esc(st.error)}</span>`;
+  if(linked){
+    let pend='—'; try{ const d=_scComputeDirty(); if(d) pend=d.upserts.length+d.deletes.length; }catch(e){}
+    h+=`<br><b>آخر مزامنة:</b> ${st.last?esc(new Date(st.last).toLocaleString('ar-EG')):'—'}<br><b>تغييرات مستنية الرفع:</b> ${pend}<br><b>تعارضات للمراجعة:</b> ${__scConflicts.length}<br><b>سلسلة ترقيم الفواتير:</b> ${L.series?esc(L.series)+'-':'بدون بادئة (الجهاز الأول)'}`;
+  }
+  h+=`</div>`;
+  if(__scUiMsg) h+=`<div style="margin-top:10px;padding:10px;border-radius:8px;background:rgba(39,174,96,.13);font-size:13px;line-height:1.8;word-break:break-all">${__scUiMsg}</div>`;
+  if(!linked){
+    h+=`<div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>
+      <input id="scKey" type="password" placeholder="كود التفعيل" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;font-family:inherit">
+      ${btn('إنشاء المساحة وربط الجهاز','create','#27AE60')}
+      <div style="margin-top:16px;font-weight:bold">جهاز إضافي: الانضمام بكود ربط</div>
+      <input id="scCode" type="text" placeholder="كود الربط من الجهاز الأول" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
+      ${btn('الانضمام','join','#2E86C1')}
+      <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7">الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.</div>`;
+  } else {
+    h+=btn('🔄 مزامنة الآن','sync','#2E86C1');
+    if(st.state==='hold') h+=`<div style="margin-top:12px;padding:10px;border-radius:8px;background:rgba(243,156,18,.15);font-size:13px;line-height:1.8">استلمنا بيانات الجهاز الأول. راجع بياناتك على الجهاز ده. لما تتأكد إنها صح اضغط تأكيد، وساعتها بياناتك القديمة هتترفع وتتدمج مع الباقي.</div>${btn('✓ راجعت وأؤكد رفع بيانات جهازي','release','#27AE60')}`;
+    if(st.state==='brake'){ const b=st.brake||{}; h+=`<div style="margin-top:12px;padding:10px;border-radius:8px;background:rgba(231,76,60,.13);font-size:13px;line-height:1.8">الدمج الجاي هيغيّر عدد كبير من السجلات: ${Object.keys(b).map(k=>esc(k)+' ('+b[k]+')').join('، ')}. اتعملت نسخة احتياطية قبل أي دمج. لو ده متوقع وافق، ولو مش متوقع سيبه وكلمني.</div>${btn('أوافق على الدمج','brake','#E67E22')}`; }
+    if(__scConflicts.length){
+      h+=`<div style="margin-top:14px;font-weight:bold">تعارضات للمراجعة (${__scConflicts.length})</div><div style="font-size:12px;opacity:.75;line-height:1.7">اتعدّل نفس السجل على جهازين. اتطبّقت نسخة الخادم، ونسختك المحلية متحفوظة هنا.</div>`;
+      __scConflicts.slice(-15).forEach((c,k)=>{ const i=__scConflicts.length-Math.min(15,__scConflicts.length)+k; const nm=c.local&&(c.local.name||c.local.number||c.local.note)||c.id;
+        h+=`<div style="margin-top:8px;padding:8px;border:1px solid #ddd;border-radius:8px;font-size:12px"><b>${esc(c.coll)}</b> — ${esc(String(nm).slice(0,40))} <span style="opacity:.6">(${c.kind==='deleted_remote'?'اتحذف من جهاز تاني':'تعديل'})</span>
+        <div style="display:flex;gap:6px;margin-top:6px"><button onclick="_scUi('restore',${i})" style="flex:1;padding:7px;border:none;border-radius:6px;background:#2E86C1;color:#fff;cursor:pointer;font-family:inherit">استعادة نسختي</button><button onclick="_scUi('drop',${i})" style="flex:1;padding:7px;border:none;border-radius:6px;background:#95A5A6;color:#fff;cursor:pointer;font-family:inherit">تجاهل</button></div></div>`; });
+    }
+    h+=btn(__scUiShowCode?'🙈 إخفاء كود الربط':'🔑 إظهار كود الربط (لإضافة جهاز)','showcode','#8E44AD');
+    if(__scUiShowCode) h+=`<div style="margin-top:8px;padding:10px;border-radius:8px;background:rgba(142,68,173,.12);font-size:12px;line-height:1.8">الكود ده زي كلمة السر: أي حد معاه يقدر يدخل على بياناتك. ابعته بس للجهاز الإضافي بتاعك.<div style="margin-top:6px;direction:ltr;text-align:left;font-family:monospace;font-size:13px;word-break:break-all;user-select:all">${esc(L.ws+'.'+L.secret)}</div></div>`;
+    h+=btn(armed('resync')?'اضغط تاني للتأكيد':'⬇️ إعادة تحميل كامل من الخادم','resync','#E67E22');
+    h+=btn(armed('unlink')?'اضغط تاني للتأكيد (بيانات الجهاز مش هتتمسح)':'⛓️‍💥 فك الربط','unlink','#C0392B');
+  }
+  h+=`</div>`; o.innerHTML=h;
+}
+function _scUiArmed(act){ if(__scUiArm===act) return true; __scUiArm=act; clearTimeout(__scUiArmT); __scUiArmT=setTimeout(()=>{ __scUiArm=''; _scRenderPanel(); },5000); _scRenderPanel(); return false; }
+async function _scUi(act,arg){
+  try{
+    if(act==='close'){ _scClosePanel(); return; }
+    if(act==='create'){
+      const key=(document.getElementById('scKey')||{}).value||''; if(!key.trim()){ __scUiMsg='اكتب كود التفعيل'; return _scRenderPanel(); }
+      __scUiMsg='⏳ جاري الإنشاء…'; _scRenderPanel();
+      const r=await _scCreate(_scDefaultUrl(),key.trim());
+      __scUiMsg=r.ok?`✅ تم الربط. احفظ كود الربط ده في مكان آمن، هتحتاجه لإضافة أجهزة تانية:<div style="direction:ltr;text-align:left;font-family:monospace;margin-top:6px;user-select:all">${esc(r.code)}</div>`:'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
+      if(r.ok) _scCycle('manual'); return;
+    }
+    if(act==='join'){
+      const code=(document.getElementById('scCode')||{}).value||''; if(!code.trim()){ __scUiMsg='اكتب كود الربط'; return _scRenderPanel(); }
+      __scUiMsg='⏳ جاري الانضمام…'; _scRenderPanel();
+      const r=await _scJoin(code.trim());
+      __scUiMsg=r.ok?'✅ تم الانضمام. بنسحب بيانات الجهاز الأول دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
+      if(r.ok) _scCycle('manual'); return;
+    }
+    if(act==='sync'){ __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
+    if(act==='release'){ await _scReleaseHold(); __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
+    if(act==='brake'){ __scUiMsg=''; await _scConfirmBrake(); return _scRenderPanel(); }
+    if(act==='showcode'){ __scUiShowCode=!__scUiShowCode; return _scRenderPanel(); }
+    if(act==='resync'){ if(!_scUiArmed('resync')) return; __scUiArm=''; __scUiMsg='⏳ جاري إعادة التحميل…'; _scRenderPanel(); await _scFullResync(); __scUiMsg=''; return _scRenderPanel(); }
+    if(act==='unlink'){ if(!_scUiArmed('unlink')) return; __scUiArm=''; await _scUnlink(); __scUiMsg='تم فك الربط. بيانات الجهاز زي ما هي.'; return _scRenderPanel(); }
+    if(act==='drop'){ __scConflicts.splice(arg,1); await _scSaveConflicts(); return _scRenderPanel(); }
+    if(act==='restore'){
+      const c=__scConflicts[arg]; if(!c||!c.local) return;
+      const arr=_scGetColl(c.coll); if(!Array.isArray(arr)) return;
+      const rec=JSON.parse(JSON.stringify(c.local)); const i=arr.findIndex(x=>x&&x.id===rec.id);
+      if(i>=0) arr[i]=rec; else arr.push(rec);               // بترجع نسختك المحلية، وهتتبعت كتعديل جديد في الدورة الجاية
+      __scConflicts.splice(arg,1); await _scSaveConflicts(); try{ save(); }catch(e){} try{ render(); }catch(e){}
+      __scUiMsg='✅ اتعادت نسختك وهتتزامن مع باقي الأجهزة'; _scRenderPanel(); _scCycle('manual'); return;
+    }
+  }catch(e){ __scUiMsg='❌ حصلت مشكلة غير متوقعة'; try{ _scRenderPanel(); }catch(_){} }
+}
+/* SYNC-UI-END */
 // تأمين أي نص بيدخله المستخدم (اسم عميل/مورد/منتج، ملاحظة، إلخ) قبل حقنه داخل HTML —
 // بيمنع إن علامات HTML أو أكواد غريبة يدخلها حد بالغلط أو قصدًا تفسد شكل الصفحة أو تنفّذ كأكواد.
 // آمن للاستخدام سواء جوه نص عادي أو جوه قيمة attribute بين علامات تنصيص.
@@ -3021,6 +3586,17 @@ const normalizeAr=(s)=>String(s||'')
 // الحالية) و(آخر رقم محفوظ من قبل حتى لو الفاتورة بتاعته اتمسحت) + 1، وبيحدّث
 // الرقم المحفوظ عشان يفضل صحيح للمرة الجاية. counterKey: 'invoice' أو 'purchase'
 function nextDocNumber(existingArr, counterKey){
+  // الجهاز المربوط بيرقّم جوه سلسلته بس (الجهاز الأول من غير بادئة، التاني ب-، التالت ج-)، فجهازين ميطلّعوش نفس الرقم.
+  // الجهاز العادي (مش مربوط) بيمشي على نفس الكود القديم بالظبط.
+  const _ser=_scSeries();
+  if(_ser || _scLinked()){
+    const mine=existingArr.filter(x=>(x.series||'')===_ser);
+    const ck=_ser?counterKey+'|'+_ser:counterKey;
+    const cm = mine.length>0 ? Math.max(...mine.map(x=>x.number||0)) : 0;
+    const b = Math.max(cm, Number(docNumberCounters[ck])||0);
+    docNumberCounters[ck] = b+1;
+    return b+1;
+  }
   const currentMax = existingArr.length>0 ? Math.max(...existingArr.map(x=>x.number||0)) : 0;
   const base = Math.max(currentMax, Number(docNumberCounters[counterKey])||0);
   docNumberCounters[counterKey] = base+1;
@@ -4806,7 +5382,7 @@ function printPosReceipt(inv, cashReceived){
         ${companyProfile.taxNumber?`<div class="rcpt-sub">رقم ضريبي: ${esc(companyProfile.taxNumber)}</div>`:''}
       </div>
       <div class="rcpt-sep"></div>
-      <div class="rcpt-meta-row"><span>فاتورة #${inv.number}</span><span>${inv.date}${timeStr?' — '+timeStr:''}</span></div>
+      <div class="rcpt-meta-row"><span>فاتورة #${docNo(inv)}</span><span>${inv.date}${timeStr?' — '+timeStr:''}</span></div>
       <div class="rcpt-sep"></div>
       ${rows}
       <div class="rcpt-sep"></div>
@@ -4819,7 +5395,7 @@ function printPosReceipt(inv, cashReceived){
     </div>`;
   const win=window.open('','_blank');
   if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع الإيصال'); return; }
-  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>إيصال #${inv.number}</title>
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>إيصال #${docNo(inv)}</title>
   <style>${POS_RECEIPT_STYLE}</style></head><body>${body}
   <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
   </body></html>`);
@@ -4908,19 +5484,19 @@ function renderGlobalSearchResults(q){
   const matchedProducts=stock.filter(p=>normalizeAr(p.name).includes(ql)||(p.barcode||'').toLowerCase().includes(ql)).slice(0,6);
   const matchedInvoices=invoices.filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return String(inv.number).includes(q)||bkMatch(inv,q)||(c&&normalizeAr(c.name).includes(ql));
+    return String(docNo(inv)).includes(q)||bkMatch(inv,q)||(c&&normalizeAr(c.name).includes(ql));
   }).slice(0,6);
   const matchedPurchases=purchases.filter(pu=>{
     const s=suppliers.find(s=>s.id===pu.supplierId);
-    return String(pu.number).includes(q)||bkMatch(pu,q)||(s&&normalizeAr(s.name).includes(ql));
+    return String(docNo(pu)).includes(q)||bkMatch(pu,q)||(s&&normalizeAr(s.name).includes(ql));
   }).slice(0,6);
 
   let html='';
   html+=secHtml('👥 عملاء', matchedClients.map(c=>rowHtml('👤',c.name,(c.area||'')+(c.phone?' • '+c.phone:''),`globalSearchGoTo('client','${c.id}')`)).join(''));
   html+=secHtml('🏭 موردين', matchedSuppliers.map(s=>rowHtml('🏭',s.name,s.phone||'',`globalSearchGoTo('supplier','${s.id}')`)).join(''));
   html+=secHtml('📦 أصناف', matchedProducts.map(p=>rowHtml('📦',p.name,'الرصيد: '+fmtQty(stockQty(p.id))+' '+p.unit,`globalSearchGoTo('product','${p.id}')`)).join(''));
-  html+=secHtml('🧾 فواتير', matchedInvoices.map(inv=>{const c=clients.find(c=>c.id===inv.clientId);return rowHtml('🧾','فاتورة #'+inv.number+bkTxtE(inv)+' - '+(c?.name||'—'), fmt(inv.total)+' ج • '+inv.date, `globalSearchGoTo('invoice','${inv.id}')`);}).join(''));
-  html+=secHtml('📥 فواتير مشتريات', matchedPurchases.map(pu=>{const s=suppliers.find(s=>s.id===pu.supplierId);return rowHtml('📥','مشتريات #'+pu.number+bkTxtE(pu)+' - '+(s?.name||'—'), fmt(pu.total)+' ج • '+pu.date, `globalSearchGoTo('purchase','${pu.id}')`);}).join(''));
+  html+=secHtml('🧾 فواتير', matchedInvoices.map(inv=>{const c=clients.find(c=>c.id===inv.clientId);return rowHtml('🧾','فاتورة #'+docNo(inv)+bkTxtE(inv)+' - '+(c?.name||'—'), fmt(inv.total)+' ج • '+inv.date, `globalSearchGoTo('invoice','${inv.id}')`);}).join(''));
+  html+=secHtml('📥 فواتير مشتريات', matchedPurchases.map(pu=>{const s=suppliers.find(s=>s.id===pu.supplierId);return rowHtml('📥','مشتريات #'+docNo(pu)+bkTxtE(pu)+' - '+(s?.name||'—'), fmt(pu.total)+' ج • '+pu.date, `globalSearchGoTo('purchase','${pu.id}')`);}).join(''));
 
   box.innerHTML = html || '<div class="gs-empty" style="text-align:center;color:var(--tx-aab7b8,#AAB7B8);padding:20px 0">مفيش نتايج</div>';
 }
@@ -6137,10 +6713,10 @@ function getClientStatementData(cid, from, to){
   const cReturns=returns.filter(r=>r.clientId===cid);
   const allEvents=[
     ...(c.opening>0?[{date:c.openingDate||c.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:c.opening,id:null,createdAt:''}]:[]),
-    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(i.number||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,lines:i.lines,createdAt:i.createdAt,bk:bookNoOf(i)})),
+    ...cInvoices.map(i=>({date:i.date,type:'invoice',label:'فاتورة #'+(docNo(i)||i.id.slice(-4))+(i.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:i.total,id:i.id,lines:i.lines,createdAt:i.createdAt,bk:bookNoOf(i)})),
     ...cPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt,bk:bookNoOf(p)})),
-    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
-    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
+    ...cReturns.map(r=>({date:r.date,type:'return',label:'مرتجع #'+(docNo(r)||r.id.slice(-4))+(r.cashRefund?' 💵 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
+    ...cReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مرتجع #'+(docNo(r)||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const evDebit=ev=>(ev.type==='invoice'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
   const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
@@ -6362,12 +6938,12 @@ function renderReturnDetail(){
   document.getElementById('tab-returns').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromRetDetail()">← رجوع</button>
-      <div class="page-title">مرتجع #${ret.number}${bkTag(ret)}</div>
+      <div class="page-title">مرتجع #${docNo(ret)}${bkTag(ret)}</div>
     </div>
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-        ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:var(--tx-2e86c1,#2E86C1);text-decoration:underline;margin-left:10px">🧾 فاتورة #${li.number}${bkTag(li)}</a>`).join(' ')}</div>`:''}
+        ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:var(--tx-2e86c1,#2E86C1);text-decoration:underline;margin-left:10px">🧾 فاتورة #${docNo(li)}${bkTag(li)}</a>`).join(' ')}</div>`:''}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-1e8449,#1E8449)">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
@@ -6392,13 +6968,13 @@ async function printReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+li.number+bkTag(li)).join('، ')}</div>`:''}
+      ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+docNo(li)+bkTag(li)).join('، ')}</div>`:''}
       <div><strong>التاريخ:</strong> ${ret.date}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>`;
-  await sendDocument(`مرتجع #${ret.number}${bkTxt(ret)}`, body, `مرتجع-${ret.number}.pdf`);
+  await sendDocument(`مرتجع #${docNo(ret)}${bkTxt(ret)}`, body, `مرتجع-${docNo(ret)}.pdf`);
 }
 
 async function printReturnsSummaryPdf(from,to){
@@ -6406,7 +6982,7 @@ async function printReturnsSummaryPdf(from,to){
   const total=filtered.reduce((s,r)=>s+r.total,0);
   const rows=filtered.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
-    return `<tr><td>${r.number}${bkTag(r)}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
+    return `<tr><td>${docNo(r)}${bkTag(r)}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -6441,7 +7017,7 @@ function renderInvoices(){
   const roleBase = isRestrictedRole() ? invoices.filter(inv=>roleCanSee(inv)) : invoices;
   const filtered=[...roleBase].filter(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(inv.number).includes(invSearch)||bkMatch(inv,invSearch);
+    const matchesSearch=!invSearch||normalizeAr(c?.name).includes(normalizeAr(invSearch))||String(docNo(inv)).includes(invSearch)||bkMatch(inv,invSearch);
     const matchesDate=(!invFromDate||inv.date>=invFromDate)&&(!invToDate||inv.date<=invToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -6449,7 +7025,7 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${inv.number}${bkSub(inv)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
+      <td>${docNo(inv)}${bkSub(inv)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
       <td style="font-weight:bold;color:var(--tx-1a5276,#1A5276);white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
@@ -6573,7 +7149,7 @@ function renderInvoices(){
     ${renderHeldInvoicesBlock()}
     ${showInvForm?`
     <div class="card entry-sheet">
-      <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+editingInv.number:'إنشاء فاتورة جديدة'}</div>
+      <div class="card-head ${editingInv?'orange':'green'}">${editingInv?'✏️ تعديل الفاتورة رقم #'+docNo(editingInv):'إنشاء فاتورة جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">العميل *</div>${searchableSelectHtml('inv_client', clientOptsArr, '🔍 دور على العميل...', editingInv?.clientId||invResumeClientId||_curInvClientSel, editingInv?'':'applyInvClientCashDefault()')}</div>
@@ -6882,13 +7458,13 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش أو فاتورة آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
-  const inv={id:invId,number:invNumber,clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo),createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
+  const inv={id:invId,number:invNumber,..._scSeriesField(removedInv),clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo),createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
   if(removedInv){
-    logActivity('edit','فاتورة مبيعات','#'+inv.number,(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج');
+    logActivity('edit','فاتورة مبيعات','#'+docNo(inv),(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج');
   }
   removeJournalBySource('invoice', inv.id);
-  postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+inv.number, [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
+  postJournal('invoice', inv.id, date, 'فاتورة مبيعات #'+docNo(inv), [{accountId:'ar',debit:total,credit:0},{accountId:'sales',debit:0,credit:total}]);
   reconcileCogsJournals(); // بيحسب ويرحّل تكلفة البضاعة المباعة لكل الفواتير (بما فيها دي) بمتوسط التكلفة الصحيح وقت كل عملية بيع — بدل حساب مكرر هنا كان ممكن يختلف عن نتيجة إعادة التسوية
   // خصم الكمية الفعلية + البونص من المخزن — دايمًا بالوحدة الأساسية للصنف حتى لو السطر اتباع بوحدة تجزئة
   invLines.forEach(l=>{
@@ -6896,7 +7472,7 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
       const totalQty=lineMainQty(l)+lineMainBonus(l);
       const uLabel=lineUnitLabel(l);
       const soldNote=l.saleUnit?`${l.qty} ${uLabel}`:`${l.qty}`;
-      const noteBase='ف.مبيعات #'+inv.number+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:''));
+      const noteBase='ف.مبيعات #'+docNo(inv)+(l.bonus>0?` (${soldNote} مبيعات + ${l.bonus} ${l.saleUnit?uLabel+' ':''}بونص)`:(l.saleUnit?` (${soldNote})`:''));
       resolveOutBatches(l.productId, l.expiry, totalQty).forEach(b=>{
         movements.push({id:uid(),productId:l.productId,type:'out',qty:b.qty,date,note:noteBase,invoiceId:inv.id,expiry:b.expiry});
       });
@@ -6904,14 +7480,14 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   });
   // فاتورة كاش: بتسجل سداد فوري تلقائي بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (نقدية/عملاء)
   if(isCash && total>0){
-    const cashPay={id:uid(),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+inv.number,isCashAuto:true,createdAt:new Date().toISOString()};
+    const cashPay={id:uid(),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+docNo(inv),isCashAuto:true,createdAt:new Date().toISOString()};
     payments.push(cashPay);
-    postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+inv.number, [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
+    postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+docNo(inv), [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
   } else if(!isCash && downPay>0){
     // فاتورة آجل بسداد دفعة أولى: بتسجل سداد فوري جزئي بمبلغ الدفعة بس، والباقي يفضل مديونية عادية على العميل
-    const downPayRec={id:uid(),clientId,invoiceId:inv.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة #'+inv.number,isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    const downPayRec={id:uid(),clientId,invoiceId:inv.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة #'+docNo(inv),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
     payments.push(downPayRec);
-    postJournal('payment', downPayRec.id, date, 'تحصيل دفعة أولى - فاتورة #'+inv.number, [{accountId:'cash',debit:downPay,credit:0},{accountId:'ar',debit:0,credit:downPay}]);
+    postJournal('payment', downPayRec.id, date, 'تحصيل دفعة أولى - فاتورة #'+docNo(inv), [{accountId:'cash',debit:downPay,credit:0},{accountId:'ar',debit:0,credit:downPay}]);
   }
   // ميموري آخر سعر بيع لكل صنف — بتاخد بالتاريخ الفعلي للفاتورة، مش بترتيب الحفظ، عشان تعديل فاتورة قديمة متبوظش سعر أحدث منها
   invLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSalePriceDate || date>=p.lastSalePriceDate)){ p.lastSalePrice=Number(l.price); p.lastSalePriceDate=date; } } });
@@ -6923,7 +7499,7 @@ function deleteInvoice(id){
   const invToDelete=invoices.find(i=>i.id===id);
   if(isRestrictedRole() && (!invToDelete||!roleCanModify(invToDelete)))return;
   showConfirm('هتحذف الفاتورة دي؟', function(){
-    logActivity('delete','فاتورة مبيعات','#'+invToDelete.number,(clients.find(c=>c.id===invToDelete.clientId)?.name||'')+' • '+fmt(invToDelete.total)+' ج');
+    logActivity('delete','فاتورة مبيعات','#'+docNo(invToDelete),(clients.find(c=>c.id===invToDelete.clientId)?.name||'')+' • '+fmt(invToDelete.total)+' ج');
     // لو كانت فاتورة كاش أو فيها سداد دفعة أولى تلقائي، بنشيل السداد الفوري المرتبط بيها كمان
     const autoPay=payments.find(p=>p.invoiceId===id&&(p.isCashAuto||p.isDownPaymentAuto));
     if(autoPay){ recordDeletion('payments',autoPay.id); payments=payments.filter(p=>p.id!==autoPay.id); removeJournalBySource('payment', autoPay.id); }
@@ -7129,7 +7705,7 @@ async function printInvoice(invId){
     <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>
     ${invoiceBalanceBoxHtml(inv)}
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة #${inv.number}${bkTxt(inv)}`, body, `فاتورة-${inv.number}.pdf`);
+  await sendDocument(`فاتورة #${docNo(inv)}${bkTxt(inv)}`, body, `فاتورة-${docNo(inv)}.pdf`);
 }
 
 async function printInvoicesSummaryPdf(from,to){
@@ -7137,7 +7713,7 @@ async function printInvoicesSummaryPdf(from,to){
   const total=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return `<tr><td>${inv.number}${bkTag(inv)}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
+    return `<tr><td>${docNo(inv)}${bkTag(inv)}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -7175,7 +7751,7 @@ function renderInvDetail(){
   document.getElementById('tab-invoices').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromInvDetail()">← رجوع</button>
-      <div class="page-title">فاتورة #${inv.number}${bkTag(inv)}</div>
+      <div class="page-title">فاتورة #${docNo(inv)}${bkTag(inv)}</div>
     </div>
     <div class="card">
       <div class="card-body">
@@ -7317,7 +7893,7 @@ async function printPaymentReceipt(pid){
       <div><strong>تاريخ السداد:</strong> ${p.date}</div>
       ${bkRow(p)}
       ${viaDocRow(p)}
-      <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
+      <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${docNo(inv)}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
     </div>
     <div class="doc-summary">
@@ -7348,7 +7924,7 @@ function renderPaymentDetail(){
         ${viaDetailRow(p)}
         <div style="margin-bottom:10px"><strong>${viaIsInstapay(p)?'المبلغ المحصّل عبر إنستا باي':'المبلغ المحصّل نقدًا'}:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
         ${p.discount?`<div style="margin-bottom:10px"><strong>خصم مسموح به:</strong> <span style="color:var(--tx-d68910,#D68910);font-weight:bold">${fmt(p.discount)} ج</span></div>`:''}
-        <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${inv.number}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
+        <div style="margin-bottom:10px"><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${docNo(inv)}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
@@ -7391,7 +7967,7 @@ function renderPayClientInvoices(){
   if(!cid){document.getElementById('pay_inv_row').innerHTML='';return;}
   const cInvoices=invoices.filter(i=>i.clientId===cid);
   if(cInvoices.length===0){document.getElementById('pay_inv_row').innerHTML='';return;}
-  const opts=cInvoices.map(i=>`<option value="${i.id}">فاتورة #${i.number}${bkTxtE(i)} — ${fmt(i.total)} ج (${i.date})</option>`).join('');
+  const opts=cInvoices.map(i=>`<option value="${i.id}">فاتورة #${docNo(i)}${bkTxtE(i)} — ${fmt(i.total)} ج (${i.date})</option>`).join('');
   document.getElementById('pay_inv_row').innerHTML=`<div class="form-row"><div class="form-group"><div class="lbl">ربط بفاتورة (اختياري)</div><select id="pay_invoice"><option value="">— عام على الحساب —</option>${opts}</select></div></div>`;
 }
 
@@ -7581,7 +8157,7 @@ function renderReturns(){
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
-      <td>${r.number}${bkSub(r)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
+      <td>${docNo(r)}${bkSub(r)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
       <td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
@@ -7593,7 +8169,7 @@ function renderReturns(){
   // لما فيه مخزون فعلي، المرتجع لازم يترتبط بفاتورة بيع أصلية (مانع تجاوز الكمية المباعة فعلاً) — نفس الفكرة
   // مبتنفعش تتطبق على متاجر مالهاش كتالوج أصناف أصلًا (stock.length===0)، فهناك السلوك القديم فاضل زي ما هو تمامًا
   const useInvoiceLink=stock.length>0;
-  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).filter(inv=>!retInvoiceIds.includes(inv.id)).map(inv=>({id:inv.id,label:`فاتورة #${inv.number}${bkTxt(inv)} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
+  const invoiceOptsArr=currentRetClientId?clientInvoicesForReturn(currentRetClientId).filter(inv=>!retInvoiceIds.includes(inv.id)).map(inv=>({id:inv.id,label:`فاتورة #${docNo(inv)}${bkTxt(inv)} - ${inv.date} - ${fmt(inv.total)} ج`})):[];
   const invMap=(useInvoiceLink&&retInvoiceIds.length)?retCombinedMap():null;
   const selInvs=retSelectedInvoicesSorted();
   const _stockIdx5386=buildStockIndexes();
@@ -7655,7 +8231,7 @@ function renderReturns(){
   document.getElementById('tab-returns').innerHTML=`
     ${showRetForm?`
     <div class="card entry-sheet">
-      <div class="card-head ${_editingRet?'orange':'green'}">${_editingRet?'✏️ تعديل مردود مبيعات #'+_editingRet.number:'↩️ تسجيل مردود مبيعات جديد'}</div>
+      <div class="card-head ${_editingRet?'orange':'green'}">${_editingRet?'✏️ تعديل مردود مبيعات #'+docNo(_editingRet):'↩️ تسجيل مردود مبيعات جديد'}</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -7679,7 +8255,7 @@ function renderReturns(){
                 :(retInvoiceIds.length
                   ?`<div style="padding:8px 0;color:var(--tx-909497,#909497);font-size:13px">تم اختيار كل فواتير العميل المتاحة للإرجاع</div>`
                   :`<div style="padding:8px 0;color:var(--tx-909497,#909497);font-size:13px">مفيش فواتير بيع لهذا العميل فيها كمية متاحة للإرجاع</div>`)}
-            ${selInvs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${selInvs.map(inv=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">🧾 فاتورة #${inv.number}${bkTag(inv)} - ${inv.date}<span onclick="removeRetInvoice('${inv.id}')" style="cursor:pointer;margin-right:8px;color:var(--tx-c0392b,#C0392B);font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
+            ${selInvs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${selInvs.map(inv=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">🧾 فاتورة #${docNo(inv)}${bkTag(inv)} - ${inv.date}<span onclick="removeRetInvoice('${inv.id}')" style="cursor:pointer;margin-right:8px;color:var(--tx-c0392b,#C0392B);font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -7871,21 +8447,21 @@ function saveReturn(){
     const _usedInvIds=[];
     _retSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedInvIds.includes(a.invoiceId)) _usedInvIds.push(a.invoiceId); }));
     const _retInvIds=_usedInvIds.length?_usedInvIds:(useInvoiceLink?[...retInvoiceIds]:[]);
-    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
-    if(_oldRet){ if(_oldRet.createdBy) ret.createdBy=_oldRet.createdBy; logActivity('edit','مردود مبيعات','#'+ret.number,(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج'); }
+    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),..._scSeriesField(_oldRet),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
+    if(_oldRet){ if(_oldRet.createdBy) ret.createdBy=_oldRet.createdBy; logActivity('edit','مردود مبيعات','#'+docNo(ret),(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج'); }
     else if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
-    postJournal('return',ret.id,date,'مردود مبيعات #'+ret.number,
+    postJournal('return',ret.id,date,'مردود مبيعات #'+docNo(ret),
       [{accountId:'sales',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
     reconcileCogsJournals(); // بيحسب ويرحّل تكلفة المرتجع ده (وأي فاتورة تانية ممكن تتأثر) بمتوسط التكلفة الصحيح وقتها
     // مردود نقدي: بيترد للعميل كاش فورًا من الخزنة — قيد عكسي لتحصيل نقدي (Dr العملاء / Cr الخزنة)، بنفس منطق فاتورة الكاش بالظبط بس معكوس
     if(cashRefund && total>0){
-      postJournal('returnRefund',ret.id,date,'استرداد نقدي - مردود مبيعات #'+ret.number,
+      postJournal('returnRefund',ret.id,date,'استرداد نقدي - مردود مبيعات #'+docNo(ret),
         [{accountId:'ar',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
     }
     // المرتجع بيرجع للمخزن (وارد) — دايمًا بالوحدة الأساسية للصنف حتى لو الإرجاع كان بوحدة تجزئة
     retLines.forEach(l=>{
-      if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:lineMainQty(l),date,note:'مردود مبيعات #'+ret.number+(l.saleUnit?` (${l.qty} ${lineUnitLabel(l)})`:''),returnId:ret.id,expiry:l.expiry||''});
+      if(l.productId) movements.push({id:uid(),productId:l.productId,type:'in',qty:lineMainQty(l),date,note:'مردود مبيعات #'+docNo(ret)+(l.saleUnit?` (${l.qty} ${lineUnitLabel(l)})`:''),returnId:ret.id,expiry:l.expiry||''});
     });
     // ميموري آخر سعر مردود مبيعات لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
     retLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastSaleReturnPriceDate || date>=p.lastSaleReturnPriceDate)){ p.lastSaleReturnPrice=Number(l.price); p.lastSaleReturnPriceDate=date; } } });
@@ -7925,7 +8501,7 @@ function deleteReturn(id){
   if(isRestrictedRole()){ const _rr=returns.find(r=>r.id===id); if(!_rr||!roleCanModify(_rr)) return; }
   const _retItem=returns.find(r=>r.id===id);
   showConfirm('هتحذف المرتجع ده؟', function(){
-    logActivity('delete','مردود مبيعات','#'+(_retItem?.number||''),(clients.find(c=>c.id===_retItem?.clientId)?.name||'')+' • '+fmt(_retItem?.total||0)+' ج');
+    logActivity('delete','مردود مبيعات','#'+(docNo(_retItem)||''),(clients.find(c=>c.id===_retItem?.clientId)?.name||'')+' • '+fmt(_retItem?.total||0)+' ج');
     recordDeletion('returns',id);
     returns=returns.filter(r=>r.id!==id);
     movements.filter(m=>m.returnId===id).forEach(m=>recordDeletion('movements',m.id));
@@ -9538,7 +10114,7 @@ function treasuryData(day){
   incoming.push(...inChecks);
   const inPurRetRefunds=purchaseReturns.filter(r=>r.cashRefund&&r.date===day).map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
-    return {date:r.date,label:s?.name||'مورد',note:`استرداد نقدي #${r.number}`,amount:r.total};
+    return {date:r.date,label:s?.name||'مورد',note:`استرداد نقدي #${docNo(r)}`,amount:r.total};
   });
   incoming.push(...inPurRetRefunds);
   // سحب من البنك للخزنة = وارد للخزنة
@@ -9559,7 +10135,7 @@ function treasuryData(day){
   const outChecks=checksPayable.filter(c=>c.status==='done'&&c.settledDate===day&&c.destination!=='bank').map(c=>({date:c.settledDate,label:checkHolderDisplay(c),note:`صرف شيك #${c.number}`,amount:c.amount}));
   const outRetRefunds=returns.filter(r=>r.cashRefund&&r.date===day).map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
-    return {date:r.date,label:c?.name||'عميل',note:`مردود نقدي #${r.number}`,amount:r.total};
+    return {date:r.date,label:c?.name||'عميل',note:`مردود نقدي #${docNo(r)}`,amount:r.total};
   });
   // إيداع نقدي في البنك = صادر من الخزنة (والمصروف المدفوع من البنك مش بيدخل هنا خالص)
   const outBankDep=bankTransactions.filter(t=>t.kind==='deposit'&&t.source!=='wallet'&&t.date===day).map(t=>({date:t.date,label:'إيداع في البنك',note:bankAccountLabel(t.bankAccountId)+(t.note?' - '+t.note:''),amount:t.amount}));
@@ -11766,10 +12342,10 @@ function getSupplierStatementData(sid, from, to){
   const sReturns=purchaseReturns.filter(r=>r.supplierId===sid);
   const allEvents=[
     ...(s.opening>0?[{date:s.openingDate||s.createdAt?.slice(0,10)||today(),type:'opening',label:'رصيد افتتاحي',amount:s.opening,id:null,createdAt:''}]:[]),
-    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(p.number||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,lines:p.lines,createdAt:p.createdAt,bk:bookNoOf(p)})),
+    ...sPurchases.map(p=>({date:p.date,type:'purchase',label:'فاتورة مشتريات #'+(docNo(p)||p.id.slice(-4))+(p.isCash?' 💵 (كاش - مسددة فورًا)':''),amount:p.total,id:p.id,lines:p.lines,createdAt:p.createdAt,bk:bookNoOf(p)})),
     ...sPayments.map(p=>({date:p.date,type:'payment',label:'سداد'+(p.note?' — '+p.note:'')+(p.discount?' (شامل خصم '+fmt(p.discount)+' ج)':''),amount:p.amount,id:null,createdAt:p.createdAt,bk:bookNoOf(p)})),
-    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(r.number||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
-    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(r.number||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
+    ...sReturns.map(r=>({date:r.date,type:'return',label:'مردود مشتريات #'+(docNo(r)||r.id.slice(-4))+(r.cashRefund?' 💰 (نقدي - مسترد فورًا)':''),amount:r.total,id:r.id,lines:r.lines,createdAt:r.createdAt,bk:bookNoOf(r)})),
+    ...sReturns.filter(r=>r.cashRefund).map(r=>({date:r.date,type:'refund',label:'استرداد نقدي - مردود مشتريات #'+(docNo(r)||r.id.slice(-4)),amount:r.total,id:null,createdAt:r.createdAt,bk:bookNoOf(r)}))
   ].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const evDebit=ev=>(ev.type==='purchase'||ev.type==='opening'||ev.type==='refund')?ev.amount:0;
   const evCredit=ev=>(ev.type==='payment'||ev.type==='return')?ev.amount:0;
@@ -11868,7 +12444,7 @@ function renderPurchases(){
   if(purDetailId){renderPurDetail();return;}
   const filtered=[...purchases].filter(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    const matchesSearch=!purSearch||normalizeAr(s?.name).includes(normalizeAr(purSearch))||String(p.number).includes(purSearch)||bkMatch(p,purSearch);
+    const matchesSearch=!purSearch||normalizeAr(s?.name).includes(normalizeAr(purSearch))||String(docNo(p)).includes(purSearch)||bkMatch(p,purSearch);
     const matchesDate=(!purFromDate||p.date>=purFromDate)&&(!purToDate||p.date<=purToDate);
     return matchesSearch&&matchesDate;
   }).sort((a,b)=>tsKey(b).localeCompare(tsKey(a)));
@@ -11882,7 +12458,7 @@ function renderPurchases(){
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td>${p.number}${bkSub(p)}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
+      <td>${docNo(p)}${bkSub(p)}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
       <td style="font-weight:bold;color:var(--tx-1a5276,#1A5276);white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
@@ -11956,7 +12532,7 @@ function renderPurchases(){
         </div>
         ${purDownPaymentNum<=0?'':(purDownPaymentNum>purTotal?`<div class="bonus-box" style="background:var(--bg-fdedec,#FDEDEC);color:var(--tx-c0392b,#C0392B)">⚠️ الدفعة المدخلة (${fmt(purDownPaymentNum)} ج) أكبر من إجمالي الفاتورة (${fmt(purTotal)} ج) — عدّل القيمة، وإلا هيترفض حفظ الفاتورة</div>`:`<div class="bonus-box" style="background:var(--bg-eafaf1,#EAFAF1);color:var(--tx-1e8449,#1E8449)">✅ هيتسجل سداد فوري بمبلغ ${fmt(purDownPaymentNum)} ج للمورد فور حفظ الفاتورة، والباقي (${fmt(purTotal-purDownPaymentNum)} ج) هيفضل مستحق عليه في كشف حساب المورد.</div>`)}`;
     formHtml=`<div class="card entry-sheet">
-      <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+editingPur.number:'إنشاء فاتورة مشتريات جديدة'}</div>
+      <div class="card-head ${editingPur?'orange':'green'}">${editingPur?'✏️ تعديل فاتورة مشتريات #'+docNo(editingPur):'إنشاء فاتورة مشتريات جديدة'}</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2"><div class="lbl">المورد *</div>${searchableSelectHtml('pur_supplier', supOptsArr, '🔍 دور على المورد...', editingPur?.supplierId||purResumeSupplierId||_curPurSupSel, editingPur?'':'applyPurSupplierCashDefault()')}</div>
@@ -12183,13 +12759,13 @@ function savePurchase(){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش أو آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
-  const pur={id:purId,number:purNum,supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo)};
+  const pur={id:purId,number:purNum,..._scSeriesField(removedPur),supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo)};
   purchases.push(pur);
   if(removedPur){
-    logActivity('edit','فاتورة مشتريات','#'+pur.number,(suppliers.find(s=>s.id===supplierId)?.name||'')+' • '+fmt(total)+' ج');
+    logActivity('edit','فاتورة مشتريات','#'+docNo(pur),(suppliers.find(s=>s.id===supplierId)?.name||'')+' • '+fmt(total)+' ج');
   }
   removeJournalBySource('purchase', pur.id);
-  postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+pur.number, [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
+  postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+docNo(pur), [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
   // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
   purchaseLines.forEach(l=>{
     if(l.productId){
@@ -12199,14 +12775,14 @@ function savePurchase(){
   });
   // فاتورة مشتريات كاش: بتسجل سداد فوري تلقائي للمورد بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (خزنة/موردون)
   if(isCash && total>0){
-    const cashPay={id:uid(),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+pur.number,isCashAuto:true,createdAt:new Date().toISOString()};
+    const cashPay={id:uid(),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+docNo(pur),isCashAuto:true,createdAt:new Date().toISOString()};
     supplierPayments.push(cashPay);
-    postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+pur.number, [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
+    postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+docNo(pur), [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
   } else if(!isCash && downPay>0){
     // فاتورة مشتريات آجلة بسداد دفعة أولى: بتسجل سداد فوري جزئي للمورد بمبلغ الدفعة بس، والباقي يفضل مستحق عادي عليه
-    const downPayRec={id:uid(),supplierId,purchaseId:pur.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة مشتريات #'+pur.number,isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    const downPayRec={id:uid(),supplierId,purchaseId:pur.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة مشتريات #'+docNo(pur),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
     supplierPayments.push(downPayRec);
-    postJournal('supplierPayment', downPayRec.id, date, 'سداد دفعة أولى - فاتورة مشتريات #'+pur.number, [{accountId:'ap',debit:downPay,credit:0},{accountId:'cash',debit:0,credit:downPay}]);
+    postJournal('supplierPayment', downPayRec.id, date, 'سداد دفعة أولى - فاتورة مشتريات #'+docNo(pur), [{accountId:'ap',debit:downPay,credit:0},{accountId:'cash',debit:0,credit:downPay}]);
   }
   // ميموري آخر سعر شراء لكل صنف — بالتاريخ الفعلي مش بترتيب الحفظ
   purchaseLines.forEach(l=>{ if(l.productId && Number(l.price)>0){ const p=stock.find(s=>s.id===l.productId); if(p && (!p.lastPurchasePriceDate || date>=p.lastPurchasePriceDate)){ p.lastPurchasePrice=Number(l.price); p.lastPurchasePriceDate=date; } } });
@@ -12224,7 +12800,7 @@ function deletePurchase(id){
     return;
   }
   showConfirm('هتحذف فاتورة المشتريات دي؟ هيتم خصم الكميات اللي فيها من المخزن.', function(){
-    logActivity('delete','فاتورة مشتريات','#'+(_purItem?.number||''),(suppliers.find(s=>s.id===_purItem?.supplierId)?.name||'')+' • '+fmt(_purItem?.total||0)+' ج');
+    logActivity('delete','فاتورة مشتريات','#'+(docNo(_purItem)||''),(suppliers.find(s=>s.id===_purItem?.supplierId)?.name||'')+' • '+fmt(_purItem?.total||0)+' ج');
     // لو كانت فاتورة مشتريات كاش أو فيها سداد دفعة أولى تلقائي، بنشيل السداد الفوري المرتبط بيها كمان
     const autoPay=supplierPayments.find(p=>p.purchaseId===id&&(p.isCashAuto||p.isDownPaymentAuto));
     if(autoPay){ recordDeletion('supplierPayments',autoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==autoPay.id); removeJournalBySource('supplierPayment', autoPay.id); }
@@ -12378,7 +12954,7 @@ function renderPurDetail(){
   document.getElementById('tab-purchases').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromPurDetail()">← رجوع</button>
-      <div class="page-title">فاتورة مشتريات #${pur.number}${bkTag(pur)}</div>
+      <div class="page-title">فاتورة مشتريات #${docNo(pur)}${bkTag(pur)}</div>
     </div>
     <div class="card">
       <div style="margin-bottom:8px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
@@ -12421,7 +12997,7 @@ async function printPurchase(purId){
     <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>
     ${purchaseBalanceBoxHtml(pur)}
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة مشتريات #${pur.number}${bkTxt(pur)}`, body, `فاتورة-مشتريات-${pur.number}.pdf`);
+  await sendDocument(`فاتورة مشتريات #${docNo(pur)}${bkTxt(pur)}`, body, `فاتورة-مشتريات-${docNo(pur)}.pdf`);
 }
 
 async function printPurchasesSummaryPdf(from,to){
@@ -12429,7 +13005,7 @@ async function printPurchasesSummaryPdf(from,to){
   const total=filtered.reduce((s,p)=>s+p.total,0);
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.number}${bkTag(p)}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
+    return `<tr><td>${docNo(p)}${bkTag(p)}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -12786,7 +13362,7 @@ function renderPurReturns(){
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
     return `<tr>
-      <td>${r.number}${bkSub(r)}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${r.date}</td>
+      <td>${docNo(r)}${bkSub(r)}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${r.date}</td>
       <td style="font-weight:bold;color:var(--tx-d68910,#D68910);white-space:nowrap">${fmt(r.total)} ج</td>
       <td>
         <button class="btn-sm blue" onclick="purRetDetailId='${r.id}';renderPurReturns()">👁</button>
@@ -12800,7 +13376,7 @@ function renderPurReturns(){
   const pretUseLink=stock.length>0;
   const pretSelPurs=(pretUseLink&&pretSupSelected)?pretSelectedPurchasesSorted().filter(x=>x.supplierId===pretSupSelected):[];
   const pretPurMap=pretSelPurs.length?(()=>{const m={};pretSelPurs.forEach(po=>{const mm=purchaseNetPriceMap(po.id);Object.keys(mm).forEach(pid=>{if(!m[pid])m[pid]={qty:0};m[pid].qty+=mm[pid].qty;});});return m;})():null;
-  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected&&!purRetPurchaseIds.includes(x.id)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${x.number}${bkTxt(x)} - ${x.date} - ${fmt(x.total)} ج`})):[];
+  const pretPurOptsArr=(pretUseLink&&pretSupSelected)?purchases.filter(x=>x.supplierId===pretSupSelected&&!purRetPurchaseIds.includes(x.id)).sort((a,b)=>tsKey(b).localeCompare(tsKey(a))).map(x=>({id:x.id,label:`فاتورة #${docNo(x)}${bkTxt(x)} - ${x.date} - ${fmt(x.total)} ج`})):[];
   const stockOptsArrShared=pretPurMap
     ?stock.filter(p=>pretPurMap[p.id]).map(p=>({id:p.id,label:p.name,sub:`كمية الفواتير: ${fmtQty(pretPurMap[p.id].qty)} • الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}))
     :stock.map(p=>({id:p.id,label:p.name,sub:`الرصيد: ${_stockIdx8673.qty(p.id)}`+(p.barcode?` • 🏷️ ${p.barcode}`:''),code:p.barcode||''}));
@@ -12842,7 +13418,7 @@ function renderPurReturns(){
   document.getElementById('tab-purreturns').innerHTML=`
     ${showPurRetForm?`
     <div class="card entry-sheet">
-      <div class="card-head orange">${_editingPr?'✏️ تعديل مردود مشتريات #'+_editingPr.number:'↪️ تسجيل مردود مشتريات جديد'}</div>
+      <div class="card-head orange">${_editingPr?'✏️ تعديل مردود مشتريات #'+docNo(_editingPr):'↪️ تسجيل مردود مشتريات جديد'}</div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-group" style="flex:2">
@@ -12866,7 +13442,7 @@ function renderPurReturns(){
                 :(pretSelPurs.length
                   ?`<div style="padding:8px 0;color:var(--tx-909497,#909497);font-size:13px">تم اختيار كل فواتير المورد</div>`
                   :`<div style="padding:8px 0;color:var(--tx-909497,#909497);font-size:13px">مفيش فواتير شراء لهذا المورد</div>`)}
-            ${pretSelPurs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${pretSelPurs.map(po=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">📥 فاتورة #${po.number}${bkTag(po)} - ${po.date}<span onclick="removePretPurchase('${po.id}')" style="cursor:pointer;margin-right:8px;color:var(--tx-c0392b,#C0392B);font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
+            ${pretSelPurs.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">${pretSelPurs.map(po=>`<span class="badge blue" style="font-size:12px;padding:5px 10px">📥 فاتورة #${docNo(po)}${bkTag(po)} - ${po.date}<span onclick="removePretPurchase('${po.id}')" style="cursor:pointer;margin-right:8px;color:var(--tx-c0392b,#C0392B);font-size:13px" title="شيل الفاتورة دي">✕</span></span>`).join('')}</div>`:''}
           </div>
         </div>`:''}
         <div class="divider"></div>
@@ -12987,7 +13563,7 @@ function savePurRet(){
   const _usedPurIds=[];
   _pretSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedPurIds.includes(a.purchaseId)) _usedPurIds.push(a.purchaseId); }));
   const _pretPurIds=_usedPurIds.length?_usedPurIds:_selPurIds;
-  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
+  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,..._scSeriesField(_oldPR),supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
   // تعديل مردود موجود: بنشيل نسخته القديمة (الحركات + كل قيودها) وبنسجل الجديدة بنفس الـid والرقم وتاريخ الإنشاء
   if(_oldPR){
     purchaseReturns=purchaseReturns.filter(r=>r.id!==_oldPR.id);
@@ -13040,7 +13616,7 @@ function editPurRet(id){
 function deletePurRet(id){
   const _prItem=purchaseReturns.find(r=>r.id===id);
   showConfirm('هتحذف مردود المشتريات ده؟ الكميات هتترجع تتخصم تاني من المخزن.', function(){
-    logActivity('delete','مردود مشتريات','#'+(_prItem?.number||''),(suppliers.find(s=>s.id===_prItem?.supplierId)?.name||'')+' • '+fmt(_prItem?.total||0)+' ج');
+    logActivity('delete','مردود مشتريات','#'+(docNo(_prItem)||''),(suppliers.find(s=>s.id===_prItem?.supplierId)?.name||'')+' • '+fmt(_prItem?.total||0)+' ج');
     recordDeletion('purchaseReturns',id);
     purchaseReturns=purchaseReturns.filter(r=>r.id!==id);
     movements.filter(m=>m.purchaseReturnId===id).forEach(m=>recordDeletion('movements',m.id));
@@ -13064,12 +13640,12 @@ function renderPurRetDetail(){
   document.getElementById('tab-purreturns').innerHTML=`
     <div class="back-row">
       <button class="btn gray" onclick="goBackFromPurRetDetail()">← رجوع</button>
-      <div class="page-title">مردود مشتريات #${ret.number}${bkTag(ret)}</div>
+      <div class="page-title">مردود مشتريات #${docNo(ret)}${bkTag(ret)}</div>
     </div>
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-        ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+x.number+bkTag(x)).join('، ')}</div>`:'';})()}
+        ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+docNo(x)+bkTag(x)).join('، ')}</div>`:'';})()}
         <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-d68910,#D68910)">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
@@ -13097,7 +13673,7 @@ async function printPurchaseReturn(retId){
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="doc-total">إجمالي المردود: ${fmt(ret.total)} جنيه</div>`;
-  await sendDocument(`مردود مشتريات #${ret.number}${bkTxt(ret)}`, body, `مردود-مشتريات-${ret.number}.pdf`);
+  await sendDocument(`مردود مشتريات #${docNo(ret)}${bkTxt(ret)}`, body, `مردود-مشتريات-${docNo(ret)}.pdf`);
 }
 
 // إشارة إضافية مستقلة عن _lastExport/_lastAutoExport (اللي متخزنة في localStorage بس):
