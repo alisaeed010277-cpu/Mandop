@@ -3150,12 +3150,12 @@ function _scComputeDirty(){
   return {upserts,deletes,skipped};
 }
 
-// بعد كل حفظ: لو الجهاز مربوط بس، استنى 8 ثواني من آخر تغيير وبعدين احسب اللي اتغيّر (مش مع كل save)
+// بعد كل حفظ: لو الجهاز مربوط بس، استنى ثانيتين من آخر تغيير وبعدين زامن (مش مع كل save)
 let __scTimer=null, __scQuietHook=null;
 function _syncOnSave(){
   if(!_scLinked()) return;
   clearTimeout(__scTimer);
-  __scTimer=setTimeout(()=>{ try{ const d=_scComputeDirty(); if(d && __scQuietHook) __scQuietHook(d); }catch(e){} },8000);
+  __scTimer=setTimeout(()=>{ try{ if(__scQuietHook) __scQuietHook(); }catch(e){} },2000);
 }
 
 // ---------- سلسلة ترقيم المستندات (للأجهزة المربوطة بس) ----------
@@ -3177,10 +3177,12 @@ const SYNC_DEFAULT_URL='https://sahbk-sync.alisaeed010277.workers.dev';
 const SYNC_BATCH=100;                    // لازم يساوي أو يقل عن حد الخادم
 const SYNC_BRAKE_MIN=50, SYNC_BRAKE_PCT=0.05;
 const SYNC_LOCAL_REQ_CAP=2000;           // سقف طلبات الجهاز اليومي (حماية قبل سقف الخادم)
-const SYNC_BACKOFF=[30000,60000,300000]; // تباعد المحاولات عند الخطأ
+const SYNC_BACKOFF=[15000,30000,60000];  // تباعد المحاولات عند الخطأ (قصير: المزامنة التلقائية مبتتأخرش كتير)
 const SYNC_LATE_PARENTS=['invoices','purchases','returns','purchaseReturns','productions']; // الأب بيتبعت بعد أولاده
 
 let __scStatus={state:'off',last:0,error:'',conflicts:0,brake:null};
+let __scLogBuf=[];   // آخر 60 حدث (في الذاكرة بس) — بيظهر في شاشة الربط عشان نعرف بالظبط إيه اللي بيحصل
+function _scLog(m){ try{ const t=new Date(); const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0'); const last=__scLogBuf[__scLogBuf.length-1]; if(last && last.m===m){ last.n=(last.n||1)+1; last.t=hh; } else __scLogBuf.push({t:hh,m}); if(__scLogBuf.length>60) __scLogBuf.shift(); }catch(e){} }
 let __scBusy=false, __scFails=0, __scNextAt=0, __scPollTimer=null, __scMaxBatch=SYNC_BATCH, __scConflicts=[];
 function _scSetStatus(state,extra){
   __scStatus=Object.assign({},__scStatus,{state},extra||{});
@@ -3336,6 +3338,11 @@ function _scExecute(plan){
   plan.rebases.forEach(m=>{ if(__scState.base) (__scState.base[m.coll]=__scState.base[m.coll]||{})[m.id]=Number(m.seq)||0; });
   plan.conflicts.forEach(c=>__scConflicts.push(c));
 }
+// تحديث الشاشة بعد الدمج: مبنحدّثهاش وإنت بتكتب في خانة (فاتورة، دفعة...)، عشان ميمسحش اللي كتبته. بنأجّل لحد ما تخلّص.
+let __scRenderPending=false;
+function _scBusyTyping(){ try{ if(typeof document==='undefined') return false; const a=document.activeElement; if(!a) return false; const t=String(a.tagName||'').toUpperCase(); return t==='INPUT'||t==='TEXTAREA'||t==='SELECT'||a.isContentEditable===true; }catch(e){ return false; } }
+function _scSafeRender(){ if(_scBusyTyping()){ __scRenderPending=true; _scLog('تأجيل تحديث الشاشة: إنت بتكتب دلوقتي'); return; } __scRenderPending=false; try{ render(); }catch(e){} }
+function _scFlushRender(){ if(__scRenderPending && !_scBusyTyping()){ __scRenderPending=false; _scLog('اتحدّثت الشاشة'); try{ render(); }catch(e){} } }
 async function _scBackupBeforeMerge(){ if(typeof _snapWrite==='function') await _snapWrite(true); }
 async function _scApplyChanges(changes,seq,opts){
   opts=opts||{};
@@ -3353,7 +3360,7 @@ async function _scApplyChanges(changes,seq,opts){
     try{ if(typeof reconcileCheckNoteJournals==='function') reconcileCheckNoteJournals(); }catch(e){}
   }
   if(Number.isInteger(seq) && seq>(__scState.since||0)) __scState.since=seq;
-  if(touches){ try{ save(); }catch(e){} try{ render(); }catch(e){} }
+  if(touches){ try{ save(); }catch(e){} _scSafeRender(); }
   await _scSaveState(); await _scSaveConflicts();
   return {applied:{adds:plan.adds.length,replaces:plan.replaces.length,removes:plan.removes.length},conflicts:plan.conflicts.length,bad:plan.bad};
 }
@@ -3422,17 +3429,20 @@ function _scFail(kind,detail){
   if(kind==='upgrade'){ _scSetStatus('upgrade',{error:'حدّث البرنامج'}); return; }
   if(kind==='disabled'){ _scSetStatus('disabled',{error:'المزامنة موقوفة من الخادم'}); return; }
   if(kind==='unauthorized'){ _scSetStatus('unauthorized',{error:'رمز الربط غير صحيح'}); return; }
-  if(kind==='cap'){ __scNextAt=Date.now()+3600000; _scSetStatus('cap',{error:'وصلت للحد اليومي، شغلك محفوظ على الجهاز'}); return; }
+  _scLog('فشل: '+kind+(detail?' ('+detail+')':''));
+  if(kind==='cap'){ __scNextAt=Date.now()+600000; _scSetStatus('cap',{error:'وصلت للحد اليومي، شغلك محفوظ على الجهاز'}); return; }
   __scFails++; __scNextAt=Date.now()+SYNC_BACKOFF[Math.min(__scFails-1,SYNC_BACKOFF.length-1)];
   _scSetStatus('offline',{error:detail||''});
 }
 async function _scCycle(reason){
-  if(!_scLinked() || __scBusy) return;
-  if(reason!=='manual' && Date.now()<__scNextAt) return;
-  if(!__dataLoaded) return;
+  if(!_scLinked()) return;
+  _scFlushRender();
+  if(__scBusy){ _scLog('تخطّي ('+reason+'): في مزامنة شغالة'); return; }
+  if(reason!=='manual' && Date.now()<__scNextAt){ _scLog('تخطّي ('+reason+'): استنى '+Math.ceil((__scNextAt-Date.now())/1000)+'ث بعد خطأ'); return; }
+  if(!__dataLoaded){ _scLog('تخطّي ('+reason+'): البيانات لسه بتتحمّل'); return; }
   if(!__scState) await _scLoadState();
-  if(!__scState){ _scSetStatus('offline'); return; }
-  __scBusy=true; _scSetStatus('syncing');
+  if(!__scState){ _scSetStatus('offline'); _scLog('الحالة المحلية مش متاحة'); return; }
+  __scBusy=true; _scSetStatus('syncing'); const _t0=Date.now();
   try{
     let pr=await _scPull();
     if(pr.r && pr.r.kind==='unregistered'){
@@ -3442,12 +3452,12 @@ async function _scCycle(reason){
     }
     if(pr.r){ _scFail(pr.r.kind); return; }
     const ap=await _scApplyChanges(pr.changes,pr.seq,{force:false});
-    if(ap.brake){ _scSetStatus('brake',{brake:ap.brake}); return; }          // وقف وبيطلب تأكيد، ومبيرفعش حاجة
+    if(ap.brake){ _scSetStatus('brake',{brake:ap.brake}); _scLog('وقفنا عند الفرامل: '+JSON.stringify(ap.brake)); return; }          // وقف وبيطلب تأكيد، ومبيرفعش حاجة
     if(ap.error){ _scFail('offline',ap.error); return; }
     const ps=await _scPush();
     if(ps.kind==='retry'){ __scBusy=false; return _scCycle('manual'); }
-    if(ps.kind==='hold'){ _scSetStatus('hold',{last:Date.now(),error:'',brake:null}); __scFails=0; return; }
-    if(ps.kind==='ok'||ps.kind==='notready'){ __scFails=0; _scSetStatus(pr.more?'syncing':'ok',{last:Date.now(),error:'',brake:null}); if(pr.more) setTimeout(()=>_scCycle('manual'),500); return; }
+    if(ps.kind==='hold'){ _scSetStatus('hold',{last:Date.now(),error:'',brake:null}); __scFails=0; __scNextAt=0; _scLog('('+reason+') سحب '+pr.changes.length+' — في انتظار مراجعتك قبل رفع بياناتك القديمة'); return; }
+    if(ps.kind==='ok'||ps.kind==='notready'){ __scFails=0; __scNextAt=0; if(reason!=='poll' || pr.changes.length || ps.sent) _scLog('('+reason+') سحب '+pr.changes.length+' • رفع '+(ps.sent||0)+(ps.conflicts?' • تعارض '+ps.conflicts:'')+' • '+(Date.now()-_t0)+'ms'); _scSetStatus(pr.more?'syncing':'ok',{last:Date.now(),error:'',brake:null}); if(pr.more) setTimeout(()=>_scCycle('manual'),500); return; }
     _scFail(ps.kind);
   }catch(e){ _scFail('offline',String(e&&e.message||e).slice(0,120)); }
   finally{ __scBusy=false; try{ await _scSaveState(); }catch(e){} }
@@ -3464,18 +3474,26 @@ async function _scConfirmBrake(){     // المستخدم وافق على الد
   catch(e){ _scFail('offline'); } finally{ __scBusy=false; }
   _scCycle('manual');
 }
+let __scListeners=false;
 async function _scBoot(){
+  try{ if(!_scLinked()) return; }catch(e){ return; }
+  try{ if(!__scState) await _scLoadState(); }catch(e){}
+  try{ await _scLoadConflicts(); }catch(e){}
+  __scQuietHook=()=>{ _scCycle('save'); };
   try{
-    if(!_scLinked()) return;
-    if(!__scState) await _scLoadState();
-    await _scLoadConflicts();
-    __scQuietHook=()=>{ _scCycle('save'); };
-    if(!__scPollTimer && typeof document!=='undefined'){
-      __scPollTimer=setInterval(()=>{ if(document.visibilityState==='visible') _scCycle('poll'); },30000);
-      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') _scCycle('focus'); });
+    if(typeof document!=='undefined' && !__scListeners){
+      __scListeners=true;
+      // استعلام كل 20 ثانية وإنت قدامه، ومزامنة فورية: لما ترجع للتطبيق، ولما تخرج منه (قبل ما المتصفح يجمّد المؤقتات)، ولما النت يرجع
+      __scPollTimer=setInterval(()=>{ if(document.visibilityState!=='hidden') _scCycle('poll'); },20000);
+      document.addEventListener('visibilitychange',()=>{ _scCycle(document.visibilityState==='hidden'?'hide':'focus'); });
+      window.addEventListener('pagehide',()=>{ _scCycle('hide'); });
+      window.addEventListener('online',()=>{ __scNextAt=0; _scCycle('online'); });
+      window.addEventListener('focus',()=>{ _scCycle('focus'); });
     }
-    setTimeout(()=>_scCycle('boot'),2000);
   }catch(e){}
+  try{ _scUpdateDot(); }catch(e){}
+  _scLog('بدأت المزامنة التلقائية (الجهاز مربوط)');
+  setTimeout(()=>_scCycle('boot'),1500);
 }
 /* SYNC-ENGINE-END */
 /* SYNC-UI-BEGIN */
@@ -3483,7 +3501,7 @@ async function _scBoot(){
 // شاشة "ربط الأجهزة" — مخفية: بتتفتح بـ 7 ضغطات سريعة على سطر العنوان الفرعي في الهيدر، ومفيش أي زرار أو علامة ظاهرة.
 // حتى لو اتفتحت بالصدفة، إنشاء مساحة جديدة محتاج كود تفعيل من صاحب البرنامج بيتراجع عليه الخادم نفسه.
 // ============================================================
-let __scUiTaps=[], __scUiOpen=false, __scUiMsg='', __scUiShowCode=false, __scUiArm='', __scUiArmT=null;
+let __scUiLog=false, __scUiTaps=[], __scUiOpen=false, __scUiMsg='', __scUiShowCode=false, __scUiArm='', __scUiArmT=null;
 function _scUiInit(){
   try{
     const el=document.querySelector('.header-sub'); if(!el || el.__scTap) return; el.__scTap=true;
@@ -3492,7 +3510,19 @@ function _scUiInit(){
       if(__scUiTaps.length>=7){ __scUiTaps=[]; _scOpenPanel(); }
     });
   }catch(e){}
-  try{ window.__scOnStatus=()=>{ if(__scUiOpen) _scRenderPanel(); }; }catch(e){}
+  try{ window.__scOnStatus=()=>{ _scUpdateDot(); if(__scUiOpen) _scRenderPanel(); }; }catch(e){}
+}
+// نقطة صغيرة جنب سطر العنوان الفرعي: بتظهر بس على الجهاز المربوط. ضغطة واحدة عليها بتفتح شاشة الربط.
+const SC_DOT_COLOR={ok:'#27AE60',syncing:'#F39C12',offline:'#95A5A6',hold:'#E67E22',brake:'#E74C3C',cap:'#E74C3C',disabled:'#E74C3C',upgrade:'#E74C3C',unauthorized:'#E74C3C',off:'#95A5A6'};
+function _scUpdateDot(){
+  try{
+    const host=document.querySelector('.header-sub'); if(!host) return;
+    let d=document.getElementById('scDot');
+    if(!_scLinked()){ if(d) d.remove(); return; }
+    if(!d){ d=document.createElement('span'); d.id='scDot'; d.style.cssText='display:inline-block;width:10px;height:10px;border-radius:50%;margin:0 8px;vertical-align:middle;cursor:pointer;box-shadow:0 0 0 2px rgba(255,255,255,.35)'; d.addEventListener('click',ev=>{ ev.stopPropagation(); _scOpenPanel(); }); host.appendChild(d); }
+    d.style.background=SC_DOT_COLOR[__scStatus.state]||'#95A5A6';
+    d.title=(SC_STATE_TXT[__scStatus.state]||__scStatus.state)||'';
+  }catch(e){}
 }
 function _scOpenPanel(){ __scUiOpen=true; __scUiMsg=''; __scUiShowCode=false; _scRenderPanel(); }
 function _scClosePanel(){ __scUiOpen=false; const o=document.getElementById('scPanel'); if(o) o.remove(); }
@@ -3536,6 +3566,8 @@ function _scRenderPanel(){
     if(__scConflicts.length>1) h+=btn(armed('dropall')?'اضغط تاني للتأكيد (النسخ المحفوظة هتتمسح)':'🧹 تجاهل كل التعارضات','dropall','#95A5A6');
     h+=btn(__scUiShowCode?'🙈 إخفاء كود الربط':'🔑 إظهار كود الربط (لإضافة جهاز)','showcode','#8E44AD');
     if(__scUiShowCode) h+=`<div style="margin-top:8px;padding:10px;border-radius:8px;background:rgba(142,68,173,.12);font-size:12px;line-height:1.8">الكود ده زي كلمة السر: أي حد معاه يقدر يدخل على بياناتك. ابعته بس للجهاز الإضافي بتاعك.<div style="margin-top:6px;direction:ltr;text-align:left;font-family:monospace;font-size:13px;word-break:break-all;user-select:all">${esc(L.ws+'.'+L.secret)}</div></div>`;
+    h+=btn(__scUiLog?'🙈 إخفاء سجل المزامنة':'🧾 سجل المزامنة (للتشخيص)','log','#7F8C8D');
+    if(__scUiLog) h+=`<div style="margin-top:8px;padding:8px;border-radius:8px;background:rgba(0,0,0,.06);font-size:11px;line-height:1.7;direction:ltr;text-align:left;max-height:220px;overflow:auto;font-family:monospace;user-select:all" id="scLogBox">${__scLogBuf.slice(-25).map(x=>esc(x.t+'  '+x.m+(x.n>1?' ×'+x.n:''))).join('<br>')||'—'}</div>`;
     h+=btn(armed('resync')?'اضغط تاني للتأكيد':'⬇️ إعادة تحميل كامل من الخادم','resync','#E67E22');
     h+=btn(armed('unlink')?'اضغط تاني للتأكيد (بيانات الجهاز مش هتتمسح)':'⛓️‍💥 فك الربط','unlink','#C0392B');
   }
@@ -3562,6 +3594,7 @@ async function _scUi(act,arg){
     if(act==='sync'){ __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
     if(act==='release'){ await _scReleaseHold(); __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
     if(act==='brake'){ __scUiMsg=''; await _scConfirmBrake(); return _scRenderPanel(); }
+    if(act==='log'){ __scUiLog=!__scUiLog; return _scRenderPanel(); }
     if(act==='showcode'){ __scUiShowCode=!__scUiShowCode; return _scRenderPanel(); }
     if(act==='resync'){ if(!_scUiArmed('resync')) return; __scUiArm=''; __scUiMsg='⏳ جاري إعادة التحميل…'; _scRenderPanel(); await _scFullResync(); __scUiMsg=''; return _scRenderPanel(); }
     if(act==='unlink'){ if(!_scUiArmed('unlink')) return; __scUiArm=''; await _scUnlink(); __scUiMsg='تم فك الربط. بيانات الجهاز زي ما هي.'; return _scRenderPanel(); }
