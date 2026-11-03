@@ -3151,9 +3151,10 @@ function _scComputeDirty(){
 }
 
 // بعد كل حفظ: لو الجهاز مربوط بس، استنى ثانيتين من آخر تغيير وبعدين زامن (مش مع كل save)
-let __scTimer=null, __scQuietHook=null;
+let __scTimer=null, __scQuietHook=null, __scLastActive=Date.now();   // آخر نشاط فعلي على الجهاز (بيحدد سرعة السؤال عن التحديثات)
 function _syncOnSave(){
   if(!_scLinked()) return;
+  __scLastActive=Date.now();
   clearTimeout(__scTimer);
   __scTimer=setTimeout(()=>{ try{ if(__scQuietHook) __scQuietHook(); }catch(e){} },2000);
 }
@@ -3183,6 +3184,11 @@ const SYNC_LATE_PARENTS=['invoices','purchases','returns','purchaseReturns','pro
 let __scStatus={state:'off',last:0,error:'',conflicts:0,brake:null};
 let __scLogBuf=[];   // آخر 60 حدث (في الذاكرة بس) — بيظهر في شاشة الربط عشان نعرف بالظبط إيه اللي بيحصل
 function _scLog(m){ try{ const t=new Date(); const hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+':'+String(t.getSeconds()).padStart(2,'0'); const last=__scLogBuf[__scLogBuf.length-1]; if(last && last.m===m){ last.n=(last.n||1)+1; last.t=hh; } else __scLogBuf.push({t:hh,m}); if(__scLogBuf.length>60) __scLogBuf.shift(); }catch(e){} }
+let __scLastPoll=0;
+// السؤال عن تحديثات: كل 20 ثانية وانت شغّال، كل دقيقة لو سبت الجهاز شوية، كل 5 دقايق لو الجهاز واقف ومتساب (أول لمسة بتزامن فورًا).
+// ده بيقلّل طلبات الخادم من 4000+ في اليوم للجهاز المفتوح طول اليوم لأقل من 1000، من غير ما تحس بفرق وانت شغّال.
+function _scPollGap(){ const idle=Date.now()-__scLastActive; return idle<180000?20000:(idle<1800000?60000:300000); }
+function _scMarkActive(){ const now=Date.now(), wasIdle=now-__scLastActive>60000; __scLastActive=now; if(wasIdle) _scCycle('wake'); }
 let __scBusy=false, __scFails=0, __scNextAt=0, __scPollTimer=null, __scMaxBatch=SYNC_BATCH, __scConflicts=[];
 function _scSetStatus(state,extra){
   __scStatus=Object.assign({},__scStatus,{state},extra||{});
@@ -3355,6 +3361,7 @@ async function _scApplyChanges(changes,seq,opts){
     plan=_scPlan(changes);   // البيانات ممكن اتغيّرت وإحنا بنعمل النسخة
   }
   _scExecute(plan);
+  if(touches) __scLastActive=Date.now();
   if(touches){   // البيانات الأساسية اتغيّرت: نعيد حساب القيود المحسوبة (تكلفة المبيعات وأخواتها) على الجهاز ده، زي ما البرنامج بيعمل بعد أي حفظ
     try{ if(typeof reconcileCogsJournals==='function') reconcileCogsJournals(); }catch(e){}
     try{ if(typeof reconcileCheckNoteJournals==='function') reconcileCheckNoteJournals(); }catch(e){}
@@ -3440,6 +3447,7 @@ async function _scCycle(reason){
   if(__scBusy){ _scLog('تخطّي ('+reason+'): في مزامنة شغالة'); return; }
   if(reason!=='manual' && Date.now()<__scNextAt){ _scLog('تخطّي ('+reason+'): استنى '+Math.ceil((__scNextAt-Date.now())/1000)+'ث بعد خطأ'); return; }
   if(!__dataLoaded){ _scLog('تخطّي ('+reason+'): البيانات لسه بتتحمّل'); return; }
+  __scLastPoll=Date.now();
   if(!__scState) await _scLoadState();
   if(!__scState){ _scSetStatus('offline'); _scLog('الحالة المحلية مش متاحة'); return; }
   __scBusy=true; _scSetStatus('syncing'); const _t0=Date.now();
@@ -3484,7 +3492,8 @@ async function _scBoot(){
     if(typeof document!=='undefined' && !__scListeners){
       __scListeners=true;
       // استعلام كل 20 ثانية وإنت قدامه، ومزامنة فورية: لما ترجع للتطبيق، ولما تخرج منه (قبل ما المتصفح يجمّد المؤقتات)، ولما النت يرجع
-      __scPollTimer=setInterval(()=>{ if(document.visibilityState!=='hidden') _scCycle('poll'); },20000);
+      __scPollTimer=setInterval(()=>{ if(document.visibilityState==='hidden') return; if(Date.now()-__scLastPoll>=_scPollGap()-1000) _scCycle('poll'); },10000);
+      ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,_scMarkActive,{passive:true,capture:true}));
       document.addEventListener('visibilitychange',()=>{ _scCycle(document.visibilityState==='hidden'?'hide':'focus'); });
       window.addEventListener('pagehide',()=>{ _scCycle('hide'); });
       window.addEventListener('online',()=>{ __scNextAt=0; _scCycle('online'); });
