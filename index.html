@@ -3240,25 +3240,34 @@ async function _scCreate(url,signupKey){
   __scState={v:1,fp:{},base:{},since:0,hold:false}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
   _scBoot(); return {ok:true,code:r.j.ws+'.'+r.j.secret};
 }
-async function _scJoin(code,url){
+async function _scJoin(code,url,devOverride){
   url=url||_scDefaultUrl(); const m=/^(w_[a-z0-9]{12})\.([A-Za-z0-9_\-]{20,100})$/.exec(String(code||'').trim());
   if(!m) return {ok:false,error:'bad_code'};
-  const dev=_scNewDev(); const r=await _scPost(url,'/register',{ws:m[1],secret:m[2],device_id:dev});
+  const dev=devOverride||_scNewDev(); const r=await _scPost(url,'/register',{ws:m[1],secret:m[2],device_id:dev});
   if(r.kind!=='ok') return {ok:false,error:r.kind};
   if(!Number.isInteger(r.j.device_no)) return {ok:false,error:'server_old'};   // الخادم لازم يتحدّث عشان نعرف سلسلة الجهاز (من غيرها الترقيم ممكن يتكرر)
-  DB.set('_syncLink',{ws:m[1],secret:m[2],url,dev,series:_scSeriesFor(r.j.device_no)}); _scResetLinkCache();
+  DB.set('_syncLink',{ws:m[1],secret:m[2],url,dev,series:_scSeriesFor(r.j.device_no)}); _scResetLinkCache(); try{ DB.set('_syncLast',null); }catch(e){}
   // الجهاز المنضم بيسحب الأول ومبيرفعش بياناته القديمة إلا بعد ما المستخدم يراجع ويأكد (_scReleaseHold)
   __scState={v:1,fp:{},base:{},since:0,hold:true}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
   _scBoot(); return {ok:true};
 }
 async function _scReleaseHold(){ if(__scState){ __scState.hold=false; await _scSaveState(); } }
-async function _scUnlink(){          // بيوقف المزامنة فورًا، من غير ما يمس أي بيانات محلية
+async function _scUnlink(forget){     // بيوقف المزامنة فورًا، من غير ما يمس أي بيانات محلية
+  const L=_scLink();
+  if(L && forget){ try{ await _scPost(L.url||SYNC_DEFAULT_URL,'/leave',{ws:L.ws,secret:L.secret,device_id:L.dev}); }catch(e){} }   // بيفضّي مكانه من حد الأجهزة
+  try{ DB.set('_syncLast',(L && !forget)?{ws:L.ws,secret:L.secret,url:L.url,dev:L.dev,at:Date.now()}:null); }catch(e){}            // عادي = بيفتكر المساحة عشان ترجع لها بضغطة
   try{ DB.set('_syncLink',null); }catch(e){}
   _scResetLinkCache(); __scQuietHook=null; __scState=null;
   if(__scPollTimer){ clearInterval(__scPollTimer); __scPollTimer=null; }
   try{ await idbSet('vs_sync_state',null); }catch(e){}
-  _scSetStatus('off');
+  _scSetStatus('off'); try{ _scUpdateDot(); }catch(e){}
 }
+async function _scRejoin(){            // رجوع لآخر مساحة كنت مربوط بيها (بنفس الجهاز، فمبياخدش مكان جديد)
+  let l=null; try{ l=DB.get('_syncLast'); }catch(e){}
+  if(!l || !l.ws || !l.secret) return {ok:false,error:'bad_code'};
+  return _scJoin(l.ws+'.'+l.secret,l.url,l.dev);
+}
+function _scForgetLast(){ try{ DB.set('_syncLast',null); }catch(e){} }
 
 // ---------- التعارضات للمراجعة ----------
 async function _scLoadConflicts(){ try{ const c=await idbGet('vs_sync_conflicts'); __scConflicts=(Array.isArray(c)?c:[]).filter(x=>!(x && x.coll==='journalEntries' && (_scIsDerivedId('journalEntries',x.id) || _scIsDerived('journalEntries',x.local)))); }catch(e){ __scConflicts=[]; } _scSetStatus(__scStatus.state,{conflicts:__scConflicts.length}); }
@@ -3561,7 +3570,11 @@ function _scRenderPanel(){
       <div style="margin-top:16px;font-weight:bold">جهاز إضافي: الانضمام بكود ربط</div>
       <input id="scCode" type="text" placeholder="كود الربط من الجهاز الأول" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
       ${btn('الانضمام','join','#2E86C1')}
-      <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7">الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.</div>`;
+      <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7">الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.<br><b>ملحوظة:</b> كود التفعيل بيعمل مساحة جديدة فاضية. لو كنت مربوط قبل كده وعايز ترجع لنفس المساحة، استخدم "إعادة الربط" فوق (لو ظاهرة) أو كود الربط.</div>`;
+    let _last=null; try{ _last=DB.get('_syncLast'); }catch(e){}
+    if(_last && _last.ws){
+      h=h.replace('<div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>',`<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(46,134,193,.12);font-size:13px;line-height:1.8"><b>آخر مساحة كنت مربوط بيها:</b><div style="direction:ltr;text-align:left;font-family:monospace;font-size:12px">${esc(_last.ws)}</div>${btn('↩️ إعادة الربط بنفس المساحة','rejoin','#2E86C1')}${btn('نسيان المساحة دي','forgetlast','#95A5A6')}</div><div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>`);
+    }
   } else {
     h+=btn('🔄 مزامنة الآن','sync','#2E86C1');
     if(st.state==='hold') h+=`<div style="margin-top:12px;padding:10px;border-radius:8px;background:rgba(243,156,18,.15);font-size:13px;line-height:1.8">استلمنا بيانات الجهاز الأول. راجع بياناتك على الجهاز ده. لما تتأكد إنها صح اضغط تأكيد، وساعتها بياناتك القديمة هتترفع وتتدمج مع الباقي.</div>${btn('✓ راجعت وأؤكد رفع بيانات جهازي','release','#27AE60')}`;
@@ -3578,7 +3591,8 @@ function _scRenderPanel(){
     h+=btn(__scUiLog?'🙈 إخفاء سجل المزامنة':'🧾 سجل المزامنة (للتشخيص)','log','#7F8C8D');
     if(__scUiLog) h+=`<div style="margin-top:8px;padding:8px;border-radius:8px;background:rgba(0,0,0,.06);font-size:11px;line-height:1.7;direction:ltr;text-align:left;max-height:220px;overflow:auto;font-family:monospace;user-select:all" id="scLogBox">${__scLogBuf.slice(-25).map(x=>esc(x.t+'  '+x.m+(x.n>1?' ×'+x.n:''))).join('<br>')||'—'}</div>`;
     h+=btn(armed('resync')?'اضغط تاني للتأكيد':'⬇️ إعادة تحميل كامل من الخادم','resync','#E67E22');
-    h+=btn(armed('unlink')?'اضغط تاني للتأكيد (بيانات الجهاز مش هتتمسح)':'⛓️‍💥 فك الربط','unlink','#C0392B');
+    h+=btn(armed('unlink')?'اضغط تاني للتأكيد (بيانات الجهاز مش هتتمسح)':'⛓️‍💥 فك الربط (تقدر ترجع بعدين بضغطة)','unlink','#E67E22');
+    h+=btn(armed('leave')?'اضغط تاني للتأكيد (هينسى المساحة ويفضّي مكانه)':'🚪 فك الربط نهائيًا (يفضّي مكان الجهاز)','leave','#C0392B');
   }
   h+=`</div>`; o.innerHTML=h;
 }
@@ -3606,7 +3620,10 @@ async function _scUi(act,arg){
     if(act==='log'){ __scUiLog=!__scUiLog; return _scRenderPanel(); }
     if(act==='showcode'){ __scUiShowCode=!__scUiShowCode; return _scRenderPanel(); }
     if(act==='resync'){ if(!_scUiArmed('resync')) return; __scUiArm=''; __scUiMsg='⏳ جاري إعادة التحميل…'; _scRenderPanel(); await _scFullResync(); __scUiMsg=''; return _scRenderPanel(); }
-    if(act==='unlink'){ if(!_scUiArmed('unlink')) return; __scUiArm=''; await _scUnlink(); __scUiMsg='تم فك الربط. بيانات الجهاز زي ما هي.'; return _scRenderPanel(); }
+    if(act==='unlink'){ if(!_scUiArmed('unlink')) return; __scUiArm=''; await _scUnlink(false); __scUiMsg='تم فك الربط. بيانات الجهاز زي ما هي، وتقدر ترجع لنفس المساحة من "إعادة الربط".'; return _scRenderPanel(); }
+    if(act==='leave'){ if(!_scUiArmed('leave')) return; __scUiArm=''; await _scUnlink(true); __scUiMsg='تم فك الربط نهائيًا وفضّينا مكان الجهاز. بيانات الجهاز زي ما هي.'; return _scRenderPanel(); }
+    if(act==='rejoin'){ __scUiMsg='⏳ جاري إعادة الربط…'; _scRenderPanel(); const r=await _scRejoin(); __scUiMsg=r.ok?'✅ رجعت للمساحة. بنسحب البيانات دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'مقدرناش نرجع للمساحة (ممكن تكون اتحذفت). استخدم "نسيان المساحة دي".'); _scRenderPanel(); if(r.ok) _scCycle('manual'); return; }
+    if(act==='forgetlast'){ _scForgetLast(); __scUiMsg=''; return _scRenderPanel(); }
     if(act==='dropall'){ if(!_scUiArmed('dropall')) return; __scUiArm=''; __scConflicts.splice(0,__scConflicts.length); await _scSaveConflicts(); return _scRenderPanel(); }
     if(act==='drop'){ __scConflicts.splice(arg,1); await _scSaveConflicts(); return _scRenderPanel(); }
     if(act==='restore'){
