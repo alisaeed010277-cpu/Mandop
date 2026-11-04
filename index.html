@@ -3189,6 +3189,7 @@ let __scLastPoll=0;
 // ده بيقلّل طلبات الخادم من 4000+ في اليوم للجهاز المفتوح طول اليوم لأقل من 1000، من غير ما تحس بفرق وانت شغّال.
 function _scPollGap(){ const idle=Date.now()-__scLastActive; return idle<180000?20000:(idle<1800000?60000:300000); }
 function _scMarkActive(){ const now=Date.now(), wasIdle=now-__scLastActive>60000; __scLastActive=now; if(wasIdle) _scCycle('wake'); }
+let __scPending=null;   // بيانات اتسحبت ولسه ما اتطبقتش (فرامل أو فشل): بنحتفظ بيها هنا بدل ما نسحبها من الخادم كل 20 ثانية
 let __scBusy=false, __scFails=0, __scNextAt=0, __scPollTimer=null, __scMaxBatch=SYNC_BATCH, __scConflicts=[];
 function _scSetStatus(state,extra){
   __scStatus=Object.assign({},__scStatus,{state},extra||{});
@@ -3257,7 +3258,7 @@ async function _scUnlink(forget){     // بيوقف المزامنة فورًا�
   if(L && forget){ try{ await _scPost(L.url||SYNC_DEFAULT_URL,'/leave',{ws:L.ws,secret:L.secret,device_id:L.dev}); }catch(e){} }   // بيفضّي مكانه من حد الأجهزة
   try{ DB.set('_syncLast',(L && !forget)?{ws:L.ws,secret:L.secret,url:L.url,dev:L.dev,at:Date.now()}:null); }catch(e){}            // عادي = بيفتكر المساحة عشان ترجع لها بضغطة
   try{ DB.set('_syncLink',null); }catch(e){}
-  _scResetLinkCache(); __scQuietHook=null; __scState=null;
+  _scResetLinkCache(); __scQuietHook=null; __scState=null; __scPending=null;
   if(__scPollTimer){ clearInterval(__scPollTimer); __scPollTimer=null; }
   try{ await idbSet('vs_sync_state',null); }catch(e){}
   _scSetStatus('off'); try{ _scUpdateDot(); }catch(e){}
@@ -3400,15 +3401,20 @@ function _scBundleOf(item,payKey){
 function _scPack(items,max){
   const payKey=_scBundleKeys(); const groups=new Map();
   items.forEach(it=>{ const k=_scBundleOf(it,payKey); (groups.get(k)||groups.set(k,[]).get(k)).push(it); });
-  const batches=[]; let cur=[];
+  const batches=[]; let cur=[]; let deferred=0;
   const flush=()=>{ if(cur.length){ batches.push(cur); cur=[]; } };
   groups.forEach(g=>{
     g.sort((a,b)=>(SYNC_LATE_PARENTS.includes(a.coll)?1:0)-(SYNC_LATE_PARENTS.includes(b.coll)?1:0));   // الأب في الآخر لو الحزمة اتقسمت
-    if(g.length>max){ flush(); for(let i=0;i<g.length;i+=max) batches.push(g.slice(i,i+max)); return; }
+    if(g.length>max){
+      // الحزمة (فاتورة وحركاتها وتحصيلها وقيودها) أكبر من اللي متبقي من الحد اليومي: بنأجلها كلها ليوم تاني بدل ما نقسمها،
+      // لأن قيد وصل من غير فاتورته بيتمسح على الجهاز التاني (تنظيف القيود اليتيمة)، فمينفعش تتقسم. بتتقسم بس لو أكبر من دفعة كاملة.
+      if(g.length<=SYNC_BATCH){ deferred+=g.length; return; }
+      flush(); for(let i=0;i<g.length;i+=max) batches.push(g.slice(i,i+max)); return;
+    }
     if(cur.length+g.length>max) flush();
     cur=cur.concat(g);
   });
-  flush(); return batches;
+  flush(); return {batches,deferred};
 }
 async function _scPush(){
   if(__scState.hold) return {kind:'hold'};
@@ -3416,7 +3422,9 @@ async function _scPush(){
   const items=d.upserts.map(u=>Object.assign({del:false},u)).concat(d.deletes.map(x=>Object.assign({del:true},x)));
   if(!items.length) return {kind:'ok',sent:0};
   let sent=0, conflicts=0;
-  for(const b of _scPack(items,__scMaxBatch)){
+  const pk=_scPack(items,__scMaxBatch);
+  if(!pk.batches.length && pk.deferred){ _scLog('الحد اليومي: '+pk.deferred+' سجل مستنيين لبكرة (حزم كاملة)'); return {kind:'cap',sent}; }
+  for(const b of pk.batches){
     const r=await _scCall('/push',{changes:b.map(it=>it.del?{coll:it.coll,id:it.id,base_seq:it.base_seq,deleted:true}:{coll:it.coll,id:it.id,base_seq:it.base_seq,data:it.data})});
     if(r.kind==='cap'){
       const rem=r.j&&Number.isInteger(r.j.remaining_writes)?r.j.remaining_writes:0;
@@ -3433,6 +3441,8 @@ async function _scPush(){
       const ap=await _scApplyChanges(srv,null,{force:true});   // نسخة الخادم هي الأساسية، ونسختك بتتحفظ للمراجعة
       conflicts+=srv.length; if(ap.error) return {kind:'offline',sent};
     }
+    // الأرقام اللي الخادم حجزها للدفعة دي هي (head-n .. head]. لو آخر سحب كان واقف عند head-n يبقى مفيش حد تاني كتب في النص، فنعدّي على دفعتنا من غير ما نسحبها تاني
+    if(Number.isInteger(j.head) && j.head-b.length===(__scState.since||0)) __scState.since=j.head;
     if(Number.isInteger(j.remaining_writes) && j.remaining_writes<__scMaxBatch) __scMaxBatch=Math.max(1,Math.min(SYNC_BATCH,j.remaining_writes||1));
     await _scSaveState();
   }
@@ -3454,6 +3464,7 @@ async function _scCycle(reason){
   if(!_scLinked()) return;
   _scFlushRender();
   if(__scBusy){ _scLog('تخطّي ('+reason+'): في مزامنة شغالة'); return; }
+  if(reason!=='manual' && __scStatus.state==='brake'){ return; }    // واقفين عند الفرامل: مستنيين موافقتك، ومنسحبش ولا نرفع حاجة لحد ما توافق
   if(reason!=='manual' && Date.now()<__scNextAt){ _scLog('تخطّي ('+reason+'): استنى '+Math.ceil((__scNextAt-Date.now())/1000)+'ث بعد خطأ'); return; }
   if(!__dataLoaded){ _scLog('تخطّي ('+reason+'): البيانات لسه بتتحمّل'); return; }
   __scLastPoll=Date.now();
@@ -3461,7 +3472,7 @@ async function _scCycle(reason){
   if(!__scState){ _scSetStatus('offline'); _scLog('الحالة المحلية مش متاحة'); return; }
   __scBusy=true; _scSetStatus('syncing'); const _t0=Date.now();
   try{
-    let pr=await _scPull();
+    let pr=__scPending||await _scPull();
     if(pr.r && pr.r.kind==='unregistered'){
       const L=_scLink(); const rg=await _scPost(L.url||SYNC_DEFAULT_URL,'/register',{ws:L.ws,secret:L.secret,device_id:L.dev});
       if(rg.kind!=='ok'){ _scFail(rg.kind); return; }
@@ -3469,8 +3480,9 @@ async function _scCycle(reason){
     }
     if(pr.r){ _scFail(pr.r.kind); return; }
     const ap=await _scApplyChanges(pr.changes,pr.seq,{force:false});
-    if(ap.brake){ _scSetStatus('brake',{brake:ap.brake}); _scLog('وقفنا عند الفرامل: '+JSON.stringify(ap.brake)); return; }          // وقف وبيطلب تأكيد، ومبيرفعش حاجة
-    if(ap.error){ _scFail('offline',ap.error); return; }
+    if(ap.brake){ __scPending=pr; _scSetStatus('brake',{brake:ap.brake}); _scLog('وقفنا عند الفرامل: '+JSON.stringify(ap.brake)); return; }          // وقف وبيطلب تأكيد، ومبيرفعش حاجة
+    if(ap.error){ __scPending=pr; _scFail('offline',ap.error); return; }
+    __scPending=null;
     const ps=await _scPush();
     if(ps.kind==='retry'){ __scBusy=false; return _scCycle('manual'); }
     if(ps.kind==='hold'){ _scSetStatus('hold',{last:Date.now(),error:'',brake:null}); __scFails=0; __scNextAt=0; _scLog('('+reason+') سحب '+pr.changes.length+' — في انتظار مراجعتك قبل رفع بياناتك القديمة'); return; }
@@ -3485,8 +3497,9 @@ async function _scFullResync(){      // بيسحب كل حاجة من الأول
 }
 async function _scConfirmBrake(){     // المستخدم وافق على الدمج الكبير
   if(__scBusy||!__scState) return; __scBusy=true;
-  try{ const pr=await _scPull(); if(pr.r){ _scFail(pr.r.kind); return; }
-    const ap=await _scApplyChanges(pr.changes,pr.seq,{force:true}); if(ap.error){ _scFail('offline',ap.error); return; }
+  try{ const pr=__scPending||await _scPull(); if(pr.r){ _scFail(pr.r.kind); return; }
+    const ap=await _scApplyChanges(pr.changes,pr.seq,{force:true}); if(ap.error){ __scPending=pr; _scFail('offline',ap.error); return; }
+    __scPending=null;
     _scSetStatus('ok',{last:Date.now(),brake:null,error:''}); }
   catch(e){ _scFail('offline'); } finally{ __scBusy=false; }
   _scCycle('manual');
