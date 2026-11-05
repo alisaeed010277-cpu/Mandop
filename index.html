@@ -770,6 +770,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button class="hdr-btn" onclick="exportData()">💾 تصدير</button>
     <button class="hdr-btn" onclick="importData()">📂 استيراد</button>
     <button class="hdr-btn" onclick="openPinModal()">🔑 PIN المالك</button>
+    <button class="hdr-btn" onclick="openAppLockModal()">🔐 قفل التطبيق</button>
     <button class="hdr-btn" onclick="openWorkerPinModal()">👤 الصلاحيات</button>
     <button class="hdr-btn" id="handoverBtn" style="display:none;background:#8E44AD;color:#fff" onclick="handoverToWorker()">🔒 تسليم للعامل</button>
   </div>
@@ -867,6 +868,15 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <div id="pinModalContent"></div>
     <div class="btn-row" style="margin-top:14px">
       <button class="btn blue" style="width:100%" onclick="document.getElementById('pinModal').style.display='none'">تم</button>
+    </div>
+  </div>
+</div>
+
+<div id="appLockModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div class="modal-card" style="background:var(--bg-fff,#fff);border-radius:12px;width:100%">
+    <div id="appLockModalContent"></div>
+    <div class="btn-row" style="margin-top:14px">
+      <button class="btn blue" style="width:100%" onclick="document.getElementById('appLockModal').style.display='none'">تم</button>
     </div>
   </div>
 </div>
@@ -1129,6 +1139,24 @@ function roleLabel(role){
 // "ل" + الاسم بشكل سليم لغويًا (العامل → للعامل، الشخص 1 → للشخص 1، أحمد → لأحمد)
 function _lamLabel(label){ return label.startsWith('ال') ? 'لل'+label.slice(2) : 'ل'+label; }
 
+// ============================================================
+// قفل التطبيق (App Lock) — PIN منفصل تمامًا عن PIN المالك وعن PINs أوضاع التسليم.
+// مفاتيح تخزين مستقلة (_alHash / _alQ / _alA) وبادئة هاش مختلفة، ومفيش أي تداخل مع _pinHash / _workerPinHash / _p1PinHash.
+// ============================================================
+function hasAppLockSet(){ return !!DB.get('_alHash'); }
+async function _setAppLockHash(pin){ DB.set('_alHash', await _sha256Hex('alock::'+pin)); }
+async function verifyAppLock(pin){ const stored=DB.get('_alHash'); if(!stored) return false; return (await _sha256Hex('alock::'+pin))===stored; }
+async function _setAppLockAnswerHash(ans){ DB.set('_alA', await _sha256Hex('alans::'+ans.trim().toLowerCase())); }
+async function verifyAppLockAnswer(ans){ const stored=DB.get('_alA'); if(!stored) return false; return (await _sha256Hex('alans::'+ans.trim().toLowerCase()))===stored; }
+// PIN قفل التطبيق بيعرفه الشخص اللي ماسك الجهاز — فلازم يبقى مختلف تمامًا عن PIN المالك (وإلا يقدر يرجع لوضع المالك بيه)
+async function _equalsAppLock(pin){ return hasAppLockSet() && await verifyAppLock(pin); }
+async function _appLockConflictMsg(pin){
+  if(hasPinSet() && await verifyPin(pin)) return 'الـ PIN ده هو نفسه PIN المالك — قفل التطبيق لازم يبقى PIN مختلف تمامًا';
+  if(hasP1PinSet() && await verifyP1Pin(pin)) return 'الـ PIN ده مستخدم لوضع '+roleLabel('p1')+' — اختار PIN مختلف';
+  if(hasWorkerPinSet() && await verifyWorkerPin(pin)) return 'الـ PIN ده مستخدم لوضع '+roleLabel('worker')+' — اختار PIN مختلف';
+  return '';
+}
+
 // مدة عدم الاستخدام قبل ما البرنامج يتقفل تلقائيًا لوحده
 const PIN_INACTIVITY_MS = 6*60*60*1000; // 6 ساعات
 // بيرجع مدة القفل بصيغة مقروءة (ساعات لو المدة ساعة كاملة أو أكتر، وإلا دقايق)
@@ -1147,26 +1175,30 @@ let __pinUnlockCallback = null;
 
 function _resetPinInactivity(){ __pinLastActivity = Date.now(); __pinHiddenAt = null; }
 
+function _anyLockScreenUp(){
+  return !!(document.getElementById('pinLockScreen') || document.getElementById('appPinLockScreen') || document.getElementById('lockScreen'));
+}
+
 function _startPinInactivityWatch(){
   if(!APP_OPEN_PIN_LOCK) return; // مفيش قفل تلقائي لما قفل الفتح مقفول
-  if(!hasPinSet()) return;
+  if(!hasAppLockSet()) return;   // القفل التلقائي تابع لـ PIN قفل التطبيق بس (مش PIN المالك)
   if(__pinWatchStarted) return;
   __pinWatchStarted = true;
   ['click','keydown','touchstart','mousemove','scroll'].forEach(evt=>{
     document.addEventListener(evt, ()=>{
-      if(!document.getElementById('pinLockScreen') && !document.getElementById('lockScreen')) _resetPinInactivity();
+      if(!_anyLockScreenUp()) _resetPinInactivity();
     }, {passive:true});
   });
   document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState==='visible'){ _checkPinInactivity(); }
-    else if(!document.getElementById('pinLockScreen') && !document.getElementById('lockScreen')){ __pinHiddenAt = Date.now(); }
+    else if(!_anyLockScreenUp()){ __pinHiddenAt = Date.now(); }
   });
   setInterval(_checkPinInactivity, 20000);
 }
 
 function _checkPinInactivity(){
-  if(!hasPinSet()) return;
-  if(document.getElementById('pinLockScreen') || document.getElementById('lockScreen')) return;
+  if(!hasAppLockSet()) return;
+  if(_anyLockScreenUp()) return;
   const now = Date.now();
   const idleElapsed = now - __pinLastActivity;
   const hiddenElapsed = __pinHiddenAt ? (now - __pinHiddenAt) : 0;
@@ -1239,21 +1271,225 @@ async function _submitPinUnlock(){
 }
 
 // ============================================================
-// PIN لفتح البرنامج في وضع المالك بس (لو الـ PIN متفعّل). الأوضاع المقيّدة (مندوب / عامل / الشخص 1) بتفتح من غير PIN.
-// الـ PINs الموجودة بتنقل بين الأوضاع بس:
-//   • PIN كل شخص (الشخص 1 / العامل) → بيتطلب عند التسليم (🔒 تسليم)
-//   • PIN المالك → بيتطلب للرجوع لوضع المالك (🔓 رجوع للمالك)
-// مفتاح واحد: false = مفيش قفل عند الفتح خالص | true = قفل الفتح لوضع المالك بس (الحالي)
-// (الأوضاع المقيّدة مبتتقفلش عند الفتح في الحالتين).
+// قفل التطبيق (App Lock) — بيتفعّل من زرار 🔐 قفل التطبيق في الهيدر، بـ PIN منفصل تمامًا عن PIN المالك.
+//   • بيقفل البرنامج عند الفتح وبعد فترة عدم استخدام، في أي وضع (مالك / الشخص 1 / العامل) —
+//     عشان الشخص اللي ماسك الجهاز يقدر يفتحه بنفسه من غير ما يحتاج المالك.
+//   • PIN المالك بقى لغرض واحد: الرجوع لوضع المالك بعد التسليم (🔓 رجوع للمالك). ومبيقفلش البرنامج عند الفتح خالص.
+//   • لو قفل التطبيق مش مفعّل، البرنامج بيفتح عادي من غير أي قفل.
+// مفتاح واحد: false = مفيش قفل فتح خالص | true = قفل التطبيق شغال لو متفعّل (الحالي).
 // ============================================================
 const APP_OPEN_PIN_LOCK = true;
 function showAppLockScreen(onUnlock){
-  if(!APP_OPEN_PIN_LOCK || isRestrictedRole()){
+  if(!APP_OPEN_PIN_LOCK || !hasAppLockSet()){
     _resetPinInactivity();
     if(onUnlock) onUnlock();
     return;
   }
-  showPinLockScreen(onUnlock);
+  showAppPinLockScreen(onUnlock);
+}
+
+// شاشة قفل التطبيق. بتحفظ حالة العرض الحالية لكل عنصر وترجّعها زي ما كانت بالظبط بعد الفتح
+// (مهم في الأوضاع المقيّدة — مثلًا شريط التبويبات مخفي لو الشخص مسموحله شاشة واحدة بس).
+let __alUnlockCallback = null;
+let __alSavedChrome = null;
+function _restoreChromeAfterAppLock(){
+  (__alSavedChrome||[]).forEach(p=>{ try{ p[0].style.display=p[1]; }catch(e){} });
+  __alSavedChrome=null;
+}
+function showAppPinLockScreen(onUnlock){
+  if(document.getElementById('appPinLockScreen')) return;
+  __alSavedChrome=[];
+  ['.header','.tabs','.body','.watermark'].forEach(s=>{
+    const e=document.querySelector(s);
+    if(e){ __alSavedChrome.push([e, e.style.display]); e.style.display='none'; }
+  });
+  const el=document.createElement('div');
+  el.id='appPinLockScreen';
+  el.style.cssText=`position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#1A5276,#1E8449);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:30px;font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#fff;text-align:center;-webkit-overflow-scrolling:touch;overflow-y:auto;`;
+  el.innerHTML=`
+    <div class="pls-icon" style="margin-bottom:16px;">🔐</div>
+    <div class="pls-title" style="font-weight:bold;margin-bottom:18px;">البرنامج مقفول — أدخل PIN قفل التطبيق</div>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="appLockInput" maxlength="8" class="pls-input" style="text-align:center;letter-spacing:6px;padding:10px;border-radius:8px;border:none;margin-bottom:14px">
+    <button onclick="_submitAppPinUnlock()" class="pls-btn" style="background:var(--bg-fff,#fff);color:var(--tx-1a5276,#1A5276);border:none;border-radius:8px;padding:10px 24px;font-weight:bold;cursor:pointer;margin-bottom:10px">دخول</button>
+    <div id="appLockMsg" class="pls-msg" style="min-height:18px;margin-bottom:10px"></div>
+    <button onclick="_openForgotAppPin()" class="pls-link" style="background:none;border:none;color:rgba(255,255,255,.75);text-decoration:underline;cursor:pointer">نسيت PIN قفل التطبيق؟</button>
+    <div id="forgotAppPinBox" style="display:none;margin-top:16px;max-width:280px;width:100%"></div>
+  `;
+  document.body.appendChild(el);
+  __alUnlockCallback = onUnlock || null;
+  setTimeout(()=>{
+    const inp=document.getElementById('appLockInput');
+    if(inp){ inp.focus(); inp.addEventListener('keydown', e=>{ if(e.key==='Enter') _submitAppPinUnlock(); }); }
+  },50);
+}
+
+async function _submitAppPinUnlock(){
+  const inp=document.getElementById('appLockInput');
+  const val=(inp&&inp.value||'').trim();
+  const msg=document.getElementById('appLockMsg');
+  if(!val){ msg.style.color='#FFD700'; msg.textContent='من فضلك أدخل الـ PIN'; return; }
+  const ok = await verifyAppLock(val);
+  if(ok){
+    const el=document.getElementById('appPinLockScreen'); if(el) el.remove();
+    _restoreChromeAfterAppLock();
+    _resetPinInactivity();
+    const cb=__alUnlockCallback; __alUnlockCallback=null;
+    if(cb) cb();
+  } else {
+    msg.style.color='#FF6B6B'; msg.textContent='❌ الـ PIN غلط';
+    if(inp){ inp.value=''; inp.focus(); }
+  }
+}
+
+function _openForgotAppPin(){
+  const box=document.getElementById('forgotAppPinBox');
+  if(!box) return;
+  const q = DB.get('_alQ') || 'سؤال الأمان';
+  box.style.display='block';
+  box.innerHTML=`
+    <div class="pls-hint" style="color:rgba(255,255,255,.9);margin-bottom:8px">${esc(q)}</div>
+    <input type="text" id="appPinRecoveryAnswer" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;box-sizing:border-box" placeholder="إجابتك">
+    <button onclick="_verifyAppPinRecovery()" class="pls-btn-sm" style="width:100%;background:var(--bg-fff,#fff);color:var(--tx-1a5276,#1A5276);border:none;border-radius:6px;padding:8px;font-weight:bold;cursor:pointer">تأكيد الإجابة</button>
+    <div id="appPinRecoveryMsg" class="pls-hint" style="min-height:16px;margin-top:6px"></div>
+  `;
+}
+
+async function _verifyAppPinRecovery(){
+  const ans=document.getElementById('appPinRecoveryAnswer').value.trim();
+  const msg=document.getElementById('appPinRecoveryMsg');
+  if(!ans){ msg.style.color='#FFD700'; msg.textContent='من فضلك اكتب إجابتك'; return; }
+  const ok = await verifyAppLockAnswer(ans);
+  if(!ok){ msg.style.color='#FF6B6B'; msg.textContent='❌ الإجابة مش صح'; return; }
+  const box=document.getElementById('forgotAppPinBox');
+  box.innerHTML=`
+    <div class="pls-hint" style="color:rgba(255,255,255,.9);margin-bottom:8px">اكتب PIN جديد لقفل التطبيق (من ٤ لـ ٨ أرقام)</div>
+    <input type="password" inputmode="numeric" maxlength="8" id="newAppPinAfterRecovery" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="PIN جديد">
+    <input type="password" inputmode="numeric" maxlength="8" id="newAppPinAfterRecoveryConfirm" style="width:100%;padding:8px;border-radius:6px;border:none;margin-bottom:8px;text-align:center;letter-spacing:4px;box-sizing:border-box" placeholder="تأكيد PIN">
+    <button onclick="_resetAppPinAfterRecovery()" class="pls-btn-sm" style="width:100%;background:var(--bg-fff,#fff);color:var(--tx-1a5276,#1A5276);border:none;border-radius:6px;padding:8px;font-weight:bold;cursor:pointer">حفظ الـ PIN الجديد</button>
+    <div id="appPinResetMsg" class="pls-hint" style="min-height:16px;margin-top:6px"></div>
+  `;
+}
+
+async function _resetAppPinAfterRecovery(){
+  const p1=document.getElementById('newAppPinAfterRecovery').value.trim();
+  const p2=document.getElementById('newAppPinAfterRecoveryConfirm').value.trim();
+  const msg=document.getElementById('appPinResetMsg');
+  if(!p1 || p1.length<4 || p1.length>8){ msg.style.color='#FFD700'; msg.textContent='الـ PIN لازم يكون من ٤ لـ ٨ أرقام'; return; }
+  if(p1!==p2){ msg.style.color='#FF6B6B'; msg.textContent='الـ PIN مش متطابق'; return; }
+  const conflict=await _appLockConflictMsg(p1);
+  if(conflict){ msg.style.color='#FF6B6B'; msg.textContent=conflict; return; }
+  await _setAppLockHash(p1);
+  const el=document.getElementById('appPinLockScreen'); if(el) el.remove();
+  _restoreChromeAfterAppLock();
+  showToast('✅ تم تغيير PIN قفل التطبيق بنجاح');
+  _resetPinInactivity();
+  const cb=__alUnlockCallback; __alUnlockCallback=null;
+  if(cb) cb();
+}
+
+// ==== إعدادات قفل التطبيق (زرار 🔐 قفل التطبيق في الهيدر — وضع المالك بس) ====
+function openAppLockModal(){
+  if(isRestrictedRole()) return;
+  renderAppLockModalContent();
+  document.getElementById('appLockModal').style.display='flex';
+}
+
+function renderAppLockModalContent(){
+  const has = hasAppLockSet();
+  const el=document.getElementById('appLockModalContent');
+  if(!el) return;
+  const durLabel = _formatPinTimeout();
+  const fld='border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;';
+  const pinFld=fld+'text-align:center;letter-spacing:4px';
+  const modes = esc(roleLabel('p1'))+' / '+esc(roleLabel('worker'));
+  if(!has){
+    el.innerHTML=`
+      <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔐 تفعيل قفل التطبيق</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">قفل التطبيق ليه PIN منفصل تمامًا عن PIN المالك. بيقفل البرنامج لما يتفتح وبعد ${durLabel} من عدم الاستخدام، وبيشتغل في كل الأوضاع (المالك / ${modes}) — يعني الشخص اللي ماسك الجهاز يقدر يفتحه بالـ PIN ده من غير ما يحتاج PIN المالك. PIN المالك للرجوع لوضعك بس. مش بديل عن كود التفعيل.</div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN قفل التطبيق (من ٤ لـ ٨ أرقام)</div><input type="password" inputmode="numeric" maxlength="8" id="setupAppLock1" style="${pinFld}"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" maxlength="8" id="setupAppLock2" style="${pinFld}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">سؤال أمان (لو نسيت الـ PIN بعدين) — اختار سؤال إجابته مش معروفة للشخص اللي هتسلّمه الجهاز</div><input type="text" id="setupAppLockQ" style="${fld}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">إجابة السؤال</div><input type="text" id="setupAppLockA" style="${fld}"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitSetupAppLock()">تفعيل قفل التطبيق</button>
+      <div id="appLockSetupMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
+    `;
+  } else {
+    el.innerHTML=`
+      <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔐 قفل التطبيق مفعّل</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">البرنامج بيتقفل لما يتفتح وبعد ${durLabel} من عدم الاستخدام في كل الأوضاع، وبيتفتح بالـ PIN ده بس. منفصل تمامًا عن PIN المالك.</div>
+      <div class="pm-sub" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:8px">تغيير الـ PIN</div>
+      <div class="form-row">
+        <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" maxlength="8" id="curAppLock" style="${pinFld}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><div class="lbl">PIN جديد</div><input type="password" inputmode="numeric" maxlength="8" id="newAppLock1" style="${pinFld}"></div>
+        <div class="form-group"><div class="lbl">تأكيد PIN الجديد</div><input type="password" inputmode="numeric" maxlength="8" id="newAppLock2" style="${pinFld}"></div>
+      </div>
+      <button class="btn blue" style="width:100%" onclick="_submitChangeAppLock()">حفظ الـ PIN الجديد</button>
+      <div id="appLockChangeMsg" class="pm-msg" style="min-height:16px;margin:8px 0 14px"></div>
+      <div style="border-top:1px solid var(--bd-ecf0f1,#ECF0F1);padding-top:12px">
+        <div class="pm-sub" style="font-weight:bold;color:var(--tx-c0392b,#C0392B);margin-bottom:8px">إلغاء قفل التطبيق</div>
+        <div class="form-row">
+          <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" maxlength="8" id="removeAppLockCur" style="${pinFld}"></div>
+        </div>
+        <button class="btn red" style="width:100%" onclick="_submitRemoveAppLock()">إلغاء قفل التطبيق نهائيًا</button>
+        <div id="appLockRemoveMsg" class="pm-msg" style="min-height:16px;margin-top:8px"></div>
+      </div>
+    `;
+  }
+}
+
+async function _submitSetupAppLock(){
+  const p1=document.getElementById('setupAppLock1').value.trim();
+  const p2=document.getElementById('setupAppLock2').value.trim();
+  const q=document.getElementById('setupAppLockQ').value.trim();
+  const a=document.getElementById('setupAppLockA').value.trim();
+  const msg=document.getElementById('appLockSetupMsg');
+  if(!p1 || p1.length<4 || p1.length>8){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم يكون من ٤ لـ ٨ أرقام'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN مش متطابق'; return; }
+  if(!q || !a){ msg.style.color='#E74C3C'; msg.textContent='لازم تكتب سؤال الأمان وإجابته'; return; }
+  const conflict=await _appLockConflictMsg(p1);
+  if(conflict){ msg.style.color='#E74C3C'; msg.textContent=conflict; return; }
+  await _setAppLockHash(p1);
+  DB.set('_alQ', q);
+  await _setAppLockAnswerHash(a);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل قفل التطبيق بنجاح';
+  _resetPinInactivity();
+  _startPinInactivityWatch();
+  setTimeout(()=>renderAppLockModalContent(), 900);
+}
+
+async function _submitChangeAppLock(){
+  const cur=document.getElementById('curAppLock').value.trim();
+  const p1=document.getElementById('newAppLock1').value.trim();
+  const p2=document.getElementById('newAppLock2').value.trim();
+  const msg=document.getElementById('appLockChangeMsg');
+  const ok = await verifyAppLock(cur);
+  if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN الحالي غلط'; return; }
+  if(!p1 || p1.length<4 || p1.length>8){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد لازم يكون من ٤ لـ ٨ أرقام'; return; }
+  if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد مش متطابق'; return; }
+  const conflict=await _appLockConflictMsg(p1);
+  if(conflict){ msg.style.color='#E74C3C'; msg.textContent=conflict; return; }
+  await _setAppLockHash(p1);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر PIN قفل التطبيق بنجاح';
+}
+
+async function _submitRemoveAppLock(){
+  const cur=document.getElementById('removeAppLockCur').value.trim();
+  const msg=document.getElementById('appLockRemoveMsg');
+  const ok = await verifyAppLock(cur);
+  if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
+  DB.set('_alHash', null);
+  DB.set('_alQ', null);
+  DB.set('_alA', null);
+  msg.style.color='#27AE60'; msg.textContent='✅ اتلغى قفل التطبيق';
+  setTimeout(()=>renderAppLockModalContent(), 900);
 }
 
 function _openForgotPin(){
@@ -1290,6 +1526,7 @@ async function _resetPinAfterRecovery(){
   const msg=document.getElementById('pinResetMsg');
   if(!p1 || p1.length<4){ msg.style.color='#FFD700'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
   if(p1!==p2){ msg.style.color='#FF6B6B'; msg.textContent='الـ PIN مش متطابق'; return; }
+  if(await _equalsAppLock(p1)){ msg.style.color='#FF6B6B'; msg.textContent='الـ PIN ده هو نفسه PIN قفل التطبيق — اختار PIN مختلف'; return; }
   await _setPinHash(p1);
   const el=document.getElementById('pinLockScreen'); if(el) el.remove();
   _restorePinScreenChrome();
@@ -1313,7 +1550,7 @@ function renderPinModalContent(){
   if(!has){
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 تفعيل PIN المالك</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب لفتح البرنامج في وضع المالك (وبعد ${durLabel} من عدم الاستخدام)، وللرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). أوضاع التسليم (الشخص 1 / العامل) بتفتح من غير PIN. مش بديل عن كود التفعيل.</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">ده PIN المالك: بيتطلب للرجوع لوضعك بعد ما تسلّم الجهاز لشخص من زرار 👤 الصلاحيات (ولازم يتفعّل الأول قبل أي وضع تسليم). مبيقفلش البرنامج عند الفتح — قفل فتح البرنامج ليه PIN منفصل تمامًا من زرار 🔐 قفل التطبيق. مش بديل عن كود التفعيل.</div>
       <div class="form-row">
         <div class="form-group"><div class="lbl">PIN جديد (٤ أرقام على الأقل)</div><input type="password" inputmode="numeric" id="setupPin1" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
         <div class="form-group"><div class="lbl">تأكيد PIN</div><input type="password" inputmode="numeric" id="setupPin2" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1330,7 +1567,7 @@ function renderPinModalContent(){
   } else {
     el.innerHTML=`
       <div class="pm-title" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:4px">🔑 PIN المالك مفعّل</div>
-      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب لفتح البرنامج في وضع المالك (وبعد ${durLabel} من عدم الاستخدام) وللرجوع لوضعك بعد التسليم. أوضاع التسليم بتفتح من غير PIN. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
+      <div class="pm-desc" style="color:var(--tx-717d7e,#717D7E);margin-bottom:14px">PIN المالك بيتطلب للرجوع لوضعك بعد التسليم بس، ومبيقفلش البرنامج عند الفتح — قفل فتح البرنامج ليه PIN منفصل تمامًا من زرار 🔐 قفل التطبيق. تقدر تلغيه من تحت (لو مفيش وضع تسليم مفعّل).</div>
       <div class="pm-sub" style="font-weight:bold;color:var(--tx-1a5276,#1A5276);margin-bottom:8px">تغيير الـ PIN</div>
       <div class="form-row">
         <div class="form-group" style="min-width:100%"><div class="lbl">الـ PIN الحالي</div><input type="password" inputmode="numeric" id="curPin" style="border:1px solid var(--bd-d5d8dc,#D5D8DC);border-radius:6px;padding:8px 10px;width:100%;background:var(--bg-fdfefe,#FDFEFE);color:var(--tx-1c2833,#1C2833);box-sizing:border-box;text-align:center;letter-spacing:4px"></div>
@@ -1362,12 +1599,11 @@ async function _submitSetupPin(){
   if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN لازم ٤ أرقام على الأقل'; return; }
   if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN مش متطابق'; return; }
   if(!q || !a){ msg.style.color='#E74C3C'; msg.textContent='لازم تكتب سؤال الأمان وإجابته'; return; }
+  if(await _equalsAppLock(p1)){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN ده هو نفسه PIN قفل التطبيق — اختار PIN مختلف'; return; }
   await _setPinHash(p1);
   DB.set('_pinQ', q);
   await _setSecurityAnswerHash(a);
   msg.style.color='#27AE60'; msg.textContent='✅ اتفعّل PIN المالك بنجاح';
-  _resetPinInactivity();
-  _startPinInactivityWatch();
   setTimeout(()=>renderPinModalContent(), 900);
 }
 
@@ -1380,6 +1616,7 @@ async function _submitChangePin(){
   if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN الحالي غلط'; return; }
   if(!p1 || p1.length<4){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد لازم ٤ أرقام على الأقل'; return; }
   if(p1!==p2){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN الجديد مش متطابق'; return; }
+  if(await _equalsAppLock(p1)){ msg.style.color='#E74C3C'; msg.textContent='الـ PIN ده هو نفسه PIN قفل التطبيق — اختار PIN مختلف'; return; }
   await _setPinHash(p1);
   msg.style.color='#27AE60'; msg.textContent='✅ اتغيّر الـ PIN بنجاح';
 }
@@ -1389,7 +1626,7 @@ async function _submitRemovePin(){
   const msg=document.getElementById('pinRemoveMsg');
   const ok = await verifyPin(cur);
   if(!ok){ msg.style.color='#E74C3C'; msg.textContent='❌ الـ PIN غلط'; return; }
-  if(hasWorkerPinSet()||hasP1PinSet()){ const _act=[hasP1PinSet()?'وضع '+roleLabel('p1'):'', hasWorkerPinSet()?'وضع '+roleLabel('worker'):''].filter(Boolean).join(' و '); msg.style.color='#E74C3C'; msg.textContent='⚠️ متقدرش تلغي قفل الـ PIN دلوقتي — "'+_act+'" لسه مفعّل، ولو لغيت القفل الرئيسي هتتقفل برا وضع المالك أول ما تدخل وضع التسليم تاني. الغي الأوضاع دي الأول من زرار 👤، وبعدين ارجع الغي قفل الـ PIN.'; return; }
+  if(hasWorkerPinSet()||hasP1PinSet()){ const _act=[hasP1PinSet()?'وضع '+roleLabel('p1'):'', hasWorkerPinSet()?'وضع '+roleLabel('worker'):''].filter(Boolean).join(' و '); msg.style.color='#E74C3C'; msg.textContent='⚠️ متقدرش تلغي قفل الـ PIN دلوقتي — "'+_act+'" لسه مفعّل، ولو لغيت PIN المالك هيقدر أي حد في وضع التسليم يرجع لوضع المالك من غير PIN. الغي الأوضاع دي الأول من زرار 👤، وبعدين ارجع الغي قفل الـ PIN.'; return; }
   DB.set('_pinHash', null);
   DB.set('_pinQ', null);
   DB.set('_pinA', null);
@@ -1413,6 +1650,7 @@ async function _roleVerifyPin(role,pin){ return role==='p1' ? verifyP1Pin(pin) :
 function _roleOther(role){ return role==='p1' ? 'worker' : 'p1'; }
 // لازم كل PIN يبقى مختلف عن PIN المالك وعن PIN الوضع التاني — لأن شاشة التسليم بتحدد الشخص من الـ PIN نفسه
 async function _pinConflictMsg(role,pin){
+  if(await _equalsAppLock(pin)) return 'الـ PIN ده هو نفسه PIN قفل التطبيق — اختار PIN مختلف';
   if(await verifyPin(pin)) return 'الـ PIN ده هو نفسه PIN المالك — اختار PIN مختلف';
   const other=_roleOther(role);
   if(_roleHasPin(other) && await _roleVerifyPin(other,pin)) return 'الـ PIN ده مستخدم لوضع '+roleLabel(other)+' — لازم كل وضع يكون ليه PIN مختلف';
@@ -13959,7 +14197,7 @@ function initActivation(){
     }
     _startPinInactivityWatch();
     };
-    if(hasPinSet()){ showAppLockScreen(_afterPinOk); } else { _afterPinOk();
+    if(hasAppLockSet()){ showAppLockScreen(_afterPinOk); } else { _afterPinOk();
     }
     return;
   }
@@ -13982,7 +14220,7 @@ function initActivation(){
         }
         _startPinInactivityWatch();
       };
-      if(hasPinSet()){ showAppLockScreen(_afterPinOkTrial); } else { _afterPinOkTrial(); }
+      if(hasAppLockSet()){ showAppLockScreen(_afterPinOkTrial); } else { _afterPinOkTrial(); }
       return;
     }
     // التجربة خلصت
