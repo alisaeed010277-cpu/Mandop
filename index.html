@@ -10,6 +10,81 @@
 <meta name="theme-color" content="#1A5276">
 <link rel="manifest" href="manifest.json">
 <script>
+/* ===== زرار "تثبيت التطبيق" في شاشة التفعيل — إضافة مستقلة بالكامل =====
+   - مفيهاش أي تعامل مع DB أو localStorage أو بيانات البرنامج (مفيش أي مفتاح تخزين جديد).
+   - لازم تتحمّل بدري في الـ head عشان نلقط حدث beforeinstallprompt قبل ما شاشة التفعيل تترسم.
+   - أي خطأ جواها مبيطلعش بره: أسوأ حالة إن الزرار مايشتغلش، والتفعيل والبرنامج يكملوا عادي. */
+(function(){
+  var deferred = null, installed = false;
+  var OK = '✅ جاري التثبيت… هتلاقي أيقونة التطبيق على الشاشة الرئيسية خلال ثواني.<br>افتح التطبيق من الأيقونة دي.';
+
+  function el(id){ return document.getElementById(id); }
+  function standalone(){
+    try{
+      if(window.navigator.standalone === true) return true;
+      if(window.matchMedia){
+        return matchMedia('(display-mode: standalone)').matches ||
+               matchMedia('(display-mode: fullscreen)').matches ||
+               matchMedia('(display-mode: minimal-ui)').matches;
+      }
+    }catch(e){}
+    return false;
+  }
+  function help(html){
+    try{
+      var h = el('pwaInstallHelp'); if(!h) return;
+      h.innerHTML = html || '';
+      h.style.display = html ? 'block' : 'none';
+    }catch(e){}
+  }
+  function sync(){
+    try{
+      var b = el('pwaInstallBtn'); if(!b) return;
+      b.style.display = (standalone() || installed) ? 'none' : 'block';
+    }catch(e){}
+  }
+  function manual(){
+    var ua = navigator.userAgent || '';
+    var ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var inApp = /FBAN|FBAV|FB_IAB|Instagram|; wv\)/i.test(ua);
+    if(inApp){
+      return '🌐 الصفحة مفتوحة جوه متصفح داخلي (فيسبوك أو غيره) والتثبيت مبيشتغلش منه.<br>دوس على <strong>⋮</strong> أو <strong>…</strong> واختار <strong>«فتح في المتصفح»</strong> (كروم أو سفاري)، وبعدين دوس «تثبيت التطبيق» تاني.';
+    }
+    if(ios){
+      return '📱 على الآيفون: دوس على زرار المشاركة <strong>⬆️</strong> واختار <strong>«إضافة إلى الشاشة الرئيسية»</strong> وبعدين <strong>«إضافة»</strong>.<br>مهم: افتح التطبيق من الأيقونة وفعّله من جواه.';
+    }
+    return '📲 دوس على <strong>⋮</strong> (التلات نقط) فوق واختار <strong>«تثبيت التطبيق»</strong> أو <strong>«إضافة إلى الشاشة الرئيسية»</strong>.<br>على الكمبيوتر: دوس على أيقونة التثبيت اللي في شريط العنوان.<br>ولو التطبيق متثبت عندك أصلًا، افتحه من الأيقونة اللي على الشاشة.';
+  }
+
+  window.addEventListener('beforeinstallprompt', function(e){
+    try{ e.preventDefault(); }catch(x){}
+    deferred = e;
+    sync();
+  });
+  window.addEventListener('appinstalled', function(){
+    deferred = null; installed = true;
+    sync(); help(OK);
+  });
+
+  window._pwaSync = sync;
+  window._pwaInstall = function(){
+    try{
+      var ev = deferred;
+      if(ev){
+        ev.prompt();            // لازم يتنادي مباشرة من الضغطة
+        deferred = null;        // الحدث بيتستخدم مرة واحدة بس
+        ev.userChoice.then(function(c){
+          if(c && c.outcome === 'accepted'){ installed = true; sync(); help(OK); }
+          else { help('تمام، لو احتجت تثبّته بعدين دوس الزرار تاني.'); }
+        }).catch(function(){ help(manual()); });
+        return;
+      }
+    }catch(e){ deferred = null; }
+    help(manual());
+  };
+})();
+</script>
+<script>
 /* المظهر: بيتحدد قبل أول رسم عشان ما يحصلش وميض أبيض. الافتراضي فاتح لحد ما العميل يختار. */
 (function(){try{var p=localStorage.getItem('sm_theme_pref');var d=(p==='dark')||(p==='auto'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches);
 document.documentElement.setAttribute('data-theme',d?'dark':'light');
@@ -14324,6 +14399,12 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
       padding:14px 40px;font-weight:bold;cursor:pointer;
       width:100%;max-width:320px;-webkit-appearance:none;
     ">✓ تفعيل النسخة الدائمة</button>
+    <button id="pwaInstallBtn" onclick="_pwaInstall()" class="ls-btn" style="
+      display:none;background:rgba(255,255,255,.2);color:#fff;border:2px solid rgba(255,255,255,.6);border-radius:8px;
+      padding:12px 40px;font-weight:bold;cursor:pointer;
+      width:100%;max-width:320px;margin-top:10px;-webkit-appearance:none;
+    ">📲 تثبيت التطبيق</button>
+    <div id="pwaInstallHelp" class="ls-msg" style="display:none;width:100%;max-width:320px;box-sizing:border-box;margin-top:10px;padding:10px 12px;background:rgba(0,0,0,.25);border-radius:10px;line-height:1.9;text-align:right;"></div>
     <div id="activationMsg" class="ls-msg" style="margin-top:14px;min-height:20px;"></div>
     <div class="ls-footer" style="margin-top:16px;opacity:.7;">
       للتفعيل تواصل مع المبرمج على واتساب<br>
@@ -14331,6 +14412,7 @@ function _showLockScreen(dCode, trialExpired, fromTrial){
     </div>
   `;
   document.body.appendChild(lockScreen);
+  try{ if(window._pwaSync) window._pwaSync(); }catch(e){}   // إظهار زرار التثبيت لو مناسب
 }
 
 // إلغاء تحكم بكرة الماوس وأسهم لوحة المفاتيح (فوق/تحت) في كل خانات الأرقام في التطبيق -
