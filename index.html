@@ -879,7 +879,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-10-17-a</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-07-b</div>
   </div>
 </div>
 
@@ -3902,6 +3902,12 @@ function _scRenderPanel(){
       h=h.replace('<div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>',`<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(46,134,193,.12);font-size:13px;line-height:1.8"><b>آخر مساحة كنت مربوط بيها:</b><div style="direction:ltr;text-align:left;font-family:monospace;font-size:12px">${esc(_last.ws)}</div>${btn('↩️ إعادة الربط بنفس المساحة','rejoin','#2E86C1')}${btn('نسيان المساحة دي','forgetlast','#95A5A6')}</div><div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>`);
     }
   } else {
+    {   // اسم الجهاز: بيظهر على كل عملية من الجهاز ده. التعديل للمالك بس (الأدوار المقيّدة تشوفه بس)
+      let _dn='<div style="margin-top:12px;font-weight:bold">🏷️ اسم الجهاز ده</div><div style="font-size:12px;opacity:.75;line-height:1.7">بيظهر على كل عملية بتتعمل من الجهاز ده (فاتورة، تحصيل، مصروف، حذف، تعديل…). اختار اسم واضح ومختلف لكل جهاز. الاسم الجديد بيظهر على العمليات الجاية بس، والقديمة بتفضل بالاسم اللي اتعملت بيه.</div>';
+      if(!isRestrictedRole()) _dn+='<input id="scDevName" type="text" maxlength="30" value="'+esc(_devNameRaw())+'" placeholder="'+esc(_devName())+'" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;font-family:inherit">'+btn('حفظ الاسم','setname','#27AE60');
+      else _dn+='<div style="margin-top:6px;font-size:13px">الاسم الحالي: <b>'+esc(_devName())+'</b></div>';
+      h+=_dn;
+    }
     h+=btn('🔄 مزامنة الآن','sync','#2E86C1');
     if(st.state==='hold') h+=`<div style="margin-top:12px;padding:10px;border-radius:8px;background:rgba(243,156,18,.15);font-size:13px;line-height:1.8">استلمنا بيانات الجهاز الأول. راجع بياناتك على الجهاز ده. لما تتأكد إنها صح اضغط تأكيد، وساعتها بياناتك القديمة هتترفع وتتدمج مع الباقي.</div>${btn('✓ راجعت وأؤكد رفع بيانات جهازي','release','#27AE60')}`;
     if(st.state==='brake'){ const b=st.brake||{}; h+=`<div style="margin-top:12px;padding:10px;border-radius:8px;background:rgba(231,76,60,.13);font-size:13px;line-height:1.8">الدمج الجاي هيغيّر عدد كبير من السجلات: ${Object.keys(b).map(k=>esc(k)+' ('+b[k]+')').join('، ')}. اتعملت نسخة احتياطية قبل أي دمج. لو ده متوقع وافق، ولو مش متوقع سيبه وكلمني.</div>${btn('أوافق على الدمج','brake','#E67E22')}`; }
@@ -3939,6 +3945,12 @@ async function _scUi(act,arg){
       const r=await _scJoin(code.trim());
       __scUiMsg=r.ok?'✅ تم الانضمام. بنسحب بيانات الجهاز الأول دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
       if(r.ok) _scCycle('manual'); return;
+    }
+    if(act==='setname'){
+      if(isRestrictedRole()) return;
+      const _v=String((document.getElementById('scDevName')||{}).value||'').trim().slice(0,30);
+      if(!_v){ __scUiMsg='اكتب اسم للجهاز'; return _scRenderPanel(); }
+      DB.set('_syncDevName',_v); __scUiMsg='✅ اتحفظ اسم الجهاز: <b>'+esc(_v)+'</b>'; return _scRenderPanel();
     }
     if(act==='sync'){ __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
     if(act==='release'){ await _scReleaseHold(); __scUiMsg=''; await _scCycle('manual'); return _scRenderPanel(); }
@@ -5290,8 +5302,30 @@ function recordDeletion(key,id){
 // فوق (اللي غرضه مزامنة الأجهزة بس). الهدف هنا إن صاحب النشاط يقدر يرجع يشوف مين مسح/عدّل
 // إيه وإمتى، على البيانات الأساسية المحفوظة فقط (مش مسودات ولا سطور فورم لسه مش متحفوظة).
 // الأحدث بيتحط في المقدمة (unshift)، ومحدود بآخر 500 عملية بس عشان الحجم مايكبرش من غير داعي.
+// ===== اسم الجهاز على العمليات — للأجهزة المربوطة بس =====
+// كل الدوال دي مبترميش خطأ أبدًا. لو الجهاز مش مربوط بترجع فاضي، فالعميل العادي مفيش أي حاجة بتتغير عنده (مفيش حقل بيتحفظ ولا حاجة بتظهر).
+// الاسم بيتخزن في مفتاح منفصل (_syncDevName) ومبيلمسش إعدادات الربط نفسها.
+function _devNameRaw(){ try{ const n=DB.get('_syncDevName'); return (typeof n==='string')?n.trim().slice(0,30):''; }catch(e){ return ''; } }
+function _devName(){
+  try{
+    if(!_scLinked()) return '';
+    const n=_devNameRaw(); if(n) return n;
+    const ser=_scSeries();
+    return ser?('جهاز '+ser):'الجهاز الأول';   // لو لسه مفيش اسم مكتوب: بنستخدم حرف سلسلة الترقيم
+  }catch(e){ return ''; }
+}
+// بيتستخدم جوه object literal: ...(_devField(oldRec)). سجل جديد = اسم الجهاز الحالي. تعديل = بيحافظ على اسم المنشئ الأصلي
+// (ولو السجل القديم من غير اسم بيفضل من غير اسم — مبننسبش عملية قديمة لجهاز غلط).
+function _devField(old){
+  try{
+    if(old) return old.dev?{dev:old.dev}:{};
+    const n=_devName(); return n?{dev:n}:{};
+  }catch(e){ return {}; }
+}
+function devTag(r){ try{ return (r&&r.dev)?` · جهاز: ${esc(r.dev)}`:''; }catch(e){ return ''; } }
+
 function logActivity(action, entityLabel, itemName, detail){
-  auditLog.unshift({id:uid(), ts:Date.now(), action, entityLabel, itemName:itemName||'', detail:detail||''});
+  auditLog.unshift({id:uid(), ts:Date.now(), action, entityLabel, itemName:itemName||'', detail:detail||'', ..._devField()});
   if(auditLog.length>500) auditLog.length=500;
 }
 
@@ -7857,7 +7891,7 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة كاش أو فاتورة آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = payments.find(p=>p.invoiceId===invId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('payments',oldAutoPay.id); payments=payments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('payment', oldAutoPay.id); }
-  const inv={id:invId,number:invNumber,..._scSeriesField(removedInv),clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo),createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
+  const inv={id:invId,number:invNumber,..._scSeriesField(removedInv),..._devField(removedInv),clientId,date,lines:invLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(invOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(invOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo),createdBy:removedInv?removedInv.createdBy:(isRestrictedRole()?currentRole:undefined)};
   invoices.push(inv);
   if(removedInv){
     logActivity('edit','فاتورة مبيعات','#'+docNo(inv),(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج');
@@ -7879,12 +7913,12 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   });
   // فاتورة كاش: بتسجل سداد فوري تلقائي بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (نقدية/عملاء)
   if(isCash && total>0){
-    const cashPay={id:uid(),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+docNo(inv),isCashAuto:true,createdAt:new Date().toISOString()};
+    const cashPay={id:uid(),..._devField(removedInv),clientId,invoiceId:inv.id,amount:total,discount:undefined,date,note:'فاتورة كاش #'+docNo(inv),isCashAuto:true,createdAt:new Date().toISOString()};
     payments.push(cashPay);
     postJournal('payment', cashPay.id, date, 'تحصيل فوري - فاتورة كاش #'+docNo(inv), [{accountId:'cash',debit:total,credit:0},{accountId:'ar',debit:0,credit:total}]);
   } else if(!isCash && downPay>0){
     // فاتورة آجل بسداد دفعة أولى: بتسجل سداد فوري جزئي بمبلغ الدفعة بس، والباقي يفضل مديونية عادية على العميل
-    const downPayRec={id:uid(),clientId,invoiceId:inv.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة #'+docNo(inv),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    const downPayRec={id:uid(),..._devField(removedInv),clientId,invoiceId:inv.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة #'+docNo(inv),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
     payments.push(downPayRec);
     postJournal('payment', downPayRec.id, date, 'تحصيل دفعة أولى - فاتورة #'+docNo(inv), [{accountId:'cash',debit:downPay,credit:0},{accountId:'ar',debit:0,credit:downPay}]);
   }
@@ -8387,7 +8421,7 @@ function savePayment(){
   if(_oldPay && (_oldPay.isCashAuto||_oldPay.isDownPaymentAuto)){showToast('التحصيل ده اتسجل تلقائيًا مع فاتورة — عدّله من الفاتورة نفسها');return;}
   if(_oldPay && isRestrictedRole() && !roleCanModify(_oldPay)) return;
   const _vp=viaRead('pay',_oldPay); if(_vp===null) return;
-  const pay=_oldPay?{..._oldPay,clientId,invoiceId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),clientId,invoiceId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
+  const pay=_oldPay?{..._oldPay,clientId,invoiceId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),..._devField(),clientId,invoiceId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldPay){
     payments=payments.filter(p=>p.id!==_oldPay.id);
     removeJournalBySource('payment', _oldPay.id);
@@ -8846,7 +8880,7 @@ function saveReturn(){
     const _usedInvIds=[];
     _retSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedInvIds.includes(a.invoiceId)) _usedInvIds.push(a.invoiceId); }));
     const _retInvIds=_usedInvIds.length?_usedInvIds:(useInvoiceLink?[...retInvoiceIds]:[]);
-    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),..._scSeriesField(_oldRet),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
+    const ret={id:_oldRet?_oldRet.id:uid(),number:_oldRet?_oldRet.number:nextDocNumber(returns,'return'),..._scSeriesField(_oldRet),..._devField(_oldRet),clientId,invoiceId:_retInvIds[0],invoiceIds:_retInvIds.length?_retInvIds:undefined,date,lines:_retSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldRet?_oldRet.createdAt:new Date().toISOString()};
     if(_oldRet){ if(_oldRet.createdBy) ret.createdBy=_oldRet.createdBy; logActivity('edit','مردود مبيعات','#'+docNo(ret),(clients.find(c=>c.id===clientId)?.name||'')+' • '+fmt(total)+' ج'); }
     else if(isRestrictedRole()) ret.createdBy=currentRole;
     returns.push(ret);
@@ -10475,7 +10509,7 @@ function addExpense(){
     expBankAccountId=bankAccounts.length===1?bankAccounts[0].id:(document.getElementById('exp_bank_account')?.value||'');
     if(!expBankAccountId||!bankAccounts.find(a=>a.id===expBankAccountId)){showToast('اختار الحساب البنكي اللي اتدفع منه');return;}
   }
-  const exp={id:uid(),label,amount,date,costType,costNature};
+  const exp={id:uid(),label,amount,date,costType,costNature,..._devField()};
   if(paidFromBank){ exp.paidFrom='bank'; exp.bankAccountId=expBankAccountId; if(_paidFromVal==='instapay') exp.method='instapay'; }
   else if(paidFromWallet){ exp.paidFrom='wallet'; }
   if(isRestrictedRole()) exp.createdBy=currentRole;
@@ -13158,7 +13192,7 @@ function savePurchase(){
   // لو كان في سداد فوري تلقائي مرتبط بالفاتورة دي من قبل (حالة تعديل فاتورة مشتريات كاش أو آجل بدفعة أولى)، بنشيله الأول وهنعيد إنشاؤه لو لسه مطلوب
   const oldAutoPay = supplierPayments.find(p=>p.purchaseId===purId && (p.isCashAuto||p.isDownPaymentAuto));
   if(oldAutoPay){ recordDeletion('supplierPayments',oldAutoPay.id); supplierPayments=supplierPayments.filter(p=>p.id!==oldAutoPay.id); removeJournalBySource('supplierPayment', oldAutoPay.id); }
-  const pur={id:purId,number:purNum,..._scSeriesField(removedPur),supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo)};
+  const pur={id:purId,number:purNum,..._scSeriesField(removedPur),..._devField(removedPur),supplierId,date,lines:purchaseLines.map(l=>_cleanLineDisc({...l,qty:Number(l.qty),price:Number(l.price),discount:Number(l.discount||0),bonus:Number(l.bonus||0)})),subtotal,overallDiscount,...(purOvMode==='amt'?{overallDiscountMode:'amt',overallDiscountAmt:Number(purOvAmt)||0}:{}),total,isCash,createdAt,...bkField(bookNo)};
   purchases.push(pur);
   if(removedPur){
     logActivity('edit','فاتورة مشتريات','#'+docNo(pur),(suppliers.find(s=>s.id===supplierId)?.name||'')+' • '+fmt(total)+' ج');
@@ -13174,12 +13208,12 @@ function savePurchase(){
   });
   // فاتورة مشتريات كاش: بتسجل سداد فوري تلقائي للمورد بكامل قيمة الفاتورة، بنفس منطق تسجيل السداد اليدوي بالظبط (خزنة/موردون)
   if(isCash && total>0){
-    const cashPay={id:uid(),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+docNo(pur),isCashAuto:true,createdAt:new Date().toISOString()};
+    const cashPay={id:uid(),..._devField(removedPur),supplierId,purchaseId:pur.id,amount:total,discount:undefined,date,note:'فاتورة مشتريات كاش #'+docNo(pur),isCashAuto:true,createdAt:new Date().toISOString()};
     supplierPayments.push(cashPay);
     postJournal('supplierPayment', cashPay.id, date, 'سداد فوري - فاتورة مشتريات كاش #'+docNo(pur), [{accountId:'ap',debit:total,credit:0},{accountId:'cash',debit:0,credit:total}]);
   } else if(!isCash && downPay>0){
     // فاتورة مشتريات آجلة بسداد دفعة أولى: بتسجل سداد فوري جزئي للمورد بمبلغ الدفعة بس، والباقي يفضل مستحق عادي عليه
-    const downPayRec={id:uid(),supplierId,purchaseId:pur.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة مشتريات #'+docNo(pur),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
+    const downPayRec={id:uid(),..._devField(removedPur),supplierId,purchaseId:pur.id,amount:downPay,discount:undefined,date,note:'دفعة أولى - فاتورة مشتريات #'+docNo(pur),isDownPaymentAuto:true,createdAt:new Date().toISOString()};
     supplierPayments.push(downPayRec);
     postJournal('supplierPayment', downPayRec.id, date, 'سداد دفعة أولى - فاتورة مشتريات #'+docNo(pur), [{accountId:'ap',debit:downPay,credit:0},{accountId:'cash',debit:0,credit:downPay}]);
   }
@@ -13521,7 +13555,7 @@ function saveSupplierPaymentTab(){
   if(_oldSp && _oldSp.isCheckAuto){showToast('السداد ده اتسجل تلقائيًا من شيك — عدّل حالة الشيك من تبويب البنوك');return;}
   if(_oldSp && (_oldSp.isCashAuto||_oldSp.isDownPaymentAuto)){showToast('السداد ده اتسجل تلقائيًا مع فاتورة مشتريات — عدّله من الفاتورة نفسها');return;}
   const _vp=viaRead('sp2',_oldSp); if(_vp===null) return;
-  const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),supplierId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
+  const sp=_oldSp?{..._oldSp,supplierId,amount,discount:discount||undefined,date,note,bookNo:bookNo||undefined}:{id:uid(),..._devField(),supplierId,amount,discount:discount||undefined,date,note,...bkField(bookNo),createdAt:new Date().toISOString()};
   if(_oldSp){
     supplierPayments=supplierPayments.filter(p=>p.id!==_oldSp.id);
     removeJournalBySource('supplierPayment', _oldSp.id);
@@ -13962,7 +13996,7 @@ function savePurRet(){
   const _usedPurIds=[];
   _pretSavedLines.forEach(l=>(l.alloc||[]).forEach(a=>{ if(!_usedPurIds.includes(a.purchaseId)) _usedPurIds.push(a.purchaseId); }));
   const _pretPurIds=_usedPurIds.length?_usedPurIds:_selPurIds;
-  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,..._scSeriesField(_oldPR),supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
+  const ret={id:_oldPR?_oldPR.id:uid(),number:retNum,..._scSeriesField(_oldPR),..._devField(_oldPR),supplierId,purchaseId:_pretPurIds[0],purchaseIds:_pretPurIds.length?_pretPurIds:undefined,date,lines:_pretSavedLines,total,cashRefund,...bkField(bookNo),createdAt:_oldPR?_oldPR.createdAt:new Date().toISOString()};
   // تعديل مردود موجود: بنشيل نسخته القديمة (الحركات + كل قيودها) وبنسجل الجديدة بنفس الـid والرقم وتاريخ الإنشاء
   if(_oldPR){
     purchaseReturns=purchaseReturns.filter(r=>r.id!==_oldPR.id);
@@ -14939,6 +14973,51 @@ function _maybeShowBusinessTypeFirstTime(){
 // عن قصد مفيش أي زرار حذف أو تعديل جوه الشاشة دي نفسها — سجل تقدر تعدّل فيه مش سجل يتوثق بيه.
 // ============================================================
 let auditLogFilter='all'; // all | delete | edit
+// ===== "مين عمل إيه؟" — للمالك بس =====
+// بيتعرض جوه شاشة "سجل الحذف والتعديل" (الأدوار المقيّدة مبتفتحهاش أصلًا)، ومقفول افتراضيًا، وبيظهر بس على الجهاز المربوط.
+// قراءة بس: مبيعدّلش في أي بيانات. أي خطأ فيه بيرجّع فاضي ومبيأثرش على باقي الشاشة.
+let devViewOpen=false, devViewDev='all', devViewType='all';
+const DEV_VIEW_TYPES=[['sale','فاتورة مبيعات','🧾'],['pay','تحصيل','💰'],['ret','مردود مبيعات','↩️'],['pur','فاتورة مشتريات','🛒'],['spay','سداد مورد','💸'],['pret','مردود مشتريات','↪️'],['exp','مصروف','📉']];
+function _devViewRows(){
+  const out=[];
+  const nm=(arr,id)=>((arr||[]).find(x=>x.id===id)||{}).name||'';
+  const add=(kind,arr,fn,skip)=>{ (arr||[]).forEach(r=>{ if(r&&r.dev&&!(skip&&skip(r))){ try{ out.push(Object.assign({kind,dev:r.dev,ts:String(r.createdAt||r.date||'')},fn(r))); }catch(e){} } }); };
+  const auto=r=>!!(r.isCashAuto||r.isDownPaymentAuto||r.isCheckAuto);   // السداد التلقائي تابع لفاتورته، مبنكررهوش
+  add('sale',invoices,r=>({title:'#'+docNo(r),who:nm(clients,r.clientId),amount:r.total,date:r.date}));
+  add('pay',payments,r=>({title:'',who:nm(clients,r.clientId),amount:r.amount,date:r.date}),auto);
+  add('ret',returns,r=>({title:'#'+docNo(r),who:nm(clients,r.clientId),amount:r.total,date:r.date}));
+  add('pur',purchases,r=>({title:'#'+docNo(r),who:nm(suppliers,r.supplierId),amount:r.total,date:r.date}));
+  add('spay',supplierPayments,r=>({title:'',who:nm(suppliers,r.supplierId),amount:r.amount,date:r.date}),auto);
+  add('pret',purchaseReturns,r=>({title:'#'+docNo(r),who:nm(suppliers,r.supplierId),amount:r.total,date:r.date}));
+  add('exp',expenses,r=>({title:r.label||'',who:'',amount:r.amount,date:r.date}));
+  out.sort((a,b)=>a.ts<b.ts?1:(a.ts>b.ts?-1:0));
+  return out;
+}
+function _devViewHtml(){
+  try{
+    if(!_scLinked() || isRestrictedRole()) return '';
+    const on='background:var(--bg-1a5276,#1A5276);color:#fff', off='background:var(--bg-d5d8dc,#D5D8DC);color:var(--tx-333,#333)';
+    if(!devViewOpen) return `<div style="margin-bottom:14px"><button class="btn-sm" style="${on}" onclick="devViewOpen=true;renderAuditLog()">📱 مين عمل إيه؟ (العمليات حسب الجهاز)</button></div>`;
+    const rows=_devViewRows();
+    const counts={}; rows.forEach(r=>{ counts[r.dev]=(counts[r.dev]||0)+1; });
+    const devs=Object.keys(counts);
+    if(devViewDev!=='all' && !counts[devViewDev]) devViewDev='all';
+    const chip=(sel,label,js)=>`<button class="btn-sm" style="${sel?on:off}" onclick="${js}">${label}</button>`;
+    const devChips=chip(devViewDev==='all','كل الأجهزة',"devViewDev='all';renderAuditLog()")+devs.map(d=>chip(devViewDev===d,esc(d)+' ('+counts[d]+')',"devViewDev=decodeURIComponent('"+encodeURIComponent(d).replace(/'/g,'%27')+"');renderAuditLog()")).join('');
+    const typeChips=chip(devViewType==='all','كل الأنواع',"devViewType='all';renderAuditLog()")+DEV_VIEW_TYPES.map(t=>chip(devViewType===t[0],t[1],"devViewType='"+t[0]+"';renderAuditLog()")).join('');
+    const shown=rows.filter(r=>(devViewDev==='all'||r.dev===devViewDev)&&(devViewType==='all'||r.kind===devViewType));
+    const meta={}; DEV_VIEW_TYPES.forEach(t=>{ meta[t[0]]=t; });
+    const list=shown.slice(0,80).map(r=>{ const t=meta[r.kind]||['','',''];
+      return `<div class="list-item"><div class="list-item-head"><div><div class="list-item-name">${t[2]} ${t[1]}${r.title?' '+esc(r.title):''}${r.who?' — '+esc(r.who):''}</div><div class="list-item-sub">📅 ${esc(r.date||'')} · جهاز: ${esc(r.dev)}</div></div><b>${fmt(r.amount||0)} ج</b></div></div>`; }).join('');
+    return `<div class="card" style="margin-bottom:16px"><div class="card-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>📱 مين عمل إيه؟</strong><button class="btn-sm" style="${off}" onclick="devViewOpen=false;renderAuditLog()">إغلاق ✕</button></div>
+      <div style="font-size:12px;color:var(--tx-717d7e,#717D7E);margin-bottom:10px;line-height:1.7">العمليات اللي اتسجل عليها اسم جهاز (من وقت تفعيل الميزة، والأقدم مش بيظهر). بيعرض آخر 80 عملية. للعرض بس ومبيظهرش للعميل ولا في أي PDF.</div>
+      <div class="btn-row" style="margin-bottom:8px;flex-wrap:wrap">${devChips}</div>
+      <div class="btn-row" style="margin-bottom:12px;flex-wrap:wrap">${typeChips}</div>
+      ${shown.length?list:'<div class="empty">مفيش عمليات مسجلة بالفلتر ده</div>'}
+    </div></div>`;
+  }catch(e){ return ''; }
+}
 
 function renderAuditLog(){
   if(isRestrictedRole()){ document.getElementById('tab-auditlog').innerHTML='<div class="empty">غير متاح</div>'; return; }
@@ -14958,7 +15037,7 @@ function renderAuditLog(){
       <div class="list-item-head">
         <div>
           <div class="list-item-name">${isDelete?'🗑️':'✏️'} ${esc(a.entityLabel)}${a.itemName?' — '+esc(a.itemName):''}</div>
-          <div class="list-item-sub">📅 ${dateStr} ⏰ ${timeStr}${a.detail?' · '+esc(a.detail):''}</div>
+          <div class="list-item-sub">📅 ${dateStr} ⏰ ${timeStr}${a.detail?' · '+esc(a.detail):''}${devTag(a)}</div>
         </div>
         <span class="badge ${isDelete?'red':'orange'}">${isDelete?'حذف':'تعديل'}</span>
       </div>
@@ -14971,6 +15050,7 @@ function renderAuditLog(){
       <div style="font-size:12.5px;color:var(--tx-717d7e,#717D7E);margin-bottom:14px;line-height:1.7">
         بيتسجل هنا تلقائيًا أي عملية حذف أو تعديل على بيانات محفوظة (عملاء، موردين، فواتير، مخزون، مصاريف...) بتاريخها ووقتها. السجل للعرض بس — مفيش أي زرار يعدّله أو يمسح منه.
       </div>
+      ${_devViewHtml()}
       <div class="btn-row" style="margin-bottom:14px">
         ${filterBtn('all','الكل')}
         ${filterBtn('delete','حذف بس')}
