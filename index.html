@@ -4040,6 +4040,34 @@ const fmtQty=(n)=>{
 // مفتاح ترتيب زمني دقيق: التاريخ اليدوي أولاً، ثم وقت الإنشاء الفعلي كفاصل عند تساوي التاريخ
 // (بيحل مشكلة فاتورتين في نفس اليوم بفارق دقايق — الترتيب بينهم بيبقى مظبوط دايمًا)
 const tsKey=(r)=>(r.date||'')+'T'+(r.createdAt||'');
+
+// ===== عرض وقت المستند (ساعة:دقيقة) جنب التاريخ — للعرض والطباعة فقط =====
+// - مفيش أي حقل جديد في البيانات: الوقت بيتحسب من createdAt (وقت الحفظ الفعلي المسجّل أصلاً مع كل مستند)، فالفواتير القديمة كمان بيظهر لها وقتها.
+// - لو المستند اتسجّل بتاريخ يدوي مختلف عن يوم الحفظ (فاتورة قديمة اتدخلت متأخر)، الوقت بيتخفي بدل ما يظهر وقت غلط.
+// - بيراعي "ميعاد بداية يوم العمل" (الحفظ بعد نص الليل بيتحسب على يوم العمل السابق).
+// - أي مشكلة أو بيانات ناقصة = بيرجّع نص فاضي والتاريخ يظهر زي ما كان بالظبط. الـ Excel والفلاتر والترتيب والمزامنة مبتتأثرش.
+function docTime(rec){
+  try{
+    if(!rec||!rec.createdAt) return '';
+    const s=String(rec.createdAt);
+    if(s.length<16||s.indexOf('T')<0) return '';
+    const d=new Date(s); if(isNaN(d.getTime())) return '';
+    if(rec.date){
+      const sh=Number(companyProfile&&companyProfile.businessDayStartHour)||0;
+      const b=new Date(d.getTime()); if(sh&&b.getHours()<sh) b.setDate(b.getDate()-1);
+      if(toLocalDateStr(d)!==rec.date && toLocalDateStr(b)!==rec.date) return '';
+    }
+    let h=d.getHours(); const m=String(d.getMinutes()).padStart(2,'0');
+    const ap=h>=12?'م':'ص'; h=h%12; if(h===0) h=12;
+    return String(h).padStart(2,'0')+':'+m+' '+ap;
+  }catch(e){ return ''; }
+}
+// الوقت في سطر صغير تحت التاريخ (للجداول والقوائم)
+function dtSub(rec){ const t=docTime(rec); return t?`<br><span style="font-size:10px;opacity:.7;font-weight:normal;white-space:nowrap">${t}</span>`:''; }
+function dtCell(rec){ return rec.date+dtSub(rec); }
+// التاريخ ومعاه الوقت في نفس السطر (للتفاصيل والطباعة)
+function dtInline(rec){ const t=docTime(rec); return rec.date+(t?' — '+t:''); }
+
 function lineDetailText(l){
   const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId||'—');
   const afterDiscount=l.price*(1-(l.discount||0)/100);
@@ -7177,7 +7205,7 @@ function clientStatementRowHtml(ev, cid, clickable){
   const eyeMark=clickable&&(ev.type==='invoice'||ev.type==='return')?' 👁':'';
   const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
   return `<tr${rowAttr}>
-    <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
+    <td style="white-space:nowrap">${ev.date}${eyeMark}${dtSub(ev)}</td>
     <td>${label}${ev.bk?bkTag({bookNo:ev.bk}):''}${detail}</td>
     <td style="color:var(--tx-c0392b,#C0392B);font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
     <td style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
@@ -7379,7 +7407,7 @@ function renderReturnDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
         ${linkedInvs.length?`<div style="margin-bottom:10px"><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>`<a href="javascript:void(0)" onclick="switchTab('invoices');invDetailId='${li.id}';renderInvoices()" style="color:var(--tx-2e86c1,#2E86C1);text-decoration:underline;margin-left:10px">🧾 فاتورة #${docNo(li)}${bkTag(li)}</a>`).join(' ')}</div>`:''}
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${dtInline(ret)} ${ret.cashRefund?'<span class="badge red">💵 مردود نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-1e8449,#1E8449)">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
@@ -7404,7 +7432,7 @@ async function printReturn(retId){
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       ${linkedInvs.length?`<div><strong>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</strong> ${linkedInvs.map(li=>'#'+docNo(li)+bkTag(li)).join('، ')}</div>`:''}
-      <div><strong>التاريخ:</strong> ${ret.date}</div>
+      <div><strong>التاريخ:</strong> ${dtInline(ret)}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💵 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
@@ -7417,7 +7445,7 @@ async function printReturnsSummaryPdf(from,to){
   const total=filtered.reduce((s,r)=>s+r.total,0);
   const rows=filtered.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
-    return `<tr><td>${docNo(r)}${bkTag(r)}</td><td>${esc(c?.name||'—')}</td><td>${r.date}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
+    return `<tr><td>${docNo(r)}${bkTag(r)}</td><td>${esc(c?.name||'—')}</td><td>${dtCell(r)}</td><td style="font-weight:bold;color:#C0392B">${fmt(r.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -7460,7 +7488,7 @@ function renderInvoices(){
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
     return `<tr>
-      <td>${docNo(inv)}${bkSub(inv)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${inv.date}</td>
+      <td>${docNo(inv)}${bkSub(inv)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${inv.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${dtCell(inv)}</td>
       <td style="font-weight:bold;color:var(--tx-1a5276,#1A5276);white-space:nowrap;font-size:12px">${fmt(inv.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="invDetailId='${inv.id}';renderInvoices()">👁</button>
@@ -8132,7 +8160,7 @@ async function printInvoice(invId){
   const body=`
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-      <div><strong>التاريخ:</strong> ${inv.date}</div>
+      <div><strong>التاريخ:</strong> ${dtInline(inv)}</div>
       ${inv.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
@@ -8148,7 +8176,7 @@ async function printInvoicesSummaryPdf(from,to){
   const total=filtered.reduce((s,i)=>s+i.total,0);
   const rows=filtered.map(inv=>{
     const c=clients.find(c=>c.id===inv.clientId);
-    return `<tr><td>${docNo(inv)}${bkTag(inv)}</td><td>${esc(c?.name||'—')}</td><td>${inv.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
+    return `<tr><td>${docNo(inv)}${bkTag(inv)}</td><td>${esc(c?.name||'—')}</td><td>${dtCell(inv)}</td><td style="font-weight:bold;color:#1A5276">${fmt(inv.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -8191,7 +8219,7 @@ function renderInvDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${inv.date} ${inv.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${dtInline(inv)} ${inv.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${inv.overallDiscount>0?`<div style="margin-top:8px;color:var(--tx-d68910,#D68910)">✂️ خصم ${ovDiscTxt(inv)} على إجمالي الفاتورة (- ${fmt(inv.subtotal-inv.total)} ج) — الإجمالي قبل الخصم: ${fmt(inv.subtotal)} ج</div>`:''}
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-1a5276,#1A5276)">الإجمالي: ${fmt(inv.total)} جنيه</div>
@@ -8213,7 +8241,7 @@ async function printCollectionsSummaryPdf(from,to){
   const sorted=[...payments].filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)).sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
-    return `<tr><td>${p.date}</td><td>${esc(c?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${dtCell(p)}</td><td>${esc(c?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=sorted.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -8247,7 +8275,7 @@ function renderPayments(){
   const rows=sorted.map(p=>{
     const c=clients.find(c=>c.id===p.clientId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(c?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(c?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${dtCell(p)}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="payDetailId='${p.id}';renderPayments()">👁</button>
         ${roleCanModify(p)?`${(p.isCashAuto||p.isDownPaymentAuto||p.isCheckAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deletePayment('${p.id}')" style="margin-right:4px">🗑</button>`:''}
@@ -8325,7 +8353,7 @@ async function printPaymentReceipt(pid){
     <div class="doc-info">
       <div><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
       ${c?.phone?`<div><strong>الهاتف:</strong> ${esc(c.phone)}</div>`:''}
-      <div><strong>تاريخ السداد:</strong> ${p.date}</div>
+      <div><strong>تاريخ السداد:</strong> ${dtInline(p)}</div>
       ${bkRow(p)}
       ${viaDocRow(p)}
       <div><strong>مرتبط بفاتورة:</strong> ${inv?`فاتورة #${docNo(inv)}${bkTag(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</div>
@@ -8354,7 +8382,7 @@ function renderPaymentDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>العميل:</strong> ${esc(c?.name||'—')}</div>
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${dtInline(p)}</div>
         ${bkRow(p,'margin-bottom:10px')}
         ${viaDetailRow(p)}
         <div style="margin-bottom:10px"><strong>${viaIsInstapay(p)?'المبلغ المحصّل عبر إنستا باي':'المبلغ المحصّل نقدًا'}:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
@@ -8592,7 +8620,7 @@ function renderReturns(){
   const rows=sorted.map(r=>{
     const c=clients.find(c=>c.id===r.clientId);
     return `<tr>
-      <td>${docNo(r)}${bkSub(r)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${r.date}</td>
+      <td>${docNo(r)}${bkSub(r)}</td><td style="white-space:nowrap">${esc(c?.name||'—')}${r.cashRefund?' <span class="badge red" style="font-size:9px">💵</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${dtCell(r)}</td>
       <td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap;font-size:12px">${fmt(r.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="retDetailId='${r.id}';renderReturns()">👁</button>
@@ -12805,7 +12833,7 @@ function supplierStatementRowHtml(ev, sid, clickable){
   const eyeMark=clickable&&(ev.type==='purchase'||ev.type==='return')?' 👁':'';
   const label=ev.type==='opening'?`<span class="badge orange">${esc(ev.label)}</span>`:esc(ev.label);
   return `<tr${rowAttr}>
-    <td style="white-space:nowrap">${ev.date}${eyeMark}</td>
+    <td style="white-space:nowrap">${ev.date}${eyeMark}${dtSub(ev)}</td>
     <td>${label}${ev.bk?bkTag({bookNo:ev.bk}):''}${detail}</td>
     <td style="color:var(--tx-c0392b,#C0392B);font-weight:bold">${ev.debit?fmt(ev.debit):'—'}</td>
     <td style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${ev.credit?fmt(ev.credit):'—'}</td>
@@ -12893,7 +12921,7 @@ function renderPurchases(){
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td>${docNo(p)}${bkSub(p)}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${p.date}</td>
+      <td>${docNo(p)}${bkSub(p)}</td><td style="white-space:nowrap">${esc(s?.name||'—')}${p.isCash?' <span class="badge green">💵 كاش</span>':''}</td><td style="white-space:nowrap;font-size:11.5px">${dtCell(p)}</td>
       <td style="font-weight:bold;color:var(--tx-1a5276,#1A5276);white-space:nowrap;font-size:12px">${fmt(p.total)} ج</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="purDetailId='${p.id}';renderPurchases()">👁</button>
@@ -13393,7 +13421,7 @@ function renderPurDetail(){
     </div>
     <div class="card">
       <div style="margin-bottom:8px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${pur.date} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
+      <div style="margin-bottom:8px"><strong>التاريخ:</strong> ${dtInline(pur)} ${pur.isCash?'<span class="badge green">💵 فاتورة كاش — متسددة فورًا</span>':''}</div>
       <div style="margin-bottom:10px"><strong>الإجمالي:</strong> <span style="color:var(--tx-1a5276,#1A5276);font-weight:bold">${fmt(pur.total)} ج</span></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
@@ -13424,7 +13452,7 @@ async function printPurchase(purId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>التاريخ:</strong> ${pur.date}</div>
+      <div><strong>التاريخ:</strong> ${dtInline(pur)}</div>
       ${pur.isCash?`<div><strong>نوع الفاتورة:</strong> 💵 كاش — مسددة بالكامل</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
@@ -13440,7 +13468,7 @@ async function printPurchasesSummaryPdf(from,to){
   const total=filtered.reduce((s,p)=>s+p.total,0);
   const rows=filtered.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${docNo(p)}${bkTag(p)}</td><td>${esc(s?.name||'—')}</td><td>${p.date}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
+    return `<tr><td>${docNo(p)}${bkTag(p)}</td><td>${esc(s?.name||'—')}</td><td>${dtCell(p)}</td><td style="font-weight:bold;color:#1A5276">${fmt(p.total)}</td></tr>`;
   }).join('');
   const body=`
     <div class="doc-info">
@@ -13466,7 +13494,7 @@ async function printSupplierPaymentsSummaryPdf(){
   const sorted=[...supplierPayments].sort((a,b)=>tsKey(a).localeCompare(tsKey(b)));
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
-    return `<tr><td>${p.date}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
+    return `<tr><td>${dtCell(p)}</td><td>${esc(s?.name||'—')}${bkTag(p)}</td><td style="font-weight:bold;color:#1E8449">${fmt(p.amount)}</td><td>${esc(p.note||'—')}</td></tr>`;
   }).join('');
   const total=supplierPayments.reduce((s,p)=>s+p.amount,0);
   const body=`
@@ -13499,7 +13527,7 @@ function renderSupPayTab(){
   const rows=sorted.map(p=>{
     const s=suppliers.find(s=>s.id===p.supplierId);
     return `<tr>
-      <td style="white-space:nowrap">${esc(s?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${p.date}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
+      <td style="white-space:nowrap">${esc(s?.name||'—')}${p.via==='wallet'?' <span title="فودافون كاش">📱</span>':''}${viaBadgeHtml(p)}${bkSub(p)}</td><td style="white-space:nowrap">${dtCell(p)}</td><td style="font-weight:bold;color:var(--tx-1e8449,#1E8449);white-space:nowrap">${fmt(p.amount-(p.discount||0))} ج${p.discount?`<div style="font-size:10px;color:var(--tx-d68910,#D68910);font-weight:normal">+ خصم ${fmt(p.discount)}</div>`:''}</td><td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.note||'—')}</td>
       <td style="white-space:nowrap">
         <button class="btn-sm blue" onclick="supPayTabDetailId='${p.id}';renderSupPayTab()">👁</button>
         ${(p.isCashAuto||p.isDownPaymentAuto||p.isCheckAuto)?'':`<button class="btn-sm" style="background:#D68910;color:#fff;margin-right:4px" onclick="editSupplierPayment('${p.id}')">✏️</button>`}<button class="btn-sm red" onclick="deleteSupplierPaymentTab('${p.id}')" style="margin-right:4px">🗑</button>
@@ -13582,7 +13610,7 @@ async function printSupplierPaymentReceipt(pid){
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
       ${s?.phone?`<div><strong>الهاتف:</strong> ${esc(s.phone)}</div>`:''}
-      <div><strong>تاريخ السداد:</strong> ${p.date}</div>
+      <div><strong>تاريخ السداد:</strong> ${dtInline(p)}</div>
       ${bkRow(p)}
       ${viaDocRow(p)}
       ${p.note?`<div><strong>ملاحظة:</strong> ${esc(p.note)}</div>`:''}
@@ -13608,7 +13636,7 @@ function renderSupPayTabDetail(){
     <div class="card">
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${p.date}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${dtInline(p)}</div>
         ${bkRow(p,'margin-bottom:10px')}
         ${viaDetailRow(p)}
         <div style="margin-bottom:10px"><strong>${viaIsInstapay(p)?'المبلغ المدفوع عبر إنستا باي':'المبلغ المدفوع نقدًا'}:</strong> <span style="color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmt(p.amount-(p.discount||0))} ج</span></div>
@@ -13797,7 +13825,7 @@ function renderPurReturns(){
   const rows=sorted.map(r=>{
     const s=suppliers.find(s=>s.id===r.supplierId);
     return `<tr>
-      <td>${docNo(r)}${bkSub(r)}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${r.date}</td>
+      <td>${docNo(r)}${bkSub(r)}</td><td>${esc(s?.name||'—')}${r.cashRefund?' <span class="badge green" style="font-size:9px">💰</span>':''}</td><td style="white-space:nowrap">${dtCell(r)}</td>
       <td style="font-weight:bold;color:var(--tx-d68910,#D68910);white-space:nowrap">${fmt(r.total)} ج</td>
       <td>
         <button class="btn-sm blue" onclick="purRetDetailId='${r.id}';renderPurReturns()">👁</button>
@@ -14081,7 +14109,7 @@ function renderPurRetDetail(){
       <div class="card-body">
         <div style="margin-bottom:10px"><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
         ${(()=>{const _ids=(ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[]);const _ps=_ids.map(id=>purchases.find(x=>x.id===id)).filter(Boolean);return _ps.length?`<div style="margin-bottom:10px"><strong>${_ps.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</strong> ${_ps.map(x=>'#'+docNo(x)+bkTag(x)).join('، ')}</div>`:'';})()}
-        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${ret.date} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
+        <div style="margin-bottom:10px"><strong>التاريخ:</strong> ${dtInline(ret)} ${ret.cashRefund?'<span class="badge green">💰 استرداد نقدي — مسترد فورًا</span>':''}</div>
         <div class="tbl-wrap"><table><thead><tr><th>المنتج</th>${showExpiry?'<th>الصلاحية</th>':''}<th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table></div>
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-d68910,#D68910)">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
@@ -14103,7 +14131,7 @@ async function printPurchaseReturn(retId){
   const body=`
     <div class="doc-info">
       <div><strong>المورد:</strong> ${esc(s?.name||'—')}</div>
-      <div><strong>التاريخ:</strong> ${ret.date}</div>
+      <div><strong>التاريخ:</strong> ${dtInline(ret)}</div>
       ${ret.cashRefund?`<div><strong>نوع المردود:</strong> 💰 نقدي — مسترد فورًا</div>`:''}
     </div>
     <table><thead><tr><th>المنتج</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
