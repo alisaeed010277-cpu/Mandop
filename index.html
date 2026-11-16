@@ -2885,7 +2885,7 @@ function buildProductLedger(productId, ledgerCache, visiting){
     (op.inputs||[]).forEach(inp=>{
       if(inp.productId!==productId) return;
       const usedQty=Number(inp.qty)||0;
-      if(usedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'out', qty:usedQty});
+      if(usedQty>0) events.push({sortKey:(op.date||'')+'|'+(op.createdAt||''), kind:'out', qty:usedQty, fromProduction:true});
     });
   });
   invoices.forEach(inv=>{
@@ -2913,24 +2913,44 @@ function buildProductLedger(productId, ledgerCache, visiting){
     });
   });
 
+  // حركات المخزن اليدوية (زرار "+ حركة جديدة": جرد/تالف/إضافة أو صرف يدوي): قبل كده كانت بتغيّر الكمية الفعلية بس
+  // من غير ما تدخل متوسط التكلفة ولا الدفاتر، فكانت قيمة المخزون في الرئيسية والتقرير بتختلف عن الميزانية العمومية.
+  // دلوقتي بتدخل التايم لاين بمتوسط التكلفة الساري وقتها، وبتترحّل في الدفاتر (stockAdjust) من reconcileCogsJournals.
+  movements.forEach(m=>{
+    if(m.productId!==productId || !_isManualStockMovement(m)) return;
+    const q=Number(m.qty)||0;
+    if(!(q>0)) return;
+    events.push({sortKey:(m.date||'')+'|9999-12-31T23:59:59.999Z|'+(m.id||''), kind:(m.type==='in'?'adjIn':'out'), qty:q, adjDate:m.date, sourceType:'adjustment', sourceId:m.id});
+  });
+
   events.sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
 
   let qty=0, value=0;
+  // book = القيمة الدفترية الفعلية للصنف: بالظبط مجموع اللي اتسجّل في قيود "المخزون" (مدين/دائن) من حركات الصنف ده.
+  // بتختلف عن value في حالة واحدة نادرة: صرف/بيع بتاريخ قبل ما يبقى للصنف رصيد في الدفاتر — القيد بيخصم تكلفة (بسعر التكلفة المسجل
+  // للصنف) من المخزون، لكن value (اللي منه بيتحسب متوسط التكلفة) مابينزلش تحت الصفر. بنسيب value زي ما هو عشان تكلفة أي بيع
+  // ماتتغيّرش بأثر رجعي، ونتتبع book جنبه عشان قيمة المخزون في الرئيسية والتقرير تطابق الميزانية بالظبط.
+  let book=0;
   const ledger=[];
   events.forEach(ev=>{
     const avgBefore=qty>0?value/qty:(p.costPrice||0);
     if(ev.kind==='in'){
-      qty+=ev.qty; value+=ev.value;
+      qty+=ev.qty; value+=ev.value; book+=ev.value;
     } else if(ev.kind==='productionIn'){
       // تكلفة التصنيع بتتحسب بمتوسط تكلفة كل خامة "وقت التصنيع" مش "دلوقتي"
       const rawCost=(ev.op.inputs||[]).reduce((s,inp)=>s+productLedgerAvgCostAt(inp.productId,ev.sortKey,ledgerCache,visiting)*(Number(inp.qty)||0),0);
       const totalCost=rawCost+(Number(ev.op.extraCost)||0);
-      qty+=ev.qty; value+=totalCost;
+      qty+=ev.qty; value+=totalCost; book+=totalCost;
       ev.costAmount=totalCost;
+    } else if(ev.kind==='adjIn'){
+      // إضافة يدوية للمخزن: بتدخل بمتوسط التكلفة الساري وقتها (لو مفيش تكلفة معروفة بتدخل بصفر وبتتعلّم في التقرير)
+      const addedValue=ev.qty*avgBefore;
+      qty+=ev.qty; value+=addedValue; book+=addedValue;
+      ev.costAmount=addedValue;
     } else if(ev.kind==='returnIn'){
       // مرتجع البيع بيرجع للمخزن بنفس متوسط التكلفة الساري وقت المرتجع (مفيش ربط بفاتورة بيع بعينها لنرجعه بسعرها الأصلي)
       const addedValue=ev.qty*avgBefore;
-      qty+=ev.qty; value+=addedValue;
+      qty+=ev.qty; value+=addedValue; book+=addedValue;
       ev.costAmount=addedValue;
     } else { // out: بيع / مرتجع مشتريات / استهلاك تصنيع
       const outQty=Math.min(ev.qty, qty>0?qty:ev.qty);
@@ -2938,8 +2958,9 @@ function buildProductLedger(productId, ledgerCache, visiting){
       qty-=ev.qty; if(qty<0) qty=0; // حماية دفاعية بس لو الأرصدة فيها تضارب قديم
       value-=removedValue; if(value<0) value=0;
       ev.costAmount=removedValue;
+      book-= ev.fromProduction ? ev.qty*avgBefore : removedValue; // قيد التصنيع بيخصم كمية الخامة كاملة بمتوسط تكلفتها وقتها
     }
-    ledger.push(Object.assign(ev,{avgBefore, qtyAfter:qty, valueAfter:value}));
+    ledger.push(Object.assign(ev,{avgBefore, qtyAfter:qty, valueAfter:value, bookAfter:book}));
   });
 
   visiting.delete(productId);
@@ -2969,11 +2990,41 @@ function productAvgCost(productId, ledgerCache){
   const last=ledger[ledger.length-1];
   return last.qtyAfter>0 ? last.valueAfter/last.qtyAfter : ((p&&p.costPrice)||0);
 }
+// حركة مخزن "يدوية" = اللي اتسجلت من شاشة "حركة جديدة" (من غير ما تكون تابعة لفاتورة/مرتجع/شراء/تصنيع/تحويل/رصيد افتتاحي).
+// بنستبعد كمان أي حركة ملاحظتها بتبدأ بنص من نصوص الحركات التلقائية، احتياطًا لأي بيانات قديمة ماكانش فيها معرّف الفاتورة.
+function _isManualStockMovement(m){
+  if(!m || m.invoiceId || m.returnId || m.purchaseId || m.purchaseReturnId || m.productionId || m.transferId) return false;
+  if(m.type!=='in' && m.type!=='out') return false;
+  const n=String(m.note||'');
+  if(n==='رصيد افتتاحي') return false;
+  return !/^(ف\.مبيعات #|ف\.مشتريات #|مردود مبيعات #|مردود مشتريات #|تحويل من المخزن الفرعي|مستهلك في تصنيع|ناتج تصنيع)/.test(n);
+}
+// قيمة المخزون الدفترية الموحّدة — مصدر واحد للرقم في الرئيسية وتقرير قيمة المخزون وملف الـPDF.
+// القيمة = اللي فعليًا مترحّل في دفاتر حساب "المخزون" (نفس رقم الميزانية العمومية)، مش (الكمية الفعلية × متوسط التكلفة)،
+// عشان الأرقام دي ماتختلفش عن بعض. لو كمية الدفاتر مختلفة عن الكمية الفعلية لصنف (gap) بيتعرض تحذير جنبه.
+//   gap > 0 : كمية فعلية مش داخلة في الدفاتر (غالبًا رصيد أول/إضافة من غير سعر تكلفة)
+//   gap < 0 : الدفاتر فيها كمية أكتر من الفعلي (غالبًا بيع/صرف بتاريخ قبل تاريخ الشراء)
+function computeInventoryBook(){
+  const idx=buildStockIndexes(), cache=new Map();
+  let total=0;
+  const rows=stock.map(p=>{
+    const qty=idx.qty(p.id);
+    const ledger=buildProductLedger(p.id,cache,new Set());
+    const last=ledger.length?ledger[ledger.length-1]:null;
+    const bookQty=last?last.qtyAfter:0;
+    const value=last?last.bookAfter:0;
+    const cost=productAvgCost(p.id,cache);
+    let gap=qty-bookQty; if(Math.abs(gap)<1e-6) gap=0;
+    total+=value;
+    return {p,qty,bookQty,cost,value,gap};
+  });
+  return {rows,total:Math.max(0,total)}; // الميزانية بتعرض رصيد المخزون مدين بس (مش بالسالب)، فنفس القاعدة هنا
+}
 // بيبني خرائط تكلفة تاريخية صحيحة لكل الأصناف مرة واحدة: byLine (لكل سطر فاتورة/مرتجع بعينه، عن طريق مرجع الأوبجكت نفسه)
 // وbyInvoice/byReturn (إجمالي لكل فاتورة/مرتجع) — أي تقرير أو قيد محتاج "تكلفة وقت البيع الصح" بيستخدم الخرائط دي بدل ما يعيد الحساب بنفسه
 function buildCogsMaps(){
   const cache=new Map();
-  const byLine=new Map(), byInvoice=new Map(), byReturn=new Map(), byPurReturn=new Map(), byProduction=new Map();
+  const byLine=new Map(), byInvoice=new Map(), byReturn=new Map(), byPurReturn=new Map(), byProduction=new Map(), byAdjust=new Map();
   stock.forEach(p=>{
     const ledger=buildProductLedger(p.id, cache, new Set());
     ledger.forEach(step=>{
@@ -2983,14 +3034,15 @@ function buildCogsMaps(){
       if(step.sourceType==='return') byReturn.set(step.sourceId,(byReturn.get(step.sourceId)||0)+(step.costAmount||0));
       if(step.sourceType==='purReturn') byPurReturn.set(step.sourceId,(byPurReturn.get(step.sourceId)||0)+(step.costAmount||0));
       if(step.sourceType==='production') byProduction.set(step.sourceId, step.costAmount||0);
+      if(step.sourceType==='adjustment') byAdjust.set(step.sourceId,{dir:step.kind==='adjIn'?'in':'out',amount:step.costAmount||0,date:step.adjDate,name:p.name});
     });
   });
-  return {byLine, byInvoice, byReturn, byPurReturn, byProduction};
+  return {byLine, byInvoice, byReturn, byPurReturn, byProduction, byAdjust};
 }
 // إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات — كل فاتورة بمتوسط التكلفة الصحيح "وقتها هي" (مش وقت آخر مرة اتفتح فيها البرنامج)
 // بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، وكمان بعد أي حفظ فاتورة/مرتجع جديد، عشان أي تعديل أو إضافة تاريخية (زي تصحيح سعر شراء قديم) تتظبط تلقائيًا وترتّب أثرها بالتسلسل الزمني الصحيح
 function reconcileCogsJournals(){
-  const {byInvoice, byReturn, byPurReturn, byProduction}=buildCogsMaps();
+  const {byInvoice, byReturn, byPurReturn, byProduction, byAdjust}=buildCogsMaps();
   invoices.forEach(inv=>{
     removeJournalBySource('invoiceCogs',inv.id);
     const cogsTotal=byInvoice.get(inv.id)||0;
@@ -3028,6 +3080,22 @@ function reconcileCogsJournals(){
     if(extraCost>0) lines.push({accountId:'opex',debit:0,credit:extraCost});
     postJournal('production',op.id,op.date,'عملية تصنيع - '+(stock.find(s=>s.id===op.outputProductId)?.name||''),lines);
   });
+  // حركات المخزن اليدوية (جرد/تالف/إضافة أو صرف يدوي): بتترحّل بمتوسط التكلفة وقتها، مقابلها حقوق الملكية — نفس معاملة الرصيد الافتتاحي
+  // للمخزون بالظبط — عشان تدخل في "المخزون" بالميزانية من غير ما تغيّر أرباح أي فترة سابقة. القيد لو اتغيّر بس بنعيد ترحيله.
+  const _adjLive=new Set();
+  byAdjust.forEach((a,mid)=>{
+    _adjLive.add(mid);
+    const amt=Number(a.amount)||0;
+    const invFirst=a.dir==='in';
+    const ex=journalEntries.find(j=>j.sourceType==='stockAdjust' && j.sourceId===mid);
+    if(amt<0.01){ if(ex) removeJournalBySource('stockAdjust',mid); return; }
+    if(ex && ex.date===a.date && ex.lines.length===2 && Math.abs((Number(ex.lines[0].debit)||0)+(Number(ex.lines[0].credit)||0)-amt)<1e-9 && ex.lines[0].accountId===(invFirst?'inventory':'equity')) return;
+    removeJournalBySource('stockAdjust',mid);
+    postJournal('stockAdjust',mid,a.date,(invFirst?'إضافة يدوية للمخزن - ':'صرف يدوي من المخزن - ')+(a.name||''),
+      invFirst?[{accountId:'inventory',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+              :[{accountId:'equity',debit:amt,credit:0},{accountId:'inventory',debit:0,credit:amt}]);
+  });
+  journalEntries.filter(j=>j.sourceType==='stockAdjust' && !_adjLive.has(j.sourceId)).map(j=>j.sourceId).forEach(sid=>removeJournalBySource('stockAdjust',sid));
 }
 // ترحيل قيود المرتجعات (مبيعات/مشتريات) الناقصة — بيشتغل كل مرة بس بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يأثر على القيود التاريخية الموجودة
 function backfillReturnJournals(){
@@ -3393,7 +3461,7 @@ const SYNC_VOLATILE={stock:['lastSalePrice','lastSalePriceDate','lastPurchasePri
 const SYNC_ID_RE=/^[A-Za-z0-9_\-:.|]{1,120}$/;
 // قيود بيحسبها البرنامج تلقائيًا من الفواتير والحركات وبيعيد ترحيلها كلها من الأول مع كل فتح وكل حفظ (reconcileCogsJournals وأخواتها).
 // دي مبتتزامنش خالص: كل جهاز بيحسبها لوحده من البيانات اللي اتزامنت، وغير كده كانت هتتغيّر بصمتها على طول وتعمل تعارضات وهمية.
-const SYNC_DERIVED_JOURNALS=['invoiceCogs','returnCogs','purReturnCogsAdj','production','checkNote'];
+const SYNC_DERIVED_JOURNALS=['invoiceCogs','returnCogs','purReturnCogsAdj','production','checkNote','stockAdjust'];
 function _scIsDerived(coll,rec){ return coll==='journalEntries' && !!rec && SYNC_DERIVED_JOURNALS.indexOf(rec.sourceType)>=0; }
 function _scIsDerivedId(coll,id){ return coll==='journalEntries' && typeof id==='string' && SYNC_DERIVED_JOURNALS.some(t=>id.indexOf(t+'|')===0); }
 
@@ -6494,8 +6562,11 @@ function renderHome(){
   // (فهرسة مرة واحدة للأصناف كلها بدل ما كل صنف يعيد مسح الحركات/الفواتير من الأول - نفس النتيجة بالظبط، أسرع بكتير)
   const _stockIdx=buildStockIndexes();
   const _costCache=new Map();
-  const stockValue=stock.reduce((s,p)=>s+_stockIdx.qty(p.id)*productAvgCost(p.id,_costCache),0);
-  const stockZeroCost=stock.some(p=>_stockIdx.qty(p.id)>0 && productAvgCost(p.id,_costCache)<=0);
+  // القيمة دلوقتي من computeInventoryBook (نفس رقم دفاتر "المخزون" في الميزانية العمومية) — نفس مصدر تقرير قيمة المخزون بالظبط
+  const _invBook=computeInventoryBook();
+  const stockValue=_invBook.total;
+  const stockZeroCost=_invBook.rows.some(r=>r.qty>0 && r.cost<=0);
+  const stockHasGap=_invBook.rows.some(r=>r.gap!==0);
 
   // إجمالي مديونيات العملاء/مستحقات الموردين = مجموع الأرصدة الموجبة بس (نفس تعريف "المديونين" المستخدم أصلاً في تبويب التحصيل/سداد الموردين)،
   // مش الصافي، عشان رصيد دائن لعميل/مورد واحد ميقلّلش من مديونية عميل/مورد تاني
@@ -6523,7 +6594,7 @@ function renderHome(){
       ${kpi('blue','🧾','مبيعات اليوم',salesToday,`الشهر: ${fmt(salesMonth)} ج`,goInvoicesToday)}
       ${kpi('green','💰','تحصيل اليوم',collToday,`الشهر: ${fmt(collMonth)} ج`,goPaymentsToday)}
       ${kpi('orange','📥','مشتريات اليوم',purchToday,`الشهر: ${fmt(purchMonth)} ج`,goPurchasesToday)}
-      ${kpi('teal','📦','قيمة المخزون',stockValue,stockZeroCost?'⚠️ فيه أصناف من غير تكلفة':'',goReportsStock)}
+      ${kpi('teal','📦','قيمة المخزون',stockValue,stockZeroCost?'⚠️ فيه أصناف من غير تكلفة':(stockHasGap?'⚠️ فيه أصناف محتاجة مراجعة':''),goReportsStock)}
       ${kpi(clientsDebt>0?'red':'gray','👥','مديونية العملاء',clientsDebt,'',goReportsClients)}
       ${kpi(suppliersDebt>0?'red':'gray','🏭','مستحق للموردين',suppliersDebt,'',goReportsSuppliers)}
     </div>`;
@@ -6823,6 +6894,7 @@ function deleteClient(id){
     returns=returns.filter(r=>r.clientId!==id);
     recordDeletion('clients',id);
     clients=clients.filter(c=>c.id!==id);
+    reconcileCogsJournals(); // حذف فواتير العميل بيغيّر الكميات ومتوسط التكلفة لباقي الفواتير
     save();renderClients();
   });
 }
@@ -8030,6 +8102,7 @@ function deleteInvoice(id){
     movements=movements.filter(m=>m.invoiceId!==id);
     removeJournalBySource('invoice', id);
     removeJournalBySource('invoiceCogs', id);
+    reconcileCogsJournals();
     save();renderInvoices();
   });
 }
@@ -9030,6 +9103,7 @@ function deleteReturn(id){
     removeJournalBySource('return',id);
     removeJournalBySource('returnCogs',id);
     removeJournalBySource('returnRefund',id);
+    reconcileCogsJournals();
     save();renderReturns();
   });
 }
@@ -9172,6 +9246,7 @@ function saveSubTransfer(){
   subTransfers.push(t);
   movements.push({id:uid(),productId:prod.id,type:'in',qty,date,note:'تحويل من المخزن الفرعي'+(note?' - '+note:''),expiry,transferId:t.id});
   postSubTransferJournal(t);
+  reconcileCogsJournals(); // التحويل بيدخل متوسط التكلفة، فتكلفة المبيعات المترحّلة تتسوّى
   it.qty=Math.round((Number(it.qty)-qty)*1e6)/1e6;
   it.mainProductId=prod.id; it.name=prod.name; it.unit=prod.unit||it.unit;
   logActivity('edit','تحويل مخزن فرعي',it.name,fmtQty(qty)+' '+it.unit+' → المخزن الرئيسي');
@@ -9194,6 +9269,7 @@ function deleteSubTransfer(id){
     removeJournalBySource('stockTransfer',id);
     recordDeletion('subTransfers',id);
     subTransfers=subTransfers.filter(x=>x.id!==id);
+    reconcileCogsJournals();
     const it=subStock.find(x=>x.id===t.subItemId);
     if(it){ it.qty=Math.round((Number(it.qty)+Number(t.qty))*1e6)/1e6; }
     else{
@@ -9294,34 +9370,49 @@ ${formMode==='main'?`
     </div>`:''}`;
 }
 
-// تقرير قيمة المخزون: لكل صنف الكمية الحالية × متوسط تكلفته المرجح (نفس
+// تقرير قيمة المخزون: قيمة كل صنف من دفاتر المخزون (computeInventoryBook) — (نفس
 // الدالة المستخدمة في حساب تكلفة البضاعة المباعة وباقي التقارير المالية
 // في التطبيق، عشان الرقم هنا يكون متسق ودقيق ومطابق لباقي الحسابات)
 function renderStockValueReport(){
-  const _stockIdx=buildStockIndexes();
-  const _costCache=new Map();
-  const rows=stock.map(p=>{
-    const qty=_stockIdx.qty(p.id);
-    const cost=productAvgCost(p.id,_costCache);
-    return {p,qty,cost,value:qty*cost};
-  }).sort((a,b)=>b.value-a.value);
-  const grandTotal=rows.reduce((s,r)=>s+r.value,0);
+  // القيمة من computeInventoryBook = نفس رقم "المخزون" في الميزانية العمومية (مش الكمية الفعلية × المتوسط)
+  const _inv=computeInventoryBook();
+  const rows=_inv.rows.slice().sort((a,b)=>b.value-a.value);
+  const grandTotal=_inv.total;
   const zeroCostCount=rows.filter(r=>r.qty>0&&r.cost<=0).length;
+  const gapWarn=r=>{
+    if(r.qty>0&&r.cost<=0) return '⚠️ من غير سعر تكلفة';
+    if(r.gap>0) return '⚠️ '+fmtQty(r.gap)+' '+esc(r.p.unit||'')+' من غير تكلفة (مش محسوبة في القيمة)';
+    if(r.gap<0) return '⚠️ الدفاتر فيها '+fmtQty(-r.gap)+' '+esc(r.p.unit||'')+' زيادة عن الفعلي (غالبًا فيه بيع/صرف بتاريخ قبل تاريخ الشراء)';
+    return '';
+  };
   const rowsHtml=rows.map(r=>`
     <div class="list-item">
       <div class="list-item-head">
         <div style="flex:1">
-          <div class="list-item-name">${esc(r.p.name)}${r.qty>0&&r.cost<=0?' <span style="color:var(--tx-c0392b,#C0392B);font-size:10.5px">⚠️ من غير سعر تكلفة</span>':''}</div>
+          <div class="list-item-name">${esc(r.p.name)}${gapWarn(r)?' <span style="color:var(--tx-c0392b,#C0392B);font-size:10.5px">'+gapWarn(r)+'</span>':''}</div>
           <div class="list-item-sub">الكمية: ${fmtQty(r.qty)} ${r.p.unit} &nbsp;•&nbsp; متوسط التكلفة: ${fmt(r.cost)}</div>
         </div>
         <div class="list-item-bal"><div class="list-item-bal-num" style="color:var(--tx-1a5276,#1A5276);font-size:18px">${fmt(r.value)}</div><div class="list-item-bal-lbl">قيمة</div></div>
       </div>
     </div>`).join('');
+  // مطابقة مع الميزانية العمومية: لو فيه فرق بنوضّح سببه بدل ما الرقمين يختلفوا من غير تفسير
+  const _bsAll=accountBalance('inventory').debit;
+  const _bsToday=accountBalance('inventory',today()).debit;
+  const _repTo=document.getElementById('rep_to')?.value||'';
+  let reconHtml='';
+  if(Math.abs(_bsAll-grandTotal)>=0.5){
+    reconHtml='⚠️ فرق '+fmt(Math.abs(_bsAll-grandTotal))+' ج بين الرقم ده ومخزون الميزانية العمومية ('+fmt(_bsAll)+' ج) — غالبًا بسبب صنف اتحذف بعد ما اتشترى أو اتباع (قيمته لسه في الدفاتر). راجع الأصناف المعلّمة بـ ⚠️.';
+  }else if(Math.abs(_bsToday-grandTotal)>=0.5){
+    reconHtml='ℹ️ فيه مستندات بتاريخ بعد النهارده — الميزانية (كما في النهارده) مش بتحسبها لسه.';
+  }else if(_repTo && _repTo<today()){
+    reconHtml='ℹ️ الميزانية العمومية معروضة كما في '+esc(_repTo)+' (مش النهارده) — لو عايز الرقمين يتطابقوا خلّي "إلى تاريخ" = النهارده.';
+  }
   document.getElementById('reportsStockValueBox').innerHTML=`
     <div style="background:var(--bg-ebf5fb,#EBF5FB);border:1px solid var(--bd-aed6f1,#AED6F1);border-radius:10px;padding:14px;text-align:center;margin-bottom:12px">
       <div style="font-size:12px;color:var(--tx-1a5276,#1A5276);margin-bottom:2px">إجمالي قيمة المخزون (بسعر التكلفة)</div>
       <div style="font-size:26px;font-weight:bold;color:var(--tx-1a5276,#1A5276)">${fmt(grandTotal)} ج.م</div>
       ${zeroCostCount>0?`<div style="font-size:11px;color:var(--tx-c0392b,#C0392B);margin-top:4px">⚠️ ${zeroCostCount} صنف من غير سعر تكلفة - قيمتهم مش محسوبة في الإجمالي (صفر)</div>`:''}
+      ${reconHtml?`<div style="font-size:11px;color:var(--tx-717d7e,#717D7E);margin-top:6px;line-height:1.6">${reconHtml}</div>`:''}
     </div>
     <button class="btn-outline" style="width:100%;margin-bottom:10px" onclick="printStockValuePdf()">🖨️ تصدير PDF</button>
     ${rows.length===0?'<div style="text-align:center;color:var(--tx-717d7e,#717D7E);padding:20px 0">لا توجد أصناف</div>':rowsHtml}
@@ -9329,16 +9420,11 @@ function renderStockValueReport(){
 }
 
 async function printStockValuePdf(){
-  const _stockIdx=buildStockIndexes();
-  const _costCache=new Map();
-  const rows=stock.map(p=>{
-    const qty=_stockIdx.qty(p.id);
-    const cost=productAvgCost(p.id,_costCache);
-    return {p,qty,cost,value:qty*cost};
-  }).sort((a,b)=>b.value-a.value);
-  const grandTotal=rows.reduce((s,r)=>s+r.value,0);
+  const _inv=computeInventoryBook(); // نفس مصدر الرئيسية والتقرير (= مخزون الميزانية العمومية)
+  const rows=_inv.rows.slice().sort((a,b)=>b.value-a.value);
+  const grandTotal=_inv.total;
   const tableRows=rows.map(r=>`<tr>
-      <td>${esc(r.p.name)}${r.qty>0&&r.cost<=0?' ⚠️':''}</td>
+      <td>${esc(r.p.name)}${(r.qty>0&&r.cost<=0)||r.gap!==0?' ⚠️':''}</td>
       <td>${r.p.unit}</td>
       <td>${fmtQty(r.qty)}</td>
       <td>${fmt(r.cost)}</td>
@@ -9688,7 +9774,7 @@ function saveProduct(){
         postJournal('stockOpening', p.id, openingMov.date, 'رصيد افتتاحي مخزون - '+name,
           [{accountId:'inventory',debit:openingMov.qty*costPrice,credit:0},{accountId:'equity',debit:0,credit:openingMov.qty*costPrice}]);
       }
-      if(_openQtyChanged||_openMetaChanged) reconcileCogsJournals(); // الرصيد الأول داخل في متوسط التكلفة المرجح، فبنعيد تسوية تكلفة المبيعات/المرتجعات عشان الدفاتر تطابق قيمة المخزون فورًا
+      reconcileCogsJournals(); // (دايمًا، مش بس لو الرصيد الأول اتغيّر: تعديل سعر التكلفة لوحده بيأثر على متوسط التكلفة) الرصيد الأول داخل في متوسط التكلفة المرجح، فبنعيد تسوية تكلفة المبيعات/المرتجعات عشان الدفاتر تطابق قيمة المخزون فورًا
       save();
       logActivity('edit','منتج',name,price>0?(fmt(price)+' ج'):'');
       editProductId=null; showProductForm=false; productSubUnits=[]; productFormDraft={};
@@ -9745,7 +9831,9 @@ function saveProduct(){
 }
 function deleteProduct(id){
   const _prod=stock.find(p=>p.id===id);
-  showConfirm('هتحذف المنتج ده؟', function(){
+  // لو الصنف عليه حركة (شراء/بيع/مرتجع/تصنيع)، حذفه بيسيب قيمة مشترياته في دفاتر المخزون (الميزانية) من غير صنف تتحسب عليه — بنحذّر قبل ما يتمسح
+  const _hasHist=purchases.some(x=>(x.lines||[]).some(l=>l.productId===id))||invoices.some(x=>(x.lines||[]).some(l=>l.productId===id))||returns.some(x=>(x.lines||[]).some(l=>l.productId===id))||purchaseReturns.some(x=>(x.lines||[]).some(l=>l.productId===id))||productions.some(x=>x.outputProductId===id||(x.inputs||[]).some(i=>i.productId===id));
+  showConfirm(_hasHist?'الصنف ده عليه فواتير/حركات مسجلة. لو اتحذف، قيمة مشترياته هتفضل في مخزون الميزانية من غير صنف، وده بيخلّي قيمة المخزون تختلف عن الميزانية. تحب تحذفه برضو؟':'هتحذف المنتج ده؟', function(){
     logActivity('delete','منتج',_prod?_prod.name:'','');
     recordDeletion('stock',id);
     stock=stock.filter(p=>p.id!==id);
@@ -9755,6 +9843,7 @@ function deleteProduct(id){
     // المخزن الفرعي (لو مستخدم): تحويلات كانت داخلة على الصنف ده بيتشال قيدها (لأن حركاته اتمسحت)، وسجلها بيفضل للمراجعة، وأي صنف فرعي كان مربوط بيه بيتفك ارتباطه
     subTransfers.filter(t=>t.productId===id).forEach(t=>{ removeJournalBySource('stockTransfer',t.id); t.productId=null; t.mainDeleted=true; });
     subStock.filter(x=>x.mainProductId===id).forEach(x=>{ delete x.mainProductId; });
+    reconcileCogsJournals();
     save();renderStock();
   });
 }
@@ -9779,6 +9868,7 @@ function saveMovement(){
   if(!productId||!qty){showToast('اختر منتج وأدخل الكمية');return;}
   if(currentMovType==='out'&&stockQty(productId)<qty){showToast('الكمية المتاحة '+stockQty(productId)+' فقط');return;}
   movements.push({id:uid(),productId,type:currentMovType,qty,date,note,expiry});
+  reconcileCogsJournals(); // الحركة اليدوية بتدخل الدفاتر (stockAdjust) عشان مخزون الميزانية يطابق قيمة المخزون
   save();showMovForm=false;renderStock();
 }
 
@@ -9880,6 +9970,7 @@ function deleteProduction(id){
     removeJournalBySource('production', id);
     recordDeletion('productions',id);
     productions=productions.filter(x=>x.id!==id);
+    reconcileCogsJournals();
     save();
     renderStock();
   });
@@ -13025,6 +13116,7 @@ function deleteSupplier(id){
     purchaseReturns=purchaseReturns.filter(r=>r.supplierId!==id);
     recordDeletion('suppliers',id);
     suppliers=suppliers.filter(s=>s.id!==id);
+    reconcileCogsJournals(); // نفس العميل: حذف مشتريات المورد بيغيّر متوسط التكلفة
     save();renderSuppliers();
   });
 }
@@ -14027,6 +14119,7 @@ function savePurchase(){
   }
   removeJournalBySource('purchase', pur.id);
   postJournal('purchase', pur.id, date, 'فاتورة مشتريات #'+docNo(pur), [{accountId:'inventory',debit:total,credit:0},{accountId:'ap',debit:0,credit:total}]);
+  reconcileCogsJournals(); // زي فاتورة المبيعات بالظبط: سعر/تاريخ الشراء بيغيّر متوسط التكلفة، فلازم تكلفة المبيعات المترحّلة تتسوّى فورًا عشان مخزون الميزانية يطابق التقرير
   // تحديث المخزن — الكمية المشتراة + كمية البونص من المورد (بتضاف للمخزن من غير حساب في التكلفة)
   purchaseLines.forEach(l=>{
     if(l.productId){
@@ -14070,6 +14163,7 @@ function deletePurchase(id){
     recordDeletion('purchases',id);
     purchases=purchases.filter(p=>p.id!==id);
     removeJournalBySource('purchase', id);
+    reconcileCogsJournals();
     save();renderPurchases();
   });
 }
@@ -14885,6 +14979,7 @@ function deletePurRet(id){
     removeJournalBySource('purReturn',id);
     removeJournalBySource('purReturnRefund',id);
     removeJournalBySource('purReturnCogsAdj',id);
+    reconcileCogsJournals();
     save();renderPurReturns();
   });
 }
