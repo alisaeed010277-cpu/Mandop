@@ -3035,14 +3035,15 @@ function diagnoseInventoryLedger(){
   });
   const issues=[]; const seen=new Set();
   const add=(o)=>issues.push(o);
+  const hasJ=new Set(journalEntries.map(j=>j.sourceType+'|'+j.sourceId)); // بدل البحث في كل القيود لكل مستند
   const stockIds=new Set(stock.map(p=>p.id));
   // فواتير المشتريات
   purchases.forEach(pur=>{
     const k='purchase|'+pur.id; seen.add(k);
     const actual=net[k]||0, total=Number(pur.total)||0;
-    const exists=journalEntries.some(j=>j.sourceType==='purchase'&&j.sourceId===pur.id);
+    const exists=hasJ.has(k);
     const label='فاتورة مشتريات #'+docNo(pur)+' ('+(pur.date||'')+')';
-    if(!exists || Math.abs(actual-total)>=0.01){
+    if((!exists && total>=0.01) || (exists && Math.abs(actual-total)>=0.01)){
       add({kind:'purchase',id:pur.id,label,actual,expected:total,fix:true,why:exists?'قيد الفاتورة مختلف عن إجماليها':'مفيش قيد للفاتورة'});
     }else{
       let lines=0, orphan=0;
@@ -3072,9 +3073,8 @@ function diagnoseInventoryLedger(){
   purchaseReturns.forEach(ret=>{
     const k='purReturn|'+ret.id; seen.add(k);
     const expected=-(Number(ret.total)||0), actual=net[k]||0;
-    if(Math.abs(actual-expected)>=0.01) add({kind:'purReturn',id:ret.id,label:'مرتجع مشتريات #'+docNo(ret)+' ('+(ret.date||'')+')',actual,expected,fix:true,why:exists2(ret)?'قيد المرتجع مختلف عن إجماليه':'مفيش قيد للمرتجع'});
+    if((hasJ.has(k)||-expected>=0.01) && Math.abs(actual-expected)>=0.01) add({kind:'purReturn',id:ret.id,label:'مرتجع مشتريات #'+docNo(ret)+' ('+(ret.date||'')+')',actual,expected,fix:true,why:hasJ.has(k)?'قيد المرتجع مختلف عن إجماليه':'مفيش قيد للمرتجع'});
   });
-  function exists2(ret){ return journalEntries.some(j=>j.sourceType==='purReturn'&&j.sourceId===ret.id); }
   // قيود يتيمة (المستند أو الصنف اتحذف) وقيود من أنواع غريبة بتلمس المخزون
   const known=new Set(['purchase','purReturn','stockOpening','stockTransfer','stockAdjust','invoiceCogs','returnCogs','purReturnCogsAdj','production']);
   Object.keys(net).forEach(k=>{
@@ -3088,9 +3088,10 @@ function diagnoseInventoryLedger(){
 }
 // تصحيح القيود اللي ليها مستند واضح: بيعيد ترحيلها من المستند نفسه (نفس الطريقة اللي بتترحّل بيها وقت الحفظ) ويمسح اليتيم منها.
 // مابيلمسش أي مستند ولا رصيد عميل/مورد — القيود بس.
-function repairInventoryJournals(){
+// autoOnly=true (التصحيح التلقائي جوه reconcileCogsJournals): مابيمسحش القيود اليتيمة، عشان ماينفعش نمسح قيد صحيح لسه مستنده ماوصلش في المزامنة
+function _applyInventoryJournalFixes(autoOnly){
   const d=diagnoseInventoryLedger(); let n=0;
-  d.issues.filter(x=>x.fix).forEach(x=>{
+  d.issues.filter(x=>x.fix && !(autoOnly && x.kind==='orphan')).forEach(x=>{
     if(x.kind==='purchase'){
       const pur=purchases.find(q=>q.id===x.id); if(!pur) return;
       removeJournalBySource('purchase',pur.id);
@@ -3110,6 +3111,10 @@ function repairInventoryJournals(){
       removeJournalBySource(x.type,x.id); n++;
     }
   });
+  return n;
+}
+function repairInventoryJournals(){
+  const n=_applyInventoryJournalFixes(false);
   reconcileCogsJournals();
   save();
   renderStockValueReport();
@@ -3191,6 +3196,9 @@ function reconcileCogsJournals(){
               :[{accountId:'equity',debit:amt,credit:0},{accountId:'inventory',debit:0,credit:amt}]);
   });
   journalEntries.filter(j=>j.sourceType==='stockAdjust' && !_adjLive.has(j.sourceId)).map(j=>j.sourceId).forEach(sid=>removeJournalBySource('stockAdjust',sid));
+  // تصحيح تلقائي لقيود المخزون اللي مستنداتها موجودة (شراء/رصيد أول/تحويل/مرتجع شراء) لو اختلفت عن مستنداتها،
+  // عشان رقم المخزون في الميزانية يفضل مطابق للتقرير من غير تدخل. القيود بس هي اللي بتتغير — مستند ولا رصيد عميل/مورد.
+  try{ _applyInventoryJournalFixes(true); }catch(e){ console.error('inventory auto-heal failed',e); }
 }
 // ترحيل قيود المرتجعات (مبيعات/مشتريات) الناقصة — بيشتغل كل مرة بس بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يأثر على القيود التاريخية الموجودة
 function backfillReturnJournals(){
