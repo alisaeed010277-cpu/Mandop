@@ -3020,6 +3020,101 @@ function computeInventoryBook(){
   });
   return {rows,total:Math.max(0,total)}; // الميزانية بتعرض رصيد المخزون مدين بس (مش بالسالب)، فنفس القاعدة هنا
 }
+// فحص مطابقة قيود "المخزون" مع المستندات: بيقارن كل قيد (شراء/رصيد أول/تحويل/مرتجع شراء) بقيمته المتوقعة من المستند نفسه،
+// ويطلّع أي قيد ناقص أو قديم أو يتيم، وأي قيد غريب بيلمس حساب المخزون. بيتعرض في تقرير قيمة المخزون لو فيه فرق مع الميزانية.
+function diagnoseInventoryLedger(){
+  const net={};   // صافي مدين المخزون لكل مصدر قيد: "نوع|معرّف"
+  const byType={};
+  journalEntries.forEach(j=>{
+    (j.lines||[]).forEach(l=>{
+      if(l.accountId!=='inventory') return;
+      const v=(Number(l.debit)||0)-(Number(l.credit)||0);
+      const k=j.sourceType+'|'+j.sourceId;
+      net[k]=(net[k]||0)+v; byType[j.sourceType]=(byType[j.sourceType]||0)+v;
+    });
+  });
+  const issues=[]; const seen=new Set();
+  const add=(o)=>issues.push(o);
+  const stockIds=new Set(stock.map(p=>p.id));
+  // فواتير المشتريات
+  purchases.forEach(pur=>{
+    const k='purchase|'+pur.id; seen.add(k);
+    const actual=net[k]||0, total=Number(pur.total)||0;
+    const exists=journalEntries.some(j=>j.sourceType==='purchase'&&j.sourceId===pur.id);
+    const label='فاتورة مشتريات #'+docNo(pur)+' ('+(pur.date||'')+')';
+    if(!exists || Math.abs(actual-total)>=0.01){
+      add({kind:'purchase',id:pur.id,label,actual,expected:total,fix:true,why:exists?'قيد الفاتورة مختلف عن إجماليها':'مفيش قيد للفاتورة'});
+    }else{
+      let lines=0, orphan=0;
+      (pur.lines||[]).forEach(l=>{
+        const cost=(Number(l.qty)||0)*(Number(l.price)||0)*(1-(Number(l.discount)||0)/100)*(1-(Number(pur.overallDiscount)||0)/100);
+        if(stockIds.has(l.productId)) lines+=cost; else orphan+=cost;
+      });
+      if(Math.abs(lines-total)>=0.5) add({kind:'purchaseLines',id:pur.id,label,actual:total,expected:lines,fix:false,why:orphan>=0.5?'فيه أصناف في الفاتورة اتحذفت من المخزن':'إجمالي الفاتورة مش بيساوي مجموع بنودها (خصم/تقريب/تعديل قديم)'});
+    }
+  });
+  // رصيد أول المدة
+  stock.forEach(p=>{
+    const k='stockOpening|'+p.id; seen.add(k);
+    const om=movements.find(m=>m.productId===p.id && m.note==='رصيد افتتاحي');
+    const expected=(om && p.costPrice>0)?(Number(om.qty)||0)*p.costPrice:0;
+    const actual=net[k]||0;
+    if(Math.abs(actual-expected)>=0.01) add({kind:'opening',id:p.id,label:'رصيد أول المدة - '+p.name,actual,expected,fix:true,why:'قيد الرصيد الافتتاحي مختلف عن (الكمية × سعر التكلفة)'});
+  });
+  // تحويلات المخزن الفرعي
+  subTransfers.forEach(t=>{
+    const k='stockTransfer|'+t.id; seen.add(k);
+    const expected=(t.productId&&stockIds.has(t.productId))?(Number(t.qty)||0)*(Number(t.cost)||0):0;
+    const actual=net[k]||0;
+    if(Math.abs(actual-expected)>=0.01) add({kind:'transfer',id:t.id,label:'تحويل مخزن فرعي - '+(t.subItemName||'')+' ('+(t.date||'')+')',actual,expected,fix:true,why:'قيد التحويل مختلف عن (الكمية × التكلفة)'});
+  });
+  // مرتجعات المشتريات (الجزء الأساسي بالإجمالي — فرق التكلفة بيتسوّى تلقائي)
+  purchaseReturns.forEach(ret=>{
+    const k='purReturn|'+ret.id; seen.add(k);
+    const expected=-(Number(ret.total)||0), actual=net[k]||0;
+    if(Math.abs(actual-expected)>=0.01) add({kind:'purReturn',id:ret.id,label:'مرتجع مشتريات #'+docNo(ret)+' ('+(ret.date||'')+')',actual,expected,fix:true,why:exists2(ret)?'قيد المرتجع مختلف عن إجماليه':'مفيش قيد للمرتجع'});
+  });
+  function exists2(ret){ return journalEntries.some(j=>j.sourceType==='purReturn'&&j.sourceId===ret.id); }
+  // قيود يتيمة (المستند أو الصنف اتحذف) وقيود من أنواع غريبة بتلمس المخزون
+  const known=new Set(['purchase','purReturn','stockOpening','stockTransfer','stockAdjust','invoiceCogs','returnCogs','purReturnCogsAdj','production']);
+  Object.keys(net).forEach(k=>{
+    if(seen.has(k)) return;
+    const [type,sid]=[k.slice(0,k.indexOf('|')),k.slice(k.indexOf('|')+1)];
+    if(Math.abs(net[k])<0.01) return;
+    if(['purchase','purReturn','stockOpening','stockTransfer'].includes(type)) add({kind:'orphan',type,id:sid,label:'قيد يتيم ('+type+') — المستند أو الصنف اتحذف',actual:net[k],expected:0,fix:true,why:'القيد لسه في الدفاتر بس مفيش مستند ليه'});
+    else if(!known.has(type)) add({kind:'unknown',type,id:sid,label:'قيد من نوع "'+type+'" بيلمس المخزون',actual:net[k],expected:0,fix:false,why:'نوع قيد مش معروف'});
+  });
+  return {issues,byType};
+}
+// تصحيح القيود اللي ليها مستند واضح: بيعيد ترحيلها من المستند نفسه (نفس الطريقة اللي بتترحّل بيها وقت الحفظ) ويمسح اليتيم منها.
+// مابيلمسش أي مستند ولا رصيد عميل/مورد — القيود بس.
+function repairInventoryJournals(){
+  const d=diagnoseInventoryLedger(); let n=0;
+  d.issues.filter(x=>x.fix).forEach(x=>{
+    if(x.kind==='purchase'){
+      const pur=purchases.find(q=>q.id===x.id); if(!pur) return;
+      removeJournalBySource('purchase',pur.id);
+      postJournal('purchase',pur.id,pur.date,'فاتورة مشتريات #'+docNo(pur),[{accountId:'inventory',debit:pur.total,credit:0},{accountId:'ap',debit:0,credit:pur.total}]); n++;
+    }else if(x.kind==='opening'){
+      const pr=stock.find(q=>q.id===x.id); const om=movements.find(m=>m.productId===x.id && m.note==='رصيد افتتاحي');
+      removeJournalBySource('stockOpening',x.id);
+      if(pr && om && pr.costPrice>0) postJournal('stockOpening',pr.id,om.date,'رصيد افتتاحي للصنف - '+pr.name,[{accountId:'inventory',debit:om.qty*pr.costPrice,credit:0},{accountId:'equity',debit:0,credit:om.qty*pr.costPrice}]);
+      n++;
+    }else if(x.kind==='transfer'){
+      const t=subTransfers.find(q=>q.id===x.id); if(t){ postSubTransferJournal(t); n++; }
+    }else if(x.kind==='purReturn'){
+      const ret=purchaseReturns.find(q=>q.id===x.id); if(!ret) return;
+      removeJournalBySource('purReturn',ret.id);
+      postJournal('purReturn',ret.id,ret.date,'مرتجع مشتريات #'+docNo(ret),[{accountId:'ap',debit:ret.total,credit:0},{accountId:'inventory',debit:0,credit:ret.total}]); n++;
+    }else if(x.kind==='orphan'){
+      removeJournalBySource(x.type,x.id); n++;
+    }
+  });
+  reconcileCogsJournals();
+  save();
+  renderStockValueReport();
+  showToast(n?('✅ اتصحّح '+n+' قيد'):'مفيش قيود قابلة للتصحيح التلقائي');
+}
 // بيبني خرائط تكلفة تاريخية صحيحة لكل الأصناف مرة واحدة: byLine (لكل سطر فاتورة/مرتجع بعينه، عن طريق مرجع الأوبجكت نفسه)
 // وbyInvoice/byReturn (إجمالي لكل فاتورة/مرتجع) — أي تقرير أو قيد محتاج "تكلفة وقت البيع الصح" بيستخدم الخرائط دي بدل ما يعيد الحساب بنفسه
 function buildCogsMaps(){
@@ -9401,7 +9496,12 @@ function renderStockValueReport(){
   const _repTo=document.getElementById('rep_to')?.value||'';
   let reconHtml='';
   if(Math.abs(_bsAll-grandTotal)>=0.5){
-    reconHtml='⚠️ فرق '+fmt(Math.abs(_bsAll-grandTotal))+' ج بين الرقم ده ومخزون الميزانية العمومية ('+fmt(_bsAll)+' ج) — غالبًا بسبب صنف اتحذف بعد ما اتشترى أو اتباع (قيمته لسه في الدفاتر). راجع الأصناف المعلّمة بـ ⚠️.';
+    const _dg=diagnoseInventoryLedger();
+    const _fix=_dg.issues.some(x=>x.fix);
+    reconHtml='⚠️ فرق '+fmt(Math.abs(_bsAll-grandTotal))+' ج بين الرقم ده ('+fmt(grandTotal)+') ومخزون الميزانية العمومية ('+fmt(_bsAll)+' ج).'
+      +(_dg.issues.length?'<div style="text-align:right;margin-top:6px"><b>الأسباب اللي لقيتها:</b>'+_dg.issues.slice(0,8).map(x=>'<div style="margin-top:4px">• '+esc(x.label)+' — '+esc(x.why)+' (في الدفاتر '+fmt(x.actual)+' / المفروض '+fmt(x.expected)+')</div>').join('')+(_dg.issues.length>8?'<div>… و'+(_dg.issues.length-8)+' كمان</div>':'')+'</div>':'<div style="margin-top:4px">مالقيتش قيد واضح فيه مشكلة — غالبًا صنف اتحذف بعد ما اتشترى/اتباع (قيمته لسه في الدفاتر).</div>')
+      +'<div style="margin-top:6px;font-size:10px;color:var(--tx-717d7e,#717D7E)">صافي المخزون في القيود حسب المصدر: '+Object.keys(_dg.byType).map(t=>esc(t)+' '+fmt(_dg.byType[t])).join(' • ')+'</div>'
+      +(_fix?'<button class="btn-outline" style="width:100%;margin-top:8px" onclick="repairInventoryJournals()">🛠️ تصحيح القيود تلقائيًا</button>':'');
   }else if(Math.abs(_bsToday-grandTotal)>=0.5){
     reconHtml='ℹ️ فيه مستندات بتاريخ بعد النهارده — الميزانية (كما في النهارده) مش بتحسبها لسه.';
   }else if(_repTo && _repTo<today()){
