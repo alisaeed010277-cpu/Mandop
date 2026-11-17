@@ -3076,7 +3076,7 @@ function diagnoseInventoryLedger(){
     if((hasJ.has(k)||-expected>=0.01) && Math.abs(actual-expected)>=0.01) add({kind:'purReturn',id:ret.id,label:'مرتجع مشتريات #'+docNo(ret)+' ('+(ret.date||'')+')',actual,expected,fix:true,why:hasJ.has(k)?'قيد المرتجع مختلف عن إجماليه':'مفيش قيد للمرتجع'});
   });
   // قيود يتيمة (المستند أو الصنف اتحذف) وقيود من أنواع غريبة بتلمس المخزون
-  const known=new Set(['purchase','purReturn','stockOpening','stockTransfer','stockAdjust','invoiceCogs','returnCogs','purReturnCogsAdj','production']);
+  const known=new Set(['purchase','purReturn','stockOpening','stockTransfer','stockAdjust','invoiceCogs','returnCogs','purReturnCogsAdj','production','inventoryTrueUp']);
   Object.keys(net).forEach(k=>{
     if(seen.has(k)) return;
     const [type,sid]=[k.slice(0,k.indexOf('|')),k.slice(k.indexOf('|')+1)];
@@ -3125,8 +3125,10 @@ function repairInventoryJournals(){
 function buildCogsMaps(){
   const cache=new Map();
   const byLine=new Map(), byInvoice=new Map(), byReturn=new Map(), byPurReturn=new Map(), byProduction=new Map(), byAdjust=new Map();
+  let bookTotal=0; // مجموع القيمة الدفترية لكل الأصناف (نفس رقم تقرير قيمة المخزون قبل التقريب لصفر)
   stock.forEach(p=>{
     const ledger=buildProductLedger(p.id, cache, new Set());
+    if(ledger.length) bookTotal+=ledger[ledger.length-1].bookAfter;
     ledger.forEach(step=>{
       if(!step.sourceType) return;
       if(step.lineRef) byLine.set(step.lineRef, step.costAmount||0);
@@ -3137,12 +3139,12 @@ function buildCogsMaps(){
       if(step.sourceType==='adjustment') byAdjust.set(step.sourceId,{dir:step.kind==='adjIn'?'in':'out',amount:step.costAmount||0,date:step.adjDate,name:p.name});
     });
   });
-  return {byLine, byInvoice, byReturn, byPurReturn, byProduction, byAdjust};
+  return {byLine, byInvoice, byReturn, byPurReturn, byProduction, byAdjust, bookTotal};
 }
 // إعادة حساب وترحيل قيود تكلفة البضاعة المباعة لكل فواتير المبيعات والمرتجعات — كل فاتورة بمتوسط التكلفة الصحيح "وقتها هي" (مش وقت آخر مرة اتفتح فيها البرنامج)
 // بيشتغل كل مرة يتفتح فيها التطبيق (مش بس أول مرة)، وكمان بعد أي حفظ فاتورة/مرتجع جديد، عشان أي تعديل أو إضافة تاريخية (زي تصحيح سعر شراء قديم) تتظبط تلقائيًا وترتّب أثرها بالتسلسل الزمني الصحيح
 function reconcileCogsJournals(){
-  const {byInvoice, byReturn, byPurReturn, byProduction, byAdjust}=buildCogsMaps();
+  const {byInvoice, byReturn, byPurReturn, byProduction, byAdjust, bookTotal}=buildCogsMaps();
   invoices.forEach(inv=>{
     removeJournalBySource('invoiceCogs',inv.id);
     const cogsTotal=byInvoice.get(inv.id)||0;
@@ -3199,6 +3201,30 @@ function reconcileCogsJournals(){
   // تصحيح تلقائي لقيود المخزون اللي مستنداتها موجودة (شراء/رصيد أول/تحويل/مرتجع شراء) لو اختلفت عن مستنداتها،
   // عشان رقم المخزون في الميزانية يفضل مطابق للتقرير من غير تدخل. القيود بس هي اللي بتتغير — مستند ولا رصيد عميل/مورد.
   try{ _applyInventoryJournalFixes(true); }catch(e){ console.error('inventory auto-heal failed',e); }
+  // شبكة أمان أخيرة: لو لسه فيه فرق بين صافي قيود المخزون المعروفة ومجموع القيمة الدفترية للأصناف (غالبًا صنف اتحذف بعد ما اتشترى،
+  // أو تقريب)، بنسوّيه بقيد واحد مقابله حقوق الملكية (من غير ما يلمس أرباح أي فترة)، فمخزون الميزانية يفضل مطابق لقيمة المخزون دايمًا.
+  // القيود اليدوية/الغريبة اللي بتلمس المخزون مابنحسبهاش في المقارنة ومابنلمسهاش.
+  try{
+    const KNOWN=['purchase','purReturn','stockOpening','stockTransfer','stockAdjust','invoiceCogs','returnCogs','purReturnCogsAdj','production'];
+    let netKnown=0;
+    journalEntries.forEach(j=>{
+      if(!KNOWN.includes(j.sourceType)) return;
+      (j.lines||[]).forEach(l=>{ if(l.accountId==='inventory') netKnown+=(Number(l.debit)||0)-(Number(l.credit)||0); });
+    });
+    const gap=netKnown-bookTotal;
+    const exT=journalEntries.find(j=>j.sourceType==='inventoryTrueUp' && j.sourceId==='main');
+    if(Math.abs(gap)<0.01){ if(exT) removeJournalBySource('inventoryTrueUp','main'); }
+    else{
+      const invSide=gap<0; const amt=Math.abs(gap);
+      const same=exT && exT.lines.length===2 && exT.lines[0].accountId===(invSide?'inventory':'equity') && Math.abs((Number(exT.lines[0].debit)||0)+(Number(exT.lines[0].credit)||0)-amt)<0.005;
+      if(!same){
+        removeJournalBySource('inventoryTrueUp','main');
+        postJournal('inventoryTrueUp','main','2000-01-01','تسوية قيمة المخزون مع الدفاتر',
+          invSide?[{accountId:'inventory',debit:amt,credit:0},{accountId:'equity',debit:0,credit:amt}]
+                 :[{accountId:'equity',debit:amt,credit:0},{accountId:'inventory',debit:0,credit:amt}]);
+      }
+    }
+  }catch(e){ console.error('inventory true-up failed',e); }
 }
 // ترحيل قيود المرتجعات (مبيعات/مشتريات) الناقصة — بيشتغل كل مرة بس بيتحقق الأول إن القيد مش موجود عشان مايكررش أو يأثر على القيود التاريخية الموجودة
 function backfillReturnJournals(){
@@ -3484,6 +3510,7 @@ function seedAccountingIfNeeded(){
     backfillSubCashJournals(); // ترحيل رصيد افتتاحي وحركات الخزنة الفرعية (لو ناقصين)
     backfillSubTransferJournals(); // تحويلات المخزن الفرعي (لو قيدها ناقص)
     cleanupOrphanJournals(); // إصلاح رجعي: يشيل أي قيد يتيم قديم كان اتسجل قبل تصليح حذف العميل/المورد
+    reconcileCogsJournals(); // تاني بعد تنضيف القيود اليتيمة: عشان قيود المخزون وتسوية الفرق تتحسب على الوضع النهائي
     save();
     return;
   }
@@ -3564,7 +3591,7 @@ const SYNC_VOLATILE={stock:['lastSalePrice','lastSalePriceDate','lastPurchasePri
 const SYNC_ID_RE=/^[A-Za-z0-9_\-:.|]{1,120}$/;
 // قيود بيحسبها البرنامج تلقائيًا من الفواتير والحركات وبيعيد ترحيلها كلها من الأول مع كل فتح وكل حفظ (reconcileCogsJournals وأخواتها).
 // دي مبتتزامنش خالص: كل جهاز بيحسبها لوحده من البيانات اللي اتزامنت، وغير كده كانت هتتغيّر بصمتها على طول وتعمل تعارضات وهمية.
-const SYNC_DERIVED_JOURNALS=['invoiceCogs','returnCogs','purReturnCogsAdj','production','checkNote','stockAdjust'];
+const SYNC_DERIVED_JOURNALS=['invoiceCogs','returnCogs','purReturnCogsAdj','production','checkNote','stockAdjust','inventoryTrueUp'];
 function _scIsDerived(coll,rec){ return coll==='journalEntries' && !!rec && SYNC_DERIVED_JOURNALS.indexOf(rec.sourceType)>=0; }
 function _scIsDerivedId(coll,id){ return coll==='journalEntries' && typeof id==='string' && SYNC_DERIVED_JOURNALS.some(t=>id.indexOf(t+'|')===0); }
 
@@ -9503,14 +9530,7 @@ function renderStockValueReport(){
   const _bsToday=accountBalance('inventory',today()).debit;
   const _repTo=document.getElementById('rep_to')?.value||'';
   let reconHtml='';
-  if(Math.abs(_bsAll-grandTotal)>=0.5){
-    const _dg=diagnoseInventoryLedger();
-    const _fix=_dg.issues.some(x=>x.fix);
-    reconHtml='⚠️ فرق '+fmt(Math.abs(_bsAll-grandTotal))+' ج بين الرقم ده ('+fmt(grandTotal)+') ومخزون الميزانية العمومية ('+fmt(_bsAll)+' ج).'
-      +(_dg.issues.length?'<div style="text-align:right;margin-top:6px"><b>الأسباب اللي لقيتها:</b>'+_dg.issues.slice(0,8).map(x=>'<div style="margin-top:4px">• '+esc(x.label)+' — '+esc(x.why)+' (في الدفاتر '+fmt(x.actual)+' / المفروض '+fmt(x.expected)+')</div>').join('')+(_dg.issues.length>8?'<div>… و'+(_dg.issues.length-8)+' كمان</div>':'')+'</div>':'<div style="margin-top:4px">مالقيتش قيد واضح فيه مشكلة — غالبًا صنف اتحذف بعد ما اتشترى/اتباع (قيمته لسه في الدفاتر).</div>')
-      +'<div style="margin-top:6px;font-size:10px;color:var(--tx-717d7e,#717D7E)">صافي المخزون في القيود حسب المصدر: '+Object.keys(_dg.byType).map(t=>esc(t)+' '+fmt(_dg.byType[t])).join(' • ')+'</div>'
-      +(_fix?'<button class="btn-outline" style="width:100%;margin-top:8px" onclick="repairInventoryJournals()">🛠️ تصحيح القيود تلقائيًا</button>':'');
-  }else if(Math.abs(_bsToday-grandTotal)>=0.5){
+  if(Math.abs(_bsToday-grandTotal)>=0.5){
     reconHtml='ℹ️ فيه مستندات بتاريخ بعد النهارده — الميزانية (كما في النهارده) مش بتحسبها لسه.';
   }else if(_repTo && _repTo<today()){
     reconHtml='ℹ️ الميزانية العمومية معروضة كما في '+esc(_repTo)+' (مش النهارده) — لو عايز الرقمين يتطابقوا خلّي "إلى تاريخ" = النهارده.';
