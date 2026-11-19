@@ -927,7 +927,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-14-b</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-a</div>
   </div>
 </div>
 
@@ -3812,9 +3812,37 @@ async function _scCreate(url,signupKey){
   __scState={v:1,fp:{},base:{},since:0,hold:false}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
   _scBoot(); return {ok:true,code:r.j.ws+'.'+r.j.secret};
 }
+// تنضيف كود الربط قبل الفحص: بيشيل الرموز المخفية (علامات الاتجاه/المسافات الصفرية)، بيحوّل الأرقام العربي والشرطات والنقطة الغريبة لشكلها العادي.
+// keepSpaces=true بيسيب المسافات العادية (عشان لو اتلصق كلام حوالين الكود ميلزقش فيه)
+function _scCleanCode(raw,keepSpaces){
+  let t=String(raw==null?'':raw);
+  try{ t=t.normalize('NFKC'); }catch(e){}
+  t=t.replace(/[\u0660-\u0669]/g,c=>String(c.charCodeAt(0)-0x0660)).replace(/[\u06F0-\u06F9]/g,c=>String(c.charCodeAt(0)-0x06F0));
+  t=t.replace(/[\u2010-\u2015\u2212\uFE63\uFF0D]/g,'-').replace(/[\u3002\u2024]/g,'.');
+  t=t.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u00AD]/g,'');
+  if(!keepSpaces) t=t.replace(/\s+/g,''); else t=t.replace(/\u00A0/g,' ');
+  return t;
+}
+// بيطلع ws + secret من أي نص متلصق. بيقبل W_ كبيرة (كيبورد الأيفون بيكبّر أول حرف) وبيرجّع الجزء الأول لحروف صغيرة. الجزء السري بيفضل زي ما هو بالظبط.
+function _scParseCode(raw){
+  const RX=/[wW]_([A-Za-z0-9]{12})\.([A-Za-z0-9_\-]{20,100})/;
+  for(const ks of [true,false]){
+    const m=RX.exec(_scCleanCode(raw,ks));
+    if(m) return {ws:'w_'+m[1].toLowerCase(), secret:m[2]};
+  }
+  return null;
+}
+// معلومات تشخيص عن النص اللي اتلصق (من غير ما نعرض الكود نفسه): بتظهر مع رسالة الخطأ
+function _scCodeDiag(raw){
+  try{
+    const r=String(raw==null?'':raw), t=_scCleanCode(r,false);
+    return {len:t.length, hidden:Math.max(0,r.length-t.length), odd:(t.match(/[^\x20-\x7E]/g)||[]).length, head:/^[wW]_/.test(t), dots:(t.match(/\./g)||[]).length};
+  }catch(e){ return null; }
+}
 async function _scJoin(code,url,devOverride){
-  url=url||_scDefaultUrl(); const m=/^(w_[a-z0-9]{12})\.([A-Za-z0-9_\-]{20,100})$/.exec(String(code||'').trim());
-  if(!m) return {ok:false,error:'bad_code'};
+  url=url||_scDefaultUrl(); const _pc=_scParseCode(code);
+  if(!_pc) return {ok:false,error:'bad_code',diag:_scCodeDiag(code)};
+  const m=[null,_pc.ws,_pc.secret];
   const dev=devOverride||_scNewDev(); const r=await _scPost(url,'/register',{ws:m[1],secret:m[2],device_id:dev});
   if(r.kind!=='ok') return {ok:false,error:r.kind};
   if(!Number.isInteger(r.j.device_no)) return {ok:false,error:'server_old'};   // الخادم لازم يتحدّث عشان نعرف سلسلة الجهاز (من غيرها الترقيم ممكن يتكرر)
@@ -4103,7 +4131,7 @@ async function _scBoot(){
 // شاشة "ربط الأجهزة" — مخفية: بتتفتح بـ 7 ضغطات سريعة على سطر العنوان الفرعي في الهيدر، ومفيش أي زرار أو علامة ظاهرة.
 // حتى لو اتفتحت بالصدفة، إنشاء مساحة جديدة محتاج كود تفعيل من صاحب البرنامج بيتراجع عليه الخادم نفسه.
 // ============================================================
-let __scUiLog=false, __scUiTaps=[], __scUiOpen=false, __scUiMsg='', __scUiShowCode=false, __scUiArm='', __scUiArmT=null;
+let __scUiLog=false, __scUiTaps=[], __scUiOpen=false, __scUiMsg='', __scUiShowCode=false, __scUiArm='', __scUiArmT=null, __scUiCodeDraft='';
 function _scUiInit(){
   try{
     const el=document.querySelector('.header-sub'); if(!el || el.__scTap) return; el.__scTap=true;
@@ -4152,7 +4180,7 @@ function _scRenderPanel(){
       <input id="scKey" type="password" placeholder="كود التفعيل" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;font-family:inherit">
       ${btn('إنشاء المساحة وربط الجهاز','create','#27AE60')}
       <div style="margin-top:16px;font-weight:bold">جهاز إضافي: الانضمام بكود ربط</div>
-      <input id="scCode" type="text" placeholder="كود الربط من الجهاز الأول" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
+      <input id="scCode" type="text" value="${esc(__scUiCodeDraft)}" oninput="__scUiCodeDraft=this.value" placeholder="كود الربط من الجهاز الأول" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
       ${btn('الانضمام','join','#2E86C1')}
       <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7">الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.<br><b>ملحوظة:</b> كود التفعيل بيعمل مساحة جديدة فاضية. لو كنت مربوط قبل كده وعايز ترجع لنفس المساحة، استخدم "إعادة الربط" فوق (لو ظاهرة) أو كود الربط.</div>`;
     let _last=null; try{ _last=DB.get('_syncLast'); }catch(e){}
@@ -4177,7 +4205,7 @@ function _scRenderPanel(){
     }
     if(__scConflicts.length>1) h+=btn(armed('dropall')?'اضغط تاني للتأكيد (النسخ المحفوظة هتتمسح)':'🧹 تجاهل كل التعارضات','dropall','#95A5A6');
     h+=btn(__scUiShowCode?'🙈 إخفاء كود الربط':'🔑 إظهار كود الربط (لإضافة جهاز)','showcode','#8E44AD');
-    if(__scUiShowCode) h+=`<div style="margin-top:8px;padding:10px;border-radius:8px;background:rgba(142,68,173,.12);font-size:12px;line-height:1.8">الكود ده زي كلمة السر: أي حد معاه يقدر يدخل على بياناتك. ابعته بس للجهاز الإضافي بتاعك.<div style="margin-top:6px;direction:ltr;text-align:left;font-family:monospace;font-size:13px;word-break:break-all;user-select:all">${esc(L.ws+'.'+L.secret)}</div></div>`;
+    if(__scUiShowCode) h+=`<div style="margin-top:8px;padding:10px;border-radius:8px;background:rgba(142,68,173,.12);font-size:12px;line-height:1.8">الكود ده زي كلمة السر: أي حد معاه يقدر يدخل على بياناتك. ابعته بس للجهاز الإضافي بتاعك.<div style="margin-top:6px;direction:ltr;text-align:left;font-family:monospace;font-size:13px;word-break:break-all;-webkit-user-select:all;user-select:all">${esc(L.ws+'.'+L.secret)}</div><button class="scCopyBtn" onclick="_scUi('copycode')" style="display:block;width:100%;margin-top:8px;padding:9px;border:none;border-radius:8px;background:#8E44AD;color:#fff;font-weight:bold;font-size:13px;cursor:pointer;font-family:inherit">📋 نسخ الكود</button></div>`;
     h+=btn(__scUiLog?'🙈 إخفاء سجل المزامنة':'🧾 سجل المزامنة (للتشخيص)','log','#7F8C8D');
     if(__scUiLog) h+=`<div style="margin-top:8px;padding:8px;border-radius:8px;background:rgba(0,0,0,.06);font-size:11px;line-height:1.7;direction:ltr;text-align:left;max-height:220px;overflow:auto;font-family:monospace;user-select:all" id="scLogBox">${__scLogBuf.slice(-25).map(x=>esc(x.t+'  '+x.m+(x.n>1?' ×'+x.n:''))).join('<br>')||'—'}</div>`;
     h+=btn(armed('resync')?'اضغط تاني للتأكيد':'⬇️ إعادة تحميل كامل من الخادم','resync','#E67E22');
@@ -4186,22 +4214,33 @@ function _scRenderPanel(){
   }
   h+=`</div>`; o.innerHTML=h;
 }
+// نسخ نص بضغطة (لازم يتنادى مباشرة من ضغطة المستخدم عشان iOS يسمح). بيغيّر كلمة الزرار بس من غير ما يعيد رسم الشاشة
+function _scCopyText(t){
+  const note=(ok)=>{ try{ document.querySelectorAll('.scCopyBtn').forEach(b=>{ const o=b.__o||(b.__o=b.textContent); b.textContent=ok?'✅ اتنسخ':'⚠️ مانفعش، اضغط مطوّل على الكود وانسخه'; setTimeout(()=>{ b.textContent=o; },2500); }); }catch(e){} };
+  const legacy=()=>{ try{ const ta=document.createElement('textarea'); ta.value=t; ta.setAttribute('readonly',''); ta.style.cssText='position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0,t.length); const ok=document.execCommand('copy'); document.body.removeChild(ta); note(!!ok); }catch(e){ note(false); } };
+  try{ if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(()=>note(true)).catch(legacy); return; } }catch(e){}
+  legacy();
+}
 function _scUiArmed(act){ if(__scUiArm===act) return true; __scUiArm=act; clearTimeout(__scUiArmT); __scUiArmT=setTimeout(()=>{ __scUiArm=''; _scRenderPanel(); },5000); _scRenderPanel(); return false; }
 async function _scUi(act,arg){
   try{
     if(act==='close'){ _scClosePanel(); return; }
+    if(act==='copycode'){ const _L=_scLink(); if(_L) _scCopyText(_L.ws+'.'+_L.secret); return; }
     if(act==='create'){
       const key=(document.getElementById('scKey')||{}).value||''; if(!key.trim()){ __scUiMsg='اكتب كود التفعيل'; return _scRenderPanel(); }
       __scUiMsg='⏳ جاري الإنشاء…'; _scRenderPanel();
       const r=await _scCreate(_scDefaultUrl(),key.trim());
-      __scUiMsg=r.ok?`✅ تم الربط. احفظ كود الربط ده في مكان آمن، هتحتاجه لإضافة أجهزة تانية:<div style="direction:ltr;text-align:left;font-family:monospace;margin-top:6px;user-select:all">${esc(r.code)}</div>`:'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
+      __scUiMsg=r.ok?`✅ تم الربط. احفظ كود الربط ده في مكان آمن، هتحتاجه لإضافة أجهزة تانية:<div style="direction:ltr;text-align:left;font-family:monospace;margin-top:6px;-webkit-user-select:all;user-select:all">${esc(r.code)}</div><button class="scCopyBtn" onclick="_scUi('copycode')" style="display:block;width:100%;margin-top:8px;padding:9px;border:none;border-radius:8px;background:#8E44AD;color:#fff;font-weight:bold;font-size:13px;cursor:pointer;font-family:inherit">📋 نسخ الكود</button>`:'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
       if(r.ok) _scCycle('manual'); return;
     }
     if(act==='join'){
       const code=(document.getElementById('scCode')||{}).value||''; if(!code.trim()){ __scUiMsg='اكتب كود الربط'; return _scRenderPanel(); }
+      __scUiCodeDraft=code;   // الكود يفضل ظاهر في الخانة حتى لو حصل خطأ
       __scUiMsg='⏳ جاري الانضمام…'; _scRenderPanel();
-      const r=await _scJoin(code.trim());
-      __scUiMsg=r.ok?'✅ تم الانضمام. بنسحب بيانات الجهاز الأول دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة'); _scRenderPanel();
+      const r=await _scJoin(code);
+      if(r.ok) __scUiCodeDraft='';
+      let _dgTxt=''; if(!r.ok && r.error==='bad_code'){ const g=r.diag; _dgTxt='<div style="margin-top:6px;font-size:12px;line-height:1.7">الكود ناقص أو فيه حرف زيادة. انسخه كامل من الجهاز الأول وجرّب تاني.'+(g?'<br><span style="opacity:.75">طول النص: '+g.len+' (الكود العادي حوالي 47) • رموز مخفية اتشالت: '+g.hidden+' • حروف غريبة: '+g.odd+' • بيبدأ بـ w_: '+(g.head?'نعم':'لا')+' • نقط: '+g.dots+'</span>':'')+'</div>'; }
+      __scUiMsg=r.ok?'✅ تم الانضمام. بنسحب بيانات الجهاز الأول دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة')+_dgTxt; _scRenderPanel();
       if(r.ok) _scCycle('manual'); return;
     }
     if(act==='setname'){
