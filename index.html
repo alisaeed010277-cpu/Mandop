@@ -927,7 +927,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-a</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-c</div>
   </div>
 </div>
 
@@ -3782,6 +3782,10 @@ async function _scPost(url,path,body){
     if(j.error==='signup_closed') return {kind:'signup_closed'};
     if(j.error==='device_limit') return {kind:'device_limit',j};
     if(j.error==='daily_cap') return {kind:'cap',j};
+    if(j.error==='pair_invalid') return {kind:'pair_invalid'};
+    if(j.error==='pair_locked') return {kind:'pair_locked',j};
+    if(j.error==='too_fast') return {kind:'too_fast'};
+    if(j.error==='not_found') return {kind:'server_old'};   // الخادم لسه متحدّثش (مفيش المسار ده عنده)
     if(r.ok && j.ok===true) return {kind:'ok',j};
     return {kind:'offline'};
   }catch(e){ return {kind:'offline'}; }
@@ -3850,6 +3854,15 @@ async function _scJoin(code,url,devOverride){
   // الجهاز المنضم بيسحب الأول ومبيرفعش بياناته القديمة إلا بعد ما المستخدم يراجع ويأكد (_scReleaseHold)
   __scState={v:1,fp:{},base:{},since:0,hold:true}; await _scSaveState(); __scConflicts=[]; await _scSaveConflicts();
   _scBoot(); return {ok:true};
+}
+// الانضمام بكود الربط الرقمي (10 أرقام): بنستلم بيانات الربط من الخادم وبعدين نكمل بنفس مسار _scJoin العادي (حد الأجهزة وباقي القواعد زي ما هي)
+async function _scJoinPair(digits,url){
+  url=url||_scDefaultUrl();
+  const r=await _scPost(url,'/pair/claim',{code:digits});
+  if(r.kind!=='ok' || !r.j || typeof r.j.ws!=='string' || typeof r.j.secret!=='string') return {ok:false,error:r.kind==='ok'?'offline':r.kind};
+  const j=await _scJoin(r.j.ws+'.'+r.j.secret,url);
+  if(!j.ok) j.consumed=true;   // الكود اتستخدم فعلًا، فلو فشل بعد كده لازم كود جديد
+  return j;
 }
 async function _scReleaseHold(){ if(__scState){ __scState.hold=false; await _scSaveState(); } }
 async function _scUnlink(forget){     // بيوقف المزامنة فورًا، من غير ما يمس أي بيانات محلية
@@ -4157,7 +4170,7 @@ function _scUpdateDot(){
 function _scOpenPanel(){ __scUiOpen=true; __scUiMsg=''; __scUiShowCode=false; _scRenderPanel(); }
 function _scClosePanel(){ __scUiOpen=false; const o=document.getElementById('scPanel'); if(o) o.remove(); }
 const SC_STATE_TXT={off:'غير مربوط',syncing:'⏳ جاري المزامنة…',ok:'✅ متزامن',offline:'📴 أوفلاين — شغلك محفوظ على الجهاز وهيتزامن لما الاتصال يرجع',hold:'✋ في انتظار مراجعتك',brake:'⚠️ وقفنا قبل دمج كبير',cap:'⏸ وصلت للحد اليومي',disabled:'⛔ المزامنة موقوفة من الخادم',upgrade:'⬆️ لازم تحدّث البرنامج',unauthorized:'⛔ كود الربط غير صحيح'};
-const SC_ERR_TXT={bad_code:'الكود غير صحيح',signup_closed:'كود التفعيل غلط',bad_credentials:'كود الربط غير صحيح',unauthorized:'كود الربط غير صحيح',device_limit:'وصلت للحد الأقصى للأجهزة',offline:'مفيش اتصال بالخادم، جرّب تاني',server_old:'الخادم محتاج تحديث',disabled:'الخادم موقوف حاليًا',upgrade:'لازم تحدّث البرنامج',cap:'وصلت للحد اليومي'};
+const SC_ERR_TXT={pair_invalid:'الكود غلط أو انتهت مدته (10 دقايق). اطلب كود جديد من الجهاز الأول',pair_locked:'محاولات غلط كتير. استنى دقيقة وجرّب تاني',too_fast:'استنى ثواني وجرّب تاني',bad_code:'الكود غير صحيح',signup_closed:'كود التفعيل غلط',bad_credentials:'كود الربط غير صحيح',unauthorized:'كود الربط غير صحيح',device_limit:'وصلت للحد الأقصى للأجهزة',offline:'مفيش اتصال بالخادم، جرّب تاني',server_old:'الخادم محتاج تحديث',disabled:'الخادم موقوف حاليًا',upgrade:'لازم تحدّث البرنامج',cap:'وصلت للحد اليومي'};
 function _scRenderPanel(){
   if(!__scUiOpen) return;
   let o=document.getElementById('scPanel');
@@ -4179,10 +4192,10 @@ function _scRenderPanel(){
     h+=`<div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>
       <input id="scKey" type="password" placeholder="كود التفعيل" autocomplete="off" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;font-family:inherit">
       ${btn('إنشاء المساحة وربط الجهاز','create','#27AE60')}
-      <div style="margin-top:16px;font-weight:bold">جهاز إضافي: الانضمام بكود ربط</div>
-      <input id="scCode" type="text" value="${esc(__scUiCodeDraft)}" oninput="__scUiCodeDraft=this.value" placeholder="كود الربط من الجهاز الأول" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
+      <div style="margin-top:16px;font-weight:bold">جهاز إضافي: الانضمام بكود الربط (10 أرقام)</div>
+      <input id="scCode" type="text" value="${esc(__scUiCodeDraft)}" oninput="__scUiCodeDraft=this.value" placeholder="كود الربط (10 أرقام)" inputmode="numeric" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%;margin-top:6px;padding:10px;border:1px solid #bbb;border-radius:8px;box-sizing:border-box;direction:ltr;font-family:inherit">
       ${btn('الانضمام','join','#2E86C1')}
-      <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7">الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.<br><b>ملحوظة:</b> كود التفعيل بيعمل مساحة جديدة فاضية. لو كنت مربوط قبل كده وعايز ترجع لنفس المساحة، استخدم "إعادة الربط" فوق (لو ظاهرة) أو كود الربط.</div>`;
+      <div style="margin-top:10px;font-size:12px;opacity:.75;line-height:1.7"><b>الأسهل:</b> من الجهاز الأول اضغط "🔢 إضافة جهاز بكود أرقام" واكتب الأرقام هنا (الكود الطويل القديم لسه بيشتغل).<br>الجهاز الإضافي بيسحب بيانات الجهاز الأول الأول، وبياناته القديمة مش بتترفع غير بعد ما تراجع وتأكد.<br><b>ملحوظة:</b> كود التفعيل بيعمل مساحة جديدة فاضية. لو كنت مربوط قبل كده وعايز ترجع لنفس المساحة، استخدم "إعادة الربط" فوق (لو ظاهرة) أو كود الربط.</div>`;
     let _last=null; try{ _last=DB.get('_syncLast'); }catch(e){}
     if(_last && _last.ws){
       h=h.replace('<div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>',`<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(46,134,193,.12);font-size:13px;line-height:1.8"><b>آخر مساحة كنت مربوط بيها:</b><div style="direction:ltr;text-align:left;font-family:monospace;font-size:12px">${esc(_last.ws)}</div>${btn('↩️ إعادة الربط بنفس المساحة','rejoin','#2E86C1')}${btn('نسيان المساحة دي','forgetlast','#95A5A6')}</div><div style="margin-top:14px;font-weight:bold">جهاز أول: إنشاء مساحة جديدة</div>`);
@@ -4204,7 +4217,8 @@ function _scRenderPanel(){
         <div style="display:flex;gap:6px;margin-top:6px"><button onclick="_scUi('restore',${i})" style="flex:1;padding:7px;border:none;border-radius:6px;background:#2E86C1;color:#fff;cursor:pointer;font-family:inherit">استعادة نسختي</button><button onclick="_scUi('drop',${i})" style="flex:1;padding:7px;border:none;border-radius:6px;background:#95A5A6;color:#fff;cursor:pointer;font-family:inherit">تجاهل</button></div></div>`; });
     }
     if(__scConflicts.length>1) h+=btn(armed('dropall')?'اضغط تاني للتأكيد (النسخ المحفوظة هتتمسح)':'🧹 تجاهل كل التعارضات','dropall','#95A5A6');
-    h+=btn(__scUiShowCode?'🙈 إخفاء كود الربط':'🔑 إظهار كود الربط (لإضافة جهاز)','showcode','#8E44AD');
+    h+=btn('🔢 إضافة جهاز بكود أرقام (الأسهل)','paircode','#27AE60');
+    h+=btn(__scUiShowCode?'🙈 إخفاء الكود الطويل':'🔑 إظهار كود الربط الطويل (بديل)','showcode','#8E44AD');
     if(__scUiShowCode) h+=`<div style="margin-top:8px;padding:10px;border-radius:8px;background:rgba(142,68,173,.12);font-size:12px;line-height:1.8">الكود ده زي كلمة السر: أي حد معاه يقدر يدخل على بياناتك. ابعته بس للجهاز الإضافي بتاعك.<div style="margin-top:6px;direction:ltr;text-align:left;font-family:monospace;font-size:13px;word-break:break-all;-webkit-user-select:all;user-select:all">${esc(L.ws+'.'+L.secret)}</div><button class="scCopyBtn" onclick="_scUi('copycode')" style="display:block;width:100%;margin-top:8px;padding:9px;border:none;border-radius:8px;background:#8E44AD;color:#fff;font-weight:bold;font-size:13px;cursor:pointer;font-family:inherit">📋 نسخ الكود</button></div>`;
     h+=btn(__scUiLog?'🙈 إخفاء سجل المزامنة':'🧾 سجل المزامنة (للتشخيص)','log','#7F8C8D');
     if(__scUiLog) h+=`<div style="margin-top:8px;padding:8px;border-radius:8px;background:rgba(0,0,0,.06);font-size:11px;line-height:1.7;direction:ltr;text-align:left;max-height:220px;overflow:auto;font-family:monospace;user-select:all" id="scLogBox">${__scLogBuf.slice(-25).map(x=>esc(x.t+'  '+x.m+(x.n>1?' ×'+x.n:''))).join('<br>')||'—'}</div>`;
@@ -4225,6 +4239,17 @@ function _scUiArmed(act){ if(__scUiArm===act) return true; __scUiArm=act; clearT
 async function _scUi(act,arg){
   try{
     if(act==='close'){ _scClosePanel(); return; }
+    if(act==='paircode'){
+      if(typeof isRestrictedRole==='function' && isRestrictedRole()) return;
+      __scUiMsg='⏳ جاري عمل الكود…'; _scRenderPanel();
+      const r=await _scCall('/pair/create',{});
+      if(r.kind==='ok' && r.j && /^[0-9]{10}$/.test(String(r.j.code||''))){
+        const c=String(r.j.code), g=c.slice(0,5)+' '+c.slice(5);
+        const till=new Date(Date.now()+((Number(r.j.expires_in)||600)*1000)).toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
+        __scUiMsg='🔢 كود الجهاز الجديد:<div style="direction:ltr;text-align:center;font-family:monospace;font-size:30px;font-weight:bold;letter-spacing:3px;margin:8px 0;-webkit-user-select:all;user-select:all">'+g+'</div>اكتبه في خانة "الانضمام" على الجهاز التاني. بيشتغل مرة واحدة بس، وصالح لحد الساعة '+esc(till)+' (10 دقايق).';
+      } else __scUiMsg='❌ '+(SC_ERR_TXT[r.kind]||'حصلت مشكلة، جرّب تاني');
+      return _scRenderPanel();
+    }
     if(act==='copycode'){ const _L=_scLink(); if(_L) _scCopyText(_L.ws+'.'+_L.secret); return; }
     if(act==='create'){
       const key=(document.getElementById('scKey')||{}).value||''; if(!key.trim()){ __scUiMsg='اكتب كود التفعيل'; return _scRenderPanel(); }
@@ -4237,9 +4262,11 @@ async function _scUi(act,arg){
       const code=(document.getElementById('scCode')||{}).value||''; if(!code.trim()){ __scUiMsg='اكتب كود الربط'; return _scRenderPanel(); }
       __scUiCodeDraft=code;   // الكود يفضل ظاهر في الخانة حتى لو حصل خطأ
       __scUiMsg='⏳ جاري الانضمام…'; _scRenderPanel();
-      const r=await _scJoin(code);
+      const _cl=_scCleanCode(code,true), _d10=_cl.replace(/\D/g,'');
+      const r=(!_scParseCode(code) && /^[0-9\s.\-]+$/.test(_cl) && _d10.length===10) ? await _scJoinPair(_d10) : await _scJoin(code);
       if(r.ok) __scUiCodeDraft='';
-      let _dgTxt=''; if(!r.ok && r.error==='bad_code'){ const g=r.diag; _dgTxt='<div style="margin-top:6px;font-size:12px;line-height:1.7">الكود ناقص أو فيه حرف زيادة. انسخه كامل من الجهاز الأول وجرّب تاني.'+(g?'<br><span style="opacity:.75">طول النص: '+g.len+' (الكود العادي حوالي 47) • رموز مخفية اتشالت: '+g.hidden+' • حروف غريبة: '+g.odd+' • بيبدأ بـ w_: '+(g.head?'نعم':'لا')+' • نقط: '+g.dots+'</span>':'')+'</div>'; }
+      let _dgTxt=''; if(!r.ok && r.error==='bad_code'){ const g=r.diag; _dgTxt='<div style="margin-top:6px;font-size:12px;line-height:1.7">اكتب الكود الرقمي (10 أرقام) من الجهاز الأول، أو الصق الكود الطويل كامل.'+(g?'<br><span style="opacity:.75">طول النص: '+g.len+' (الكود العادي حوالي 47) • رموز مخفية اتشالت: '+g.hidden+' • حروف غريبة: '+g.odd+' • بيبدأ بـ w_: '+(g.head?'نعم':'لا')+' • نقط: '+g.dots+'</span>':'')+'</div>'; }
+      if(!r.ok && r.consumed) _dgTxt='<div style="margin-top:6px;font-size:12px">الكود اتستخدم. اطلب كود جديد من الجهاز الأول.</div>';
       __scUiMsg=r.ok?'✅ تم الانضمام. بنسحب بيانات الجهاز الأول دلوقتي…':'❌ '+(SC_ERR_TXT[r.error]||'حصلت مشكلة')+_dgTxt; _scRenderPanel();
       if(r.ok) _scCycle('manual'); return;
     }
@@ -10528,17 +10555,41 @@ function buildExportBlob(){
     exportDate:new Date().toISOString()};
   return new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
 }
+// الأيفون: التنزيل الصامت/بالضغطة بيتحجب أو بيفتح الملف من غير ما يتحفظ، فالمشاركة («حفظ في الملفات») هي الطريقة المضمونة هناك
+function _isIOSDevice(){
+  try{ return /iPad|iPhone|iPod/.test(navigator.userAgent||'') || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1); }catch(e){ return false; }
+}
+function _bkIOSCanShare(){
+  try{ const f=new File(['x'],'a.txt',{type:'text/plain'}); return !!(navigator.share && navigator.canShare && navigator.canShare({files:[f]})); }catch(e){ return false; }
+}
+// بترجع 'ok' (قائمة المشاركة اتكملت) | 'cancel' (المستخدم قفلها) | 'fail' (المشاركة مش شغالة). لازم تتنادى مباشرة من ضغطة المستخدم
+async function _bkShareIOS(){
+  try{
+    const file=new File([buildExportBlob()],_bkManualFileName('txt'),{type:'text/plain'});
+    if(!(navigator.share && navigator.canShare && navigator.canShare({files:[file]}))) return 'fail';
+    await navigator.share({files:[file],title:'نسخة احتياطية',text:'اختار «حفظ في الملفات» أو ابعتها لنفسك على واتساب'});
+    return 'ok';
+  }catch(e){ return (e && e.name==='AbortError') ? 'cancel' : 'fail'; }
+}
 function markExported(){
   DB.set('_lastExport', new Date().toISOString());
   hideExportReminder();
   try{ _renderDailyBackupBar(); }catch(e){}
 }
 function doExportDevice(){
+  if(_isIOSDevice() && _bkIOSCanShare()){ return doExportShare(); }   // أيفون: المشاركة أضمن، وبتتسجل نجاح بس لو اكتملت
   const blob=buildExportBlob();
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download=_bkManualFileName('json');a.click();
-  URL.revokeObjectURL(url);
+  a.href=url;a.download=_bkManualFileName('json');
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),3000);   // الإلغاء الفوري كان بيقطع التنزيل على Safari قبل ما يبدأ
+  if(_isIOSDevice()){
+    // أيفون من غير مشاركة: مفيش تأكيد إن الملف اتحفظ، فمبنسجّلش نسخة مؤكدة (التنبيه اليومي يفضل لحد ما تتحفظ فعلًا)
+    document.getElementById('exportModal').style.display='none';
+    setTimeout(()=>showToast('⚠️ لو الملف ما ظهرش في تطبيق «الملفات» ← Downloads، جرّب تاني من Safari.'),300);
+    return;
+  }
   markExported();
   document.getElementById('exportModal').style.display='none';
 }
@@ -10556,7 +10607,7 @@ async function doExportShare(){
   const canShareFiles = !!(navigator.share && navigator.canShare && navigator.canShare({files:[file]}));
   if(canShareFiles){
     try{
-      await navigator.share({files:[file],title:'نسخة احتياطية',text:'اختار "حفظ في Drive" عشان تتحفظ في جوجل درايف بتاعك انت'});
+      await navigator.share({files:[file],title:'نسخة احتياطية',text:(_isIOSDevice()?'اختار «حفظ في الملفات» أو ابعتها لنفسك على واتساب':'اختار "حفظ في Drive" عشان تتحفظ في جوجل درايف بتاعك انت')});
       markExported();
       return;
     }catch(e){
@@ -10572,8 +10623,14 @@ async function doExportShare(){
   // بديل احتياطي: لو المتصفح مش بيدعم مشاركة الملفات، أو المشاركة فشلت لأي سبب تاني — الملف المحلي فاضل .json زي العادة
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download=fileName;a.click();
-  URL.revokeObjectURL(url);
+  a.href=url;a.download=fileName;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  if(_isIOSDevice()){
+    // أيفون: مفيش تأكيد إن الملف اتحفظ، فمبنسجّلش نسخة مؤكدة. التنبيه اليومي هيفضل لحد ما النسخة تتحفظ فعلًا
+    setTimeout(()=>showToast('⚠️ المشاركة مش شغالة على الجهاز ده. لو الملف ما ظهرش في تطبيق «الملفات» ← Downloads، جرّب تاني من Safari.'),300);
+    return;
+  }
   markExported();
   setTimeout(()=>showToast('✅ تم حفظ الملف على جهازك (المشاركة المباشرة معرفتش تشتغل على المتصفح ده دلوقتي).\nافتح تطبيق جوجل درايف أو جيميل وارفع الملف من مجلد التنزيلات (Downloads).'),300);
 }
@@ -10614,7 +10671,9 @@ function checkAutoBackup(){
   if(!hasData || !__dataLoaded) return; // مفيش داعي لباك أب فاضي على جهاز جديد لسه ملوش بيانات
   if(DB.get('_bkAutoDay')!==today()){
     __bkAutoErr=false;
-    try{ _bkDownloadDaily(); }catch(e){ __bkAutoErr=true; console.error('فشل الباك أب التلقائي', e); }
+    if(!_isIOSDevice()){   // أيفون: التنزيل الصامت بيتحجب، فبنعتمد على زرار الشريط (مشاركة بلمسة)
+      try{ _bkDownloadDaily(); }catch(e){ __bkAutoErr=true; console.error('فشل الباك أب التلقائي', e); }
+    }
     DB.set('_bkAutoDay', today());
   }
   try{ _snapWrite(true).catch(e=>console.warn('snapshot failed (ignored):', e)); }catch(e){}
@@ -10628,19 +10687,33 @@ function _renderDailyBackupBar(){
   }
   const last=_bkLastOkMs();
   const days=last?Math.floor((Date.now()-last)/86400000):null;
-  const stale=(days===null || days>=3);
-  let txt = __bkAutoErr
+  const _ios=_isIOSDevice(), _staleDays=_ios?2:3;
+  const stale=(days===null || days>=_staleDays);
+  let txt = _ios
+    ? '📥 احفظ نسخة النهاردة: اضغط «احفظ النسخة» واختار «حفظ في الملفات» (أو ابعتها لنفسك على واتساب). على الأيفون النسخة مش بتنزل لوحدها.'
+    : __bkAutoErr
     ? '⚠️ النسخة التلقائية لليوم ما نزلتش. اضغط «نزّلها دلوقتي».'
     : '📥 اتجهّزت نسخة اليوم تلقائيًا باسم «'+_bkDailyFileName()+'». اتأكد إنها في مجلد التنزيلات — ولو مش لاقيها اضغط «نزّلها دلوقتي».';
   if(days===null) txt+=' (لسه مفيش نسخة مؤكدة)';
-  else if(days>=3) txt+=' (آخر نسخة مؤكدة من '+days+' يوم)';
+  else if(days>=_staleDays) txt+=' (آخر نسخة مؤكدة من '+days+' يوم)';
   el.querySelector('.bk-text').textContent=txt;
+  try{
+    const bd=el.querySelector('button[onclick="_bkBarDownload()"]'), bc=el.querySelector('button[onclick="_bkBarConfirm()"]');
+    if(bd) bd.textContent=_ios?'احفظ النسخة':'نزّلها دلوقتي';
+    if(bc) bc.style.display=_ios?'none':'';   // أيفون: مفيش ملف تلقائي نلاقيه، فمفيش «لقيتها»
+  }catch(e){}
   el.style.background=stale?'var(--bg-fadbd8,#FADBD8)':'var(--bg-fcf3cf,#FCF3CF)';
   el.style.borderBottomColor=stale?'#E74C3C':'#F1C40F';
   el.querySelector('.bk-text').style.color=stale?'var(--tx-922b21,#922B21)':'var(--tx-7d6608,#7D6608)';
   el.style.display='flex';
 }
-function _bkBarDownload(){
+async function _bkBarDownload(){
+  if(_isIOSDevice()){
+    const r=await _bkShareIOS();
+    if(r==='ok'){ DB.set('_bkOkAt', new Date().toISOString()); __bkAutoErr=false; showToast('✅ تمت المشاركة. اتأكد إنك اخترت «حفظ في الملفات» أو بعتها لنفسك'); }
+    else if(r==='fail') showToast('❌ المشاركة مش شغالة على الجهاز ده. جرّب زرار 💾 تصدير من Safari');
+    _renderDailyBackupBar(); return;
+  }
   try{
     _bkDownloadDaily();
     DB.set('_bkOkAt', new Date().toISOString());
