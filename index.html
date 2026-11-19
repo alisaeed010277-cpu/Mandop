@@ -927,7 +927,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-c</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-d</div>
   </div>
 </div>
 
@@ -7155,11 +7155,11 @@ function buildDocInnerHtml(title, bodyHtml, logoSvg){
 }
 
 // نافذة طباعة تقليدية — تُستخدم فقط كـ fallback لو المشاركة المباشرة مش مدعومة على الجهاز
-function printDocument(title, bodyHtml){
+function printDocument(title, bodyHtml, fileTitle){
   const logoSvg = `<img src="${APP_LOGO_NORMAL}" width="60" height="60" style="border-radius:50%">`;
   const win = window.open('', '_blank');
   if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع أو تحفظ PDF'); return; }
-  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${esc(title)}</title>
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${esc(fileTitle||title)}</title>
   <style>${DOC_STYLE}</style></head><body>
     ${buildDocInnerHtml(title, bodyHtml, logoSvg)}
     <script>window.onload=function(){setTimeout(function(){window.print();},250);};<\/script>
@@ -7382,17 +7382,39 @@ const ARABIC_TO_LATIN_MAP={
   'ي':'y','ى':'a','ة':'a','ء':'','ئ':'e','ؤ':'o','ٱ':'a',
   '٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9'
 };
-function safeFileName(str){
+// مفتاح واحد: true = اسم الملف بالعربي (فاتورة أحمد محمد.pdf) — false = يرجع للتحويل اللاتيني القديم لو ظهرت مشكلة على جهاز معين
+const KEEP_ARABIC_FILENAMES=true;
+function _latinFileName(str){
   if(!str) return 'file';
   let out='';
   for(const ch of String(str)){
     if(ARABIC_TO_LATIN_MAP[ch]!==undefined) out+=ARABIC_TO_LATIN_MAP[ch];
     else if(/[A-Za-z0-9._-]/.test(ch)) out+=ch;
     else if(/\s/.test(ch)) out+=' ';
-    // أي رمز تاني (تشكيل، علامات ترقيم عربي..) بيتجاهل بدل ما يتحول لرموز غريبة
   }
   out=out.replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^[-.]+|[-.]+$/g,'');
   return out||'file';
+}
+// تنضيف اسم الملف العربي عشان يشتغل على أندرويد وآيفون وويندوز: بيشيل الرموز الممنوعة في الويندوز والأندرويد
+// (\ / : * ? " < > |) وعلامات الاتجاه الخفية والتشكيل والتطويل والإيموجي، ويوحّد شكل الحروف (NFC)، ويقصّ الاسم الطويل
+function safeFileName(str){
+  if(!KEEP_ARABIC_FILENAMES) return _latinFileName(str);
+  try{
+    let name=String(str||'').normalize('NFC');
+    let ext='';
+    const m=name.match(/\.(pdf|json|txt)$/i);
+    if(m){ ext=m[0].toLowerCase(); name=name.slice(0,-m[0].length); }
+    name=name
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u061C]/g,'')   // علامات الاتجاه والمسافات الصفرية
+      .replace(/[\u064B-\u065F\u0670\u0640]/g,'')                              // التشكيل والتطويل
+      .replace(/[\u0000-\u001F\u007F\\\/:*?"<>|#%]/g,' ');                     // رموز ممنوعة في أسماء الملفات
+    try{ name=name.replace(/[\p{Extended_Pictographic}\uFE0F]/gu,''); }catch(e){}
+    name=name.replace(/\s+/g,' ').replace(/^[\s.\-]+|[\s.\-]+$/g,'');
+    const chars=Array.from(name);
+    if(chars.length>80) name=chars.slice(0,80).join('').replace(/[\s.\-]+$/g,'');
+    if(!name || /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(name)) name='ملف'+(name?' '+name:'');
+    return name+ext;
+  }catch(e){ return _latinFileName(str); }
 }
 
 async function sendDocument(title, bodyHtml, filename){
@@ -7410,11 +7432,11 @@ async function sendDocument(title, bodyHtml, filename){
       a.href=url; a.download=safeFilename;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(url),5000);
-    }, ()=>printDocument(title, bodyHtml));
+    }, ()=>printDocument(title, bodyHtml, safeFilename.replace(/\.pdf$/i,'')));
   }catch(err){
     if(err && err.name==='AbortError') return;
     console.error(err);
-    printDocument(title, bodyHtml);
+    printDocument(title, bodyHtml, safeFilename.replace(/\.pdf$/i,''));
   }
 }
 
@@ -7570,8 +7592,8 @@ async function printClientStatement(cid, from='', to=''){
     </div>
     ${(rows.length===0&&!showCarry)?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>`}
     <div class="doc-total">${balLbl}: ${fmt(Math.abs(bal))} جنيه</div>`;
-  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
-  await sendDocument(`كشف حساب: ${c.name}`, body, `كشف-حساب-${c.name}${suffix}.pdf`);
+  const suffix=(from||to)?` من ${from||'البداية'} إلى ${to||today()}`:'';
+  await sendDocument(`كشف حساب: ${c.name}`, body, `كشف حساب ${c.name}${suffix}.pdf`);
 }
 
 function renderClientDetail(){
@@ -8495,7 +8517,7 @@ async function printInvoice(invId){
     <div class="doc-total">الإجمالي: ${fmt(inv.total)} جنيه</div>
     ${invoiceBalanceBoxHtml(inv)}
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة #${docNo(inv)}${bkTxt(inv)}`, body, `فاتورة-${docNo(inv)}.pdf`);
+  await sendDocument(`فاتورة #${docNo(inv)}${bkTxt(inv)}`, body, `فاتورة ${(c&&c.name&&String(c.name).trim())?c.name:('رقم '+docNo(inv))}.pdf`);
 }
 
 async function printInvoicesSummaryPdf(from,to){
@@ -13471,8 +13493,8 @@ async function printSupplierStatement(sid, from='', to=''){
     </div>
     ${(rows.length===0&&!showCarry)?'<div style="text-align:center;color:#717D7E;padding:20px 0">لا توجد حركات</div>':`<table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${tableRows}</tbody></table>`}
     <div class="doc-total">${balLbl}: ${fmt(Math.abs(bal))} جنيه</div>`;
-  const suffix=(from||to)?`-${from||'البداية'}-إلى-${to||today()}`:'';
-  await sendDocument(`كشف حساب مورد: ${s.name}`, body, `كشف-حساب-مورد-${s.name}${suffix}.pdf`);
+  const suffix=(from||to)?` من ${from||'البداية'} إلى ${to||today()}`:'';
+  await sendDocument(`كشف حساب مورد: ${s.name}`, body, `كشف حساب ${s.name}${suffix}.pdf`);
 }
 
 // ===== PURCHASES =====
@@ -14592,7 +14614,7 @@ async function printPurchase(purId){
     <div class="doc-total">الإجمالي: ${fmt(pur.total)} جنيه</div>
     ${purchaseBalanceBoxHtml(pur)}
     <div class="doc-signature"><div class="lbl">المستلم</div><div class="line"></div></div>`;
-  await sendDocument(`فاتورة مشتريات #${docNo(pur)}${bkTxt(pur)}`, body, `فاتورة-مشتريات-${docNo(pur)}.pdf`);
+  await sendDocument(`فاتورة مشتريات #${docNo(pur)}${bkTxt(pur)}`, body, `فاتورة ${(s&&s.name&&String(s.name).trim())?s.name:('رقم '+docNo(pur))}.pdf`);
 }
 
 async function printPurchasesSummaryPdf(from,to){
