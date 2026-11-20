@@ -7931,7 +7931,7 @@ function renderInvoices(){
       </div>
       ${bonusQty>0||l.discount>0?`<div class="bonus-box">
         ${l.discount>0?`✂️ خصم ${lineDiscTxt(l)} ${l.discMode==='amt'?'على إجمالي الصنف':'على السعر'}`:''}
-        ${bonusQty>0?` &nbsp;🎁 ${bonusQty} ${lineUnitLabel(l)||'وحدة'} هدية (تُخصم من المخزن بدون حساب)`:''}
+        ${bonusQty>0?` &nbsp;🎁 ${bonusQty} ${lineUnitLabel(l)||'وحدة'} هدية (تُخصم من المخزن بدون حساب)${!(Number(l.qty)>0)?' — <b>صنف بونص فقط (بدون بيع)</b>':''}`:''}
       </div>`:''}
       ${lineDupWarnHtml(invLines,l)}
       ${lineDiscWarnHtml(l)}
@@ -8186,7 +8186,9 @@ function _saveInvoiceCore(clientId, date, isCash, downPayment=0, bookNo=''){
   invLines=invLines.map(syncLineDisc); // نسبة الخصم بتتحسب من المبلغ لو السطر خصمه نقدي
   for(const l of invLines){
     if(!l.productId && !l.productName.trim()) continue;
-    if(!(Number(l.qty)>0)){showToast('أدخل كمية صحيحة (أكبر من صفر) لكل صنف');return;}
+    {const _lq=Number(l.qty), _lb=Number(l.bonus)||0;
+      if(!(_lq>=0)){showToast('الكمية مش صحيحة (مينفعش تكون بالسالب)');return;}
+      if(!(_lq>0) && !(_lb>0)){showToast('أدخل كمية أو بونص لكل صنف');return;}}
     if(Number(l.price)<0){showToast('السعر مينفعش يكون بالسالب');return;}
     if(l.discMode==='amt' && !l.saleUnit){
       const _da=Number(l.discAmt)||0;
@@ -12867,6 +12869,7 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       const mainQty=lineMainQty(l), mainBonus=lineMainBonus(l);
       e.qty+=mainQty;
       e.bonusQty+=mainBonus;
+      if(!(Number(l.qty)>0) && mainBonus>0) e.bonusOnly=true;
       e.revenue+=Number(l.qty)*afterLineDiscount*overallFactor;
       e.cost+=byLine.get(l)||0;
     });
@@ -12881,7 +12884,7 @@ function renderItemProfitabilityHtml(fromVal,toVal){
       e.cost-=byLine.get(l)||0;
     });
   });
-  let rows=Object.values(map).filter(r=>Math.abs(r.qty)>0.001||Math.abs(r.revenue)>0.001);
+  let rows=Object.values(map).filter(r=>Math.abs(r.qty)>0.001||Math.abs(r.revenue)>0.001||r.bonusOnly);
   if(rows.length===0) return '<div class="empty">لسه مفيش أصناف اتباعت في الفترة دي</div>';
   rows.forEach(r=>{ r.profit=r.revenue-r.cost; r.margin=r.revenue?(r.profit/r.revenue*100):0; });
   rows.sort((a,b)=> itemProfitSort==='qty' ? (b.qty-a.qty) : (b.profit-a.profit));
@@ -13599,7 +13602,7 @@ function renderPurchases(){
         </div>
         ${bonusQty>0||l.discount>0?`<div class="bonus-box">
           ${l.discount>0?`✂️ خصم ${lineDiscTxt(l)} ${l.discMode==='amt'?'على إجمالي الصنف':'على السعر'}`:''}
-          ${bonusQty>0?` &nbsp;🎁 ${bonusQty} وحدة هدية من المورد (بتتضاف للمخزن من غير حساب)`:''}
+          ${bonusQty>0?` &nbsp;🎁 ${bonusQty} وحدة هدية من المورد (بتتضاف للمخزن من غير حساب)${!(Number(l.qty)>0)?' — <b>صنف بونص فقط (بدون شراء)</b>':''}`:''}
         </div>`:''}
         ${lineDupWarnHtml(purchaseLines,l)}
         ${lineDiscWarnHtml(l)}
@@ -14316,7 +14319,9 @@ function savePurchase(){
   purchaseLines=purchaseLines.map(syncLineDisc); // نسبة الخصم بتتحسب من المبلغ لو السطر خصمه نقدي
   for(const l of purchaseLines){
     if(!l.productId && !l.productName.trim()) continue;
-    if(!(Number(l.qty)>0)){showToast('أدخل كمية صحيحة (أكبر من صفر) لكل صنف');return;}
+    {const _lq=Number(l.qty), _lb=Number(l.bonus)||0;
+      if(!(_lq>=0)){showToast('الكمية مش صحيحة (مينفعش تكون بالسالب)');return;}
+      if(!(_lq>0) && !(_lb>0)){showToast('أدخل كمية أو بونص لكل صنف');return;}}
     if(Number(l.price)<0){showToast('السعر مينفعش يكون بالسالب');return;}
     if(l.discMode==='amt'){
       const _da=Number(l.discAmt)||0;
