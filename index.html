@@ -2395,23 +2395,38 @@ function _bcsLoadScript(src){
   });
 }
 // لو المتصفح بيدعم قراءة الباركود أصلًا (زي كروم أندرويد) منحملش أي حاجة زيادة من النت
-async function _bcsEnsureLib(){
-  if(window.BarcodeDetector){ _bcsLibState='ready'; return true; }
-  if(_bcsLibState==='ready') return true;
-  if(_bcsLibState==='failed') return false;
-  try{
-    _bcsLibState='loading';
-    for(const url of BCS_LIB_URLS){ await _bcsLoadScript(url); }
-    if(!window.BarcodeDetector && window.barcodeDetectorPolyfill && window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill){
-      window.BarcodeDetector=window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill;
+// ملحوظة مهمة: مكتبة القراءة بتعرّف اسمها بـ const على مستوى السكريبت، والـ const ده مش بيتحط على window —
+// فالوصول ليها لازم يكون بالاسم المباشر (ده كان سبب فشل المسح على الآيفون/سفاري مع إن النت شغال).
+function _bcsGetPolyfillClass(){
+  try{ if(window.barcodeDetectorPolyfill && window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill) return window.barcodeDetectorPolyfill.BarcodeDetectorPolyfill; }catch(e){}
+  try{ if(typeof barcodeDetectorPolyfill!=='undefined' && barcodeDetectorPolyfill && barcodeDetectorPolyfill.BarcodeDetectorPolyfill) return barcodeDetectorPolyfill.BarcodeDetectorPolyfill; }catch(e){}
+  return null;
+}
+const _bcsLoadedUrls={};
+let _bcsLibPromise=null;
+function _bcsEnsureLib(){
+  if(window.BarcodeDetector){ _bcsLibState='ready'; return Promise.resolve(true); }
+  if(_bcsLibState==='ready') return Promise.resolve(true);
+  if(_bcsLibPromise) return _bcsLibPromise; // لو الضغطة اتكررت والتحميل شغال بالفعل
+  _bcsLibPromise=(async()=>{
+    try{
+      _bcsLibState='loading';
+      for(const url of BCS_LIB_URLS){
+        if(!_bcsLoadedUrls[url]){ await _bcsLoadScript(url); _bcsLoadedUrls[url]=1; }
+      }
+      const Poly=_bcsGetPolyfillClass();
+      if(!window.BarcodeDetector && Poly){ window.BarcodeDetector=Poly; }
+      if(!window.BarcodeDetector) throw new Error('polyfill-missing');
+      _bcsLibState='ready';
+      return true;
+    }catch(e){
+      _bcsLibState='idle'; // مش 'failed' نهائي — لو النت قطع لحظة يقدر يجرّب تاني من غير ما يقفل التطبيق
+      return false;
+    }finally{
+      _bcsLibPromise=null;
     }
-    if(!window.BarcodeDetector) throw new Error('polyfill-missing');
-    _bcsLibState='ready';
-    return true;
-  }catch(e){
-    _bcsLibState='failed';
-    return false;
-  }
+  })();
+  return _bcsLibPromise;
 }
 async function openCameraBarcodeScanner(onResult){
   _bcsOnResult=onResult;
@@ -2462,10 +2477,12 @@ async function openCameraBarcodeScanner(onResult){
     }
   }
   statusEl.textContent='وجّه الكاميرا ناحية الباركود...';
+  let _bcsErrRun=0; // فريمات متتالية فشلت تمامًا (مش مجرد "مفيش باركود") — يعني القارئ نفسه مش شغال
   _bcsTimer=setInterval(async ()=>{
     if(!_bcsDetector||!video.videoWidth) return;
     try{
       const codes=await _bcsDetector.detect(video);
+      _bcsErrRun=0;
       if(codes && codes.length>0){
         const value=(codes[0].rawValue||'').trim();
         if(value){
@@ -2475,7 +2492,14 @@ async function openCameraBarcodeScanner(onResult){
           if(cb) cb(value);
         }
       }
-    }catch(e){ /* فريم مش واضح — بيتجاهل ويجرب تاني في الفريم اللي بعده */ }
+    }catch(e){
+      /* فريم مش واضح — بيتجاهل ويجرب تاني في الفريم اللي بعده؛ لكن لو كل المحاولات بتفشل لحوالي 10 ثواني نبلّغ العميل بدل ما يفضل مستني */
+      if(++_bcsErrRun===30){
+        statusEl.textContent='تعذر تشغيل قارئ الباركود — اتأكد من الإنترنت وجرّب تاني.';
+        showToast('❌ تعذر تشغيل قارئ الباركود — اتأكد من الإنترنت وجرّب تاني');
+        closeCameraBarcodeScanner();
+      }
+    }
   }, 320);
 }
 function closeCameraBarcodeScanner(){
