@@ -919,6 +919,20 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
   </div>
 </div>
 
+<div id="waBackupBar" style="display:none;background:var(--bg-eafaf1,#EAFAF1);border-bottom:2px solid #25D366;padding:8px 12px;align-items:center;justify-content:space-between;gap:8px;font-size:12px;">
+  <div style="color:var(--tx-1e8449,#1E8449);flex:1;line-height:1.7">
+    <div class="wa-text" style="font-weight:bold"></div>
+    <div class="wa-steps" style="font-size:11px"></div>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="wa-btn" onclick="_waBarShare()" style="display:flex;align-items:center;gap:5px;background:#25D366;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-size:12px;font-weight:bold;cursor:pointer;white-space:nowrap">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.148.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12.001 2C6.478 2 2 6.478 2 12c0 1.85.502 3.585 1.376 5.073L2 22l5.06-1.352A9.94 9.94 0 0 0 12 22c5.523 0 10-4.478 10-10S17.523 2 12.001 2zm0 18.2c-1.618 0-3.132-.44-4.43-1.203l-.318-.19-3.006.803.803-2.93-.207-.328A8.17 8.17 0 0 1 3.8 12c0-4.53 3.671-8.2 8.2-8.2s8.2 3.67 8.2 8.2-3.671 8.2-8.199 8.2z"/></svg>
+      <span class="wa-btn-label">ابعت النسخة</span>
+    </button>
+    <button onclick="_waBarHide()" title="إخفاء لحد الفتحة الجاية" style="background:none;border:none;color:var(--tx-1e8449,#1E8449);font-size:14px;cursor:pointer;padding:0 4px">✕</button>
+  </div>
+</div>
+
 <div id="exportModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
   <div class="modal-card mc-narrow" style="background:var(--bg-fff,#fff);border-radius:12px;width:100%">
     <div class="modal-title" style="margin-bottom:4px">💾 تصدير النسخة الاحتياطية</div>
@@ -927,7 +941,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-19-d</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-21-b</div>
   </div>
 </div>
 
@@ -2069,10 +2083,12 @@ function _applyRoleUI(){
     // لو مسموحله شاشة واحدة بس (زي العامل افتراضيًا) مفيش شريط تبويبات، ولو أكتر بيظهرله شريط بالشاشات المسموحة بس
     if(tabsBarEl) tabsBarEl.style.display = roleAllowedTabs().length>1 ? '' : 'none';
     if(exportReminder) exportReminder.style.display='none';
+    try{ const _wb=document.getElementById('waBackupBar'); if(_wb) _wb.style.display='none'; }catch(e){}
   } else {
     if(ownerBar) ownerBar.style.display='';
     if(workerBar) workerBar.style.display='none';
     if(tabsBarEl) tabsBarEl.style.display='';
+    try{ if(typeof _renderWaBar==='function') _renderWaBar(); }catch(e){}
   }
   renderTabsBar();
   try{ syncTabsBarStickyTop(); }catch(e){}
@@ -10726,10 +10742,15 @@ function checkAutoBackup(){
   }
   try{ _snapWrite(true).catch(e=>console.warn('snapshot failed (ignored):', e)); }catch(e){}
   try{ _renderDailyBackupBar(); }catch(e){}
+  try{ _renderWaBar(); }catch(e){}
 }
+// الشريط الأصفر القديم اتوقف: بانر واتساب (waBackupBar) هو الوحيد اللي بيظهر دلوقتي.
+// الكود تحته سايبينه زي ما هو من غير ما يتنفذ — لو عايز ترجّعه غيّر القيمة دي لـ true.
+var _OLD_DAILY_BAR_ENABLED=false;
 function _renderDailyBackupBar(){
   const el=document.getElementById('dailyBackupBar');
   if(!el) return;
+  if(!_OLD_DAILY_BAR_ENABLED){ el.style.display='none'; return; }
   if(__bkBarHidden || DB.get('_bkAutoDay')!==today() || _bkOkToday() || isRestrictedRole() || !_hasAnyBusinessData()){
     el.style.display='none'; return;
   }
@@ -10776,6 +10797,81 @@ function _bkBarConfirm(){
   _renderDailyBackupBar();
 }
 function _bkBarHide(){ __bkBarHidden=true; _renderDailyBackupBar(); }
+
+// ============================================================
+// بانر مشاركة النسخة الاحتياطية على واتساب (شات المالك الشخصي)
+// بيظهر أول فتحة كل يوم لحد ما المالك يشارك. إضافة معزولة: مبتغيّرش أي دالة نسخ احتياطي موجودة.
+// - للمالك بس (مش وضع العامل ولا الأشخاص)، وبس لو فيه بيانات فعلية.
+// - المشاركة لازم تبدأ من ضغطة المستخدم (شرط المتصفح)، والمتصفح مبيأكدش إن الرسالة وصلت لواتساب فعلًا.
+// - «إخفاء» بيخفيه لحد الفتحة الجاية بس (مش اليوم كله).
+// ============================================================
+let __waBarHidden=false;
+function _waCanShareFiles(){
+  try{ const f=new File(['x'],'a.txt',{type:'text/plain'}); return !!(navigator.share && navigator.canShare && navigator.canShare({files:[f]})); }catch(e){ return false; }
+}
+function _waBarShouldShow(){
+  try{
+    if(!__dataLoaded) return false;
+    if(isRestrictedRole()) return false;
+    if(!_hasAnyBusinessData()) return false;
+    if(document.getElementById('lockScreen')) return false;
+    if(DB.get('_waShareDay')===today()) return false;
+    return true;
+  }catch(e){ return false; }
+}
+function _renderWaBar(){
+  try{
+    const el=document.getElementById('waBackupBar'); if(!el) return;
+    if(__waBarHidden || !_waBarShouldShow()){ el.style.display='none'; return; }
+    const can=_waCanShareFiles();
+    el.querySelector('.wa-text').textContent = can
+      ? '📲 شارك نسختك الاحتياطية على واتساب (شاتك الشخصي) لضمان أمان بياناتك'
+      : '📲 نزّل نسختك الاحتياطية وابعتها لنفسك على واتساب لضمان أمان بياناتك';
+    el.querySelector('.wa-steps').textContent = can
+      ? 'دوس الزرار ← اختار واتساب ← اختار شاتك إنت بس (مش عميل ولا جروب) ← ابعت'
+      : 'هتنزل الملف ← افتح واتساب (التطبيق أو الويب) ← ابعته لشاتك إنت بس';
+    el.querySelector('.wa-btn-label').textContent = can ? 'ابعت النسخة' : 'نزّل النسخة';
+    el.style.display='flex';
+  }catch(e){}
+}
+function _waBarHide(){ __waBarHidden=true; _renderWaBar(); }
+function _waMarkDone(){
+  DB.set('_waShareDay', today());
+  DB.set('_bkOkAt', new Date().toISOString());   // نفس معاملة مشاركة الأيفون الحالية: الشريط الأصفر اليومي يختفي
+  __bkAutoErr=false;
+  try{ _renderWaBar(); }catch(e){}
+  try{ _renderDailyBackupBar(); }catch(e){}
+}
+async function _waBarShare(){
+  let file=null;
+  try{ file=new File([buildExportBlob()],_bkManualFileName('txt'),{type:'text/plain'}); }catch(e){}
+  if(file && navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من صديقك المحاسبي'});
+      _waMarkDone();
+      showToast('✅ اتفتحت المشاركة — اتأكد إن الملف وصل في شات واتساب بتاعك إنت');
+      return;
+    }catch(e){
+      if(e && e.name==='AbortError') return;   // قفل القايمة بنفسه: ده اختياره
+      console.warn('فشلت المشاركة، هنستخدم التنزيل كبديل:', e);
+    }
+  }
+  // بديل (غالبًا كمبيوتر): تنزيل الملف عشان يتبعت من واتساب ويب/التطبيق
+  try{
+    const url=URL.createObjectURL(buildExportBlob());
+    const a=document.createElement('a');
+    a.href=url; a.download=_bkManualFileName('json');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    if(_isIOSDevice()){
+      // أيفون: التنزيل مش مضمون يتحفظ، فمنعتبرهاش نسخة مؤكدة (البانر يفضل ظاهر)
+      showToast('⚠️ المشاركة مش شغالة على الجهاز ده. جرّب تاني من Safari.');
+      return;
+    }
+    _waMarkDone();
+    showToast('📥 الملف اتنزّل. افتح واتساب وابعته لشاتك إنت بس');
+  }catch(e){ showToast('❌ معرفناش ننزّل النسخة. جرّب زرار 💾 تصدير'); }
+}
 
 // ----- اللقطات الداخلية (آخر 7 أيام) — قاعدة بيانات منفصلة عن بيانات البرنامج -----
 const _SNAP_DB=DB_NAME+'_snap', _SNAP_STORE='snaps';
