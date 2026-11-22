@@ -10635,6 +10635,15 @@ async function _bkShareIOS(){
     return 'ok';
   }catch(e){ return (e && e.name==='AbortError') ? 'cancel' : 'fail'; }
 }
+// مشاركة النسخة: بنجرب ملف .json الحقيقي الأول (لو المتصفح بيسمح بمشاركته)، ولو رفضه بنرجع لنفس السلوك القديم (.txt بنفس المحتوى بالظبط)
+// ملاحظة: كروم أندرويد بيسمح بمشاركة ملفات (نص/صور/صوت/فيديو/PDF) بس، فغالبًا هيرفض .json ويفضل .txt
+function _bkShareFilePair(blob){
+  const jsonFile=new File([blob],_bkManualFileName('json'),{type:'application/json'});
+  const txtFile=new File([blob],_bkManualFileName('txt'),{type:'text/plain'});
+  let jsonOk=false;
+  try{ jsonOk=!!(navigator.share && navigator.canShare && navigator.canShare({files:[jsonFile]})); }catch(e){}
+  return {jsonFile, txtFile, jsonOk};
+}
 function markExported(){
   DB.set('_lastExport', new Date().toISOString());
   hideExportReminder();
@@ -10663,8 +10672,8 @@ async function doExportShare(){
   // متصفحات أندرويد (كروم) بترفض مشاركة ملفات JSON تحديدًا (قيد أمان معروف في المتصفح نفسه —
   // بيسمح بمشاركة نصوص/صور/صوت بس)، فبنجهز نسخة بنفس المحتوى بالظبط بامتداد .txt عشان المشاركة
   // تعدي، من غير ما يأثر على البيانات جوه الملف ولا على استيرادها لاحقًا
-  const shareFileName=_bkManualFileName('txt');
-  const file=new File([blob],shareFileName,{type:'text/plain'});
+  const _pair=_bkShareFilePair(blob);
+  const file=_pair.jsonOk ? _pair.jsonFile : _pair.txtFile;   // .json لو المتصفح بيسمح، وإلا .txt زي الأول
   document.getElementById('exportModal').style.display='none';
   // نجرب المشاركة المباشرة الأول (من غير ما ننزّل نسخة على الجهاز) — عشان العميل يختار "حفظ في Drive"
   // من قائمة المشاركة ويوصل مباشرة لجوجل درايف بتاعه هو، من غير ما ينزلله ملف في مجلد التنزيلات كمان
@@ -10844,7 +10853,10 @@ function _waMarkDone(){
 }
 async function _waBarShare(){
   let file=null;
-  try{ file=new File([buildExportBlob()],_bkManualFileName('txt'),{type:'text/plain'}); }catch(e){}
+  try{
+    const _pair=_bkShareFilePair(buildExportBlob());
+    file=_pair.jsonOk ? _pair.jsonFile : _pair.txtFile;   // .json لو المتصفح بيسمح، وإلا .txt زي الأول
+  }catch(e){}
   if(file && navigator.share && navigator.canShare && navigator.canShare({files:[file]})){
     try{
       await navigator.share({files:[file],title:'نسخة احتياطية',text:'نسخة احتياطية من صديقك المحاسبي'});
