@@ -7495,7 +7495,11 @@ async function sendDocument(title, bodyHtml, filename){
     await showPdfPreviewModal(previewPages, async ()=>{
       const file=new File([pdfBlob], safeFilename, {type:'application/pdf'});
       if(navigator.canShare && navigator.canShare({files:[file]})){
-        await navigator.share({files:[file], title});
+        // آيفون: واتساب iOS بيقبل نوع بيانات واحد بس في المشاركة — إرسال title/text مع الملف بيخليه
+        // يفشل في التسليم برسالة "Couldn't send message". فعلى الآيفون بنشارك الملف لوحده من غير عنوان،
+        // وأندرويد/ويندوز بيفضلوا زي ما هما بالظبط (العنوان بيظهر كابشن هناك وشغال).
+        const shareData=_isIOSDevice()?{files:[file]}:{files:[file], title};
+        await navigator.share(shareData);
         return;
       }
       const url=URL.createObjectURL(pdfBlob);
