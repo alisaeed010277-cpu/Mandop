@@ -6351,6 +6351,35 @@ function buildSupplierBalanceIndex(){
 }
 
 
+// ===== مركز المتابعة اليومية — إضافة تشغيلية خفيفة بدون تغيير الحسابات =====
+function _waClientUrl(phone, name, amount){
+  let n=String(phone||'').replace(/[^0-9]/g,'');
+  if(n.startsWith('00')) n=n.slice(2);
+  if(n.startsWith('0')) n='20'+n.slice(1);
+  if(n.length<10) return '';
+  const msg=`أهلاً ${name||''}، للتذكير رصيد الحساب المستحق حالياً ${fmt(amount||0)} جنيه. شكراً لتعاونكم.`;
+  return `https://wa.me/${n}?text=${encodeURIComponent(msg)}`;
+}
+function renderDailyInsightCenter(day, monthPrefix, clientBal){
+  try{
+    const debtors=clients.map(c=>({c,b:Number(clientBal(c.id)||0)})).filter(x=>x.b>0).sort((a,b)=>b.b-a.b).slice(0,5);
+    const sold={};
+    invoices.filter(i=>i.date&&i.date.slice(0,7)===monthPrefix).forEach(inv=>{
+      (inv.lines||[]).forEach(l=>{ if(l.productId) sold[l.productId]=(sold[l.productId]||0)+(Number(l.qty)||0); });
+    });
+    returns.filter(r=>r.date&&r.date.slice(0,7)===monthPrefix).forEach(ret=>{
+      (ret.lines||[]).forEach(l=>{ if(l.productId) sold[l.productId]=(sold[l.productId]||0)-(Number(l.qty)||0); });
+    });
+    const movers=Object.entries(sold).map(([id,qty])=>({p:stock.find(x=>x.id===id),qty})).filter(x=>x.p&&x.qty>0).sort((a,b)=>b.qty-a.qty).slice(0,5);
+    const card=(title,icon,body,accent)=>`<div class="card" style="flex:1 1 300px;margin-bottom:0;border-top:3px solid ${accent}"><div class="card-body" style="padding:12px 14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>${icon} ${title}</strong><span style="font-size:10.5px;color:var(--tx-717d7e,#717D7E)">أعلى 5</span></div>${body}</div></div>`;
+    const debtRows=debtors.length?debtors.map(x=>{
+      const wa=_waClientUrl(x.c.phone,x.c.name,x.b);
+      return `<div style="display:flex;align-items:center;gap:7px;padding:7px 0;border-bottom:1px solid var(--bd-eaecee,#EAECEE)"><div style="flex:1;min-width:0;cursor:pointer" onclick="switchTab('clients');openClientDetail('${x.c.id}')"><div style="font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.c.name)}</div><div style="font-size:11px;color:var(--tx-c0392b,#C0392B);font-weight:bold">${fmt(x.b)} ج</div></div>${wa?`<a href="${wa}" target="_blank" rel="noopener" title="إرسال تذكير واتساب" style="text-decoration:none;background:#25D366;color:#fff;border-radius:6px;padding:5px 7px;font-size:11px">واتساب</a>`:''}</div>`;}).join(''):'<div class="empty" style="padding:12px 0">مفيش مديونيات حالياً</div>';
+    const moveRows=movers.length?movers.map((x,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bd-eaecee,#EAECEE)"><span style="width:22px;height:22px;border-radius:50%;background:var(--bg-ebf5fb,#EBF5FB);color:var(--tx-1a5276,#1A5276);display:inline-flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px">${i+1}</span><div style="flex:1;min-width:0;cursor:pointer" onclick="switchTab('stock');stockSubTab='overview';stockDetailId='${x.p.id}';renderStock()"><div style="font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.p.name)}</div><div style="font-size:11px;color:var(--tx-717d7e,#717D7E)">${fmtQty(x.qty)} ${esc(x.p.unit||'وحدة')} خلال الشهر</div></div><span style="font-size:12px;color:var(--tx-1e8449,#1E8449);font-weight:bold">${fmtQty(x.qty)}</span></div>`).join(''):'<div class="empty" style="padding:12px 0">لسه مفيش مبيعات مسجلة الشهر ده</div>';
+    return `<div class="home-alerts-row" style="margin-top:14px">${card('الأولوية في التحصيل','🎯',debtRows,'#C0392B')}${card('الأصناف الأكثر حركة هذا الشهر','🔥',moveRows,'#1E8449')}</div>`;
+  }catch(e){ return ''; }
+}
+
 // ===== HOME =====
 function renderCompanyBar(){
   const bar=document.getElementById('companyBar');
@@ -6872,7 +6901,9 @@ function renderHome(){
     ${(lowStock.length>0||nearExpiry.length>0)?`<div class="home-alerts-row">
       ${lowStock.length>0?`<div class="card warn-box"><div class="card-head orange">⚠️ منتجات قاربت على النفاد</div><div class="card-body">${lowRows}</div></div>`:''}
       ${nearExpiry.length>0?`<div class="card warn-box"><div class="card-head orange">⏳ منتجات قاربت على انتهاء الصلاحية</div><div class="card-body">${expiryRows}</div></div>`:''}
-    </div>`:''}`;
+    </div>`:''}
+    ${renderDailyInsightCenter(day,monthPrefix,_clientBal)}
+    `;
 }
 
 // ملخص العملاء بفلتر تاريخ (كانت في الرئيسية، دلوقتي جوه التقارير)
