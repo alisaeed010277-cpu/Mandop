@@ -12837,7 +12837,7 @@ async function printChecksPdf(subview){
 // ===== ACTIVATION SYSTEM =====
 // حالة أقسام تبويب التقارير (أكورديون): تقرير واحد بس مفتوح في المرة، وبتتقفل كلها تلقائي
 // كل ما تدخل تبويب التقارير من جديد (شوف switchTab). قيمتها null أو أحد الـ ids:
-// 'aging' | 'itemProfit' | 'clientProfit' | 'clientSummary' | 'supplierSummary' | 'stockValue'
+// 'netProfit' | 'aging' | 'itemProfit' | 'clientProfit' | 'clientSummary' | 'supplierSummary' | 'stockValue'
 let reportsOpenSection=null;
 // بوابة "التقارير المتقدمة": مقفولة افتراضيًا ومش متسجلة في أي تخزين، فبترجع مقفولة تلقائيًا في كل فتح جديد
 // للبرنامج — المفروض تفضل بعيدة عن عين أي حد عادي، ولو حد (صاحب المحل أو المحاسب) عايز يشوفها يدوس على زرار الإظهار
@@ -12916,9 +12916,17 @@ function renderReports(){
 function renderFinancialStatementsBlock(fromVal,toVal){
   // مؤقتًا: باقي التقارير المالية (ميزان/دخل/ميزانية/دفتر أستاذ/تدفقات) مشالة
   // من هنا واتسابت "ربحية الأصناف" بس - راجع الملحوظة فوق في renderReports()
+  const openNet=reportsOpenSection==='netProfit';
   const openItem=reportsOpenSection==='itemProfit';
   const openClient=reportsOpenSection==='clientProfit';
   return `
+  <div class="card" id="repsec_netProfit" style="margin-top:14px">
+    ${accordionHeader('netProfit','💰','صافي الربح (إجماليات)')}
+    ${openNet?`<div class="card-body">
+      <div style="font-size:11px;color:var(--tx-aab7b8,#AAB7B8);margin-bottom:10px">💡 حسب فلتر "فترة التقرير" فوق</div>
+      ${renderNetProfitReportHtml(fromVal,toVal)}
+    </div>`:''}
+  </div>
   <div class="card" id="repsec_itemProfit" style="margin-top:14px">
     ${accordionHeader('itemProfit','🏆','ربحية الأصناف')}
     ${openItem?`<div class="card-body">
@@ -13299,6 +13307,38 @@ function renderIncomeStatementHtml(fromVal,toVal){
     ${discountEarned>0?row('(+) خصم مكتسب (موردين)', discountEarned):''}
     ${row('= صافي الربح', netProfit, {bold:true, border:true, color:netProfit>=0?'var(--tx-1e8449,#1E8449)':'var(--tx-c0392b,#C0392B)'})}
     <div style="font-size:11px;color:var(--tx-aab7b8,#AAB7B8);margin-top:8px">💡 تكلفة البضاعة المباعة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف. لو صنف اتباع من غير ما يكون له سعر شراء مسجّل (رصيد افتتاحي أو فاتورة شراء)، تكلفته بتحسب صفر مؤقتًا لحد ما تتسجّل تكلفته — وقتها الأرقام بتتظبط تلقائيًا من غير أي تعديل يدوي.</div>`;
+}
+
+// تقرير صافي الربح بالإجماليات — نسخة مبسّطة من قائمة الدخل بنفس أرقامها بالظبط:
+// صافي المبيعات (إجمالي الفواتير ناقص المرتجعات) − تكلفة البضاعة المباعة = مجمل الربح
+// − إجمالي المصروفات = صافي الربح. كلها إجماليات الفترة المختارة من فلتر "فترة التقرير".
+// بيستخدم نفس حركة الحسابات (accountPeriodMovement) اللي بتستخدمها قائمة الدخل، عشان
+// صافي الربح هنا يطلع مطابق لصافي الربح في "قائمة الدخل" لنفس الفترة.
+function renderNetProfitReportHtml(fromVal,toVal){
+  if(chartOfAccounts.length===0) return '<div class="empty">لسه مفيش بيانات محاسبية مسجّلة</div>';
+  // صافي المبيعات: حساب المبيعات بيتسجل عليه الفواتير دائن والمردودات مدين، فالصافي هنا بعد خصم المرتجعات
+  const netSales=accountPeriodMovement('sales',fromVal,toVal).credit;
+  const cogs=accountPeriodMovement('cogs',fromVal,toVal).debit;
+  const grossProfit=netSales-cogs;
+  const directCost=accountPeriodMovement('directcost',fromVal,toVal).debit;
+  const opex=accountPeriodMovement('opex',fromVal,toVal).debit;
+  const discountAllowed=accountPeriodMovement('discountAllowed',fromVal,toVal).debit;
+  const discountEarned=accountPeriodMovement('discountEarned',fromVal,toVal).credit;
+  // إجمالي المصروفات = التشغيلية + التكلفة المباشرة + الخصم المسموح به (نفس تجميع قائمة الدخل)
+  const totalExpenses=directCost+opex+discountAllowed;
+  const netProfit=grossProfit-totalExpenses+discountEarned;
+  const row=(label,val,opts={})=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${opts.bold?'font-weight:bold;':''}${opts.border?'border-top:1px solid var(--bd-d5d8dc,#D5D8DC);margin-top:4px;padding-top:8px;':''}">
+    <div style="${opts.color?`color:${opts.color}`:''}">${label}</div><div style="${opts.color?`color:${opts.color}`:''}">${fmt(val)} ج</div>
+  </div>`;
+  return `
+    <div style="font-size:11px;color:var(--tx-aab7b8,#AAB7B8);margin-bottom:4px">💡 عن الفترة من ${fromVal} إلى ${toVal}</div>
+    ${row('صافي المبيعات', netSales)}
+    ${row('(-) تكلفة البضاعة المباعة', cogs)}
+    ${row('= مجمل الربح', grossProfit, {bold:true, border:true, color:grossProfit>=0?'var(--tx-1e8449,#1E8449)':'var(--tx-c0392b,#C0392B)'})}
+    ${row('(-) إجمالي المصروفات', totalExpenses)}
+    ${discountEarned>0?row('(+) خصم مكتسب (موردين)', discountEarned):''}
+    ${row('= صافي الربح', netProfit, {bold:true, border:true, color:netProfit>=0?'var(--tx-1e8449,#1E8449)':'var(--tx-c0392b,#C0392B)'})}
+    <div style="font-size:11px;color:var(--tx-aab7b8,#AAB7B8);margin-top:8px">💡 إجمالي المصروفات بيشمل المصاريف التشغيلية والتكلفة المباشرة والخصم المسموح به للعملاء. صافي المبيعات بعد خصم المرتجعات، وتكلفة البضاعة المباعة بتتحسب بمتوسط تكلفة الشراء المرجح لكل صنف.</div>`;
 }
 
 function renderBalanceSheetHtml(toVal){
