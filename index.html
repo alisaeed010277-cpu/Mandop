@@ -6227,6 +6227,242 @@ function printPosReceipt(inv, cashReceived){
   win.document.close();
 }
 
+// ===== طباعة حرارية 80مم للمستندات — فواتير ومردودات وسدادات (مبيعات ومشتريات) =====
+// إضافة مستقلة بالكامل جنب طباعة الـ A4/PDF الحالية: بتعيد استخدام ستايل إيصال الكاشير
+// POS_RECEIPT_STYLE ونفس فكرة نافذة الطباعة المنبثقة، من غير أي تعديل في sendDocument أو
+// printDocument أو DOC_STYLE ولا في أي دالة موجودة — شكل مستندات الـ A4 بيفضل زي ما هو
+// بالظبط، والإيصال الحراري بيبقى اختيار تاني جنبه في نفس شاشة المستند.
+// الورق: عرض 76مم مناسب للطابعات اللي رولاتها 76مم (زي XP-P323B) وبيتطبع كويس على
+// طابعات 80مم برضه، والمحتوى مثبت على 72مم = عرض الطباعة الفعلي للاتنين. مقاس الصفحة
+// بيتحقن بعد قياس ارتفاع الإيصال (شوف _thermalOpenWin) لأن قاعدة size:80mm auto القديمة
+// في ستايل الكاشير المشترك غير صالحة نحويًا وكروم بيسقطها — والستايل المشترك سيبناه زي ما هو.
+function _thermalOpenWin(docTitle, bodyHtml){
+  const win=window.open('','_blank');
+  if(!win){ showToast('من فضلك اسمح بالنوافذ المنبثقة (Pop-ups) عشان تقدر تطبع الإيصال'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${esc(docTitle)}</title>
+  <style>${POS_RECEIPT_STYLE}</style>
+  <style>.rcpt{width:72mm;max-width:72mm;margin:0 auto;}</style>
+  <style id="thermalFx"></style></head><body>${bodyHtml}
+  <script>
+  // قاعدة size:80mm auto في الستايل المشترك غير صالحة نحويًا وكروم بيسقطها (بيطبع
+  // Letter/A4). هنا، في إيصالات المستندات دي بس، بنقيس ارتفاع الإيصال الفعلي بعد
+  // تحميل الصور والخطوط وبنحقن مقاس صفحة صحيح: 76مم عرض × الارتفاع المقاس بهوامش
+  // 2مم — صفحة واحدة متصلة بدون قص في المنتصف. وعرض المحتوى مثبت على 72مم عشان
+  // الشكل يفضل ثابت حتى لو نافذة الطباعة اختارت مقاس ورق أكبر.
+  (function(){
+    function applySize(){
+      var el=document.querySelector('.rcpt');
+      if(!el){window.print();return;}
+      var hMm=Math.ceil(el.getBoundingClientRect().height*25.4/96)+4;
+      document.getElementById('thermalFx').textContent='@page{size:76mm '+hMm+'mm;margin:2mm;}';
+      setTimeout(function(){window.print();},100);
+    }
+    window.addEventListener('load',function(){
+      if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){setTimeout(applySize,60);});}
+      else{setTimeout(applySize,150);}
+    });
+  })();
+  <\/script>
+  </body></html>`);
+  win.document.close();
+}
+
+// رأس الإيصال: نفس بيانات المنشأة اللي بتظهر في إيصال الكاشير (اسم/تليفون/رقم ضريبي/لوجو)
+function _thermalHead(){
+  return `<div class="rcpt-center">
+    ${companyProfile.logo?`<img class="rcpt-logo" src="${companyProfile.logo}">`:''}
+    <div class="rcpt-title">${esc(companyProfile.name||'صديقك المحاسبي')}</div>
+    ${companyProfile.phone?`<div class="rcpt-sub">${esc(companyProfile.phone)}</div>`:''}
+    ${companyProfile.taxNumber?`<div class="rcpt-sub">رقم ضريبي: ${esc(companyProfile.taxNumber)}</div>`:''}
+  </div>
+  <div class="rcpt-sep"></div>`;
+}
+
+// هيكل الإيصال العام: رأس المنشأة، عنوان المستند، ثم الأقسام مفصولة بخطوط متقطعة
+function _thermalDoc(docLabel, sections){
+  const body=(sections||[]).filter(s=>s&&String(s).trim()).join('<div class="rcpt-sep"></div>');
+  return `<div class="rcpt">
+    ${_thermalHead()}
+    <div class="rcpt-center" style="font-size:13px;font-weight:bold">${docLabel}</div>
+    <div class="rcpt-sep"></div>
+    ${body}
+    <div class="rcpt-sep"></div>
+    <div class="rcpt-foot">شكرًا لتعاملكم معنا</div>
+    <div class="rcpt-brand">صُنع بواسطة صديقك المحاسبي</div>
+  </div>`;
+}
+
+// سطر صنف على الطريقة الحرارية: اسم الصنف في سطر، وتفاصيل الكمية × السعر والإجمالي في اللي بعده
+function _thermalItems(items){
+  return items.map(l=>`<div style="break-inside:avoid;page-break-inside:avoid">
+    <div class="rcpt-row"><span class="rcpt-item-name">${l.name}</span></div>
+    <div class="rcpt-row"><span>${l.desc}</span><span class="rcpt-line-total">${l.total}</span></div>
+    ${l.extras?`<div class="rcpt-row"><span style="font-size:10px;color:#B9770E">${l.extras}</span></div>`:''}</div>`).join('');
+}
+
+// نفس حساب صندوق "الرصيد السابق/الحالي" بتاع فواتير الـ A4 بالظبط، بس بشكل سطور حرارية
+function _thermalBalanceRows(prev,cur){
+  const f=v=>fmt(Math.abs(v))+' جنيه'+(v<-0.004?' (له رصيد)':'');
+  return `<div class="rcpt-summary-row"><span>الرصيد السابق</span><span>${f(prev)}</span></div>
+  <div class="rcpt-summary-row"><span>الرصيد الحالي</span><span>${f(cur)}</span></div>`;
+}
+function _thermalInvBalance(inv){
+  try{
+    const d=getClientStatementData(inv.clientId,'','');
+    const r=d&&d.rows.find(x=>x.type==='invoice'&&x.id===inv.id);
+    if(!r) return '';
+    const prev=r.running-r.debit;
+    let paid=payments.filter(p=>p.invoiceId===inv.id&&(p.isCashAuto||p.isDownPaymentAuto)).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    if(!paid&&inv.isCash) paid=inv.total;
+    return _thermalBalanceRows(prev,prev+inv.total-paid);
+  }catch(e){return '';}
+}
+function _thermalPurBalance(pur){
+  try{
+    const d=getSupplierStatementData(pur.supplierId,'','');
+    const r=d&&d.rows.find(x=>x.type==='purchase'&&x.id===pur.id);
+    if(!r) return '';
+    const prev=r.running-r.debit;
+    let paid=supplierPayments.filter(p=>p.purchaseId===pur.id&&(p.isCashAuto||p.isDownPaymentAuto)).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    if(!paid&&pur.isCash) paid=pur.total;
+    return _thermalBalanceRows(prev,prev+pur.total-paid);
+  }catch(e){return '';}
+}
+
+function printInvoiceThermal(invId){
+  const inv=invoices.find(i=>i.id===invId);
+  if(!inv)return;
+  const c=clients.find(c=>c.id===inv.clientId);
+  const items=inv.lines.map(l=>{
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||l.productId);
+    const uLabel=lineUnitLabel(l);
+    const afterDiscount=l.price*(1-(l.discount||0)/100);
+    const lineTotal=l.qty*afterDiscount;
+    const extras=[];
+    if(l.discount>0) extras.push(`خصم ${lineDiscTxt(l)}`);
+    if(l.bonus>0) extras.push(`هدية: ${l.bonus}${uLabel?' '+uLabel:''}`);
+    return {name:pName, desc:`${uLabel?'الوحدة: '+uLabel+' | ':''}الكمية: ${fmtQty(l.qty)} × ${fmt(l.price)}`, total:fmt(lineTotal), extras:extras.join(' | ')};
+  });
+  const meta=`
+    <div class="rcpt-meta-row"><span>رقم:</span><span>#${docNo(inv)}${bkTxt(inv)}</span></div>
+    <div class="rcpt-meta-row"><span>العميل:</span><span>${esc(c?.name||'—')}</span></div>
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(inv)}</span></div>
+    ${inv.isCash?`<div class="rcpt-meta-row"><span>كاش — مسددة بالكامل</span></div>`:''}`;
+  let summary='';
+  if(inv.overallDiscount>0){
+    summary+=`<div class="rcpt-summary-row"><span>الإجمالي قبل الخصم</span><span>${fmt(inv.subtotal)} جنيه</span></div>
+    <div class="rcpt-summary-row"><span>خصم ${ovDiscTxt(inv)} على الفاتورة</span><span>-${fmt(inv.subtotal-inv.total)} جنيه</span></div>`;
+  }
+  summary+=`<div class="rcpt-total"><span>الإجمالي</span><span>${fmt(inv.total)} جنيه</span></div>`;
+  summary+=_thermalInvBalance(inv);
+  _thermalOpenWin(`إيصال فاتورة #${docNo(inv)}`, _thermalDoc('فاتورة مبيعات',[meta,_thermalItems(items),summary]));
+}
+
+function printReturnThermal(retId){
+  const ret=returns.find(r=>r.id===retId);
+  if(!ret)return;
+  const c=clients.find(c=>c.id===ret.clientId);
+  const linkedInvs=((ret.invoiceIds&&ret.invoiceIds.length)?ret.invoiceIds:(ret.invoiceId?[ret.invoiceId]:[])).map(id=>invoices.find(i=>i.id===id)).filter(Boolean);
+  const items=(ret.lines||[]).map(l=>{
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
+    const uLabel=lineUnitLabel(l);
+    return {name:pName, desc:`${uLabel?'الوحدة: '+uLabel+' | ':''}الكمية: ${fmtQty(l.qty)} × ${fmt(l.price)}`, total:fmt(l.qty*l.price), extras:''};
+  });
+  const meta=`
+    <div class="rcpt-meta-row"><span>رقم:</span><span>#${docNo(ret)}${bkTxt(ret)}</span></div>
+    <div class="rcpt-meta-row"><span>العميل:</span><span>${esc(c?.name||'—')}</span></div>
+    ${linkedInvs.length?`<div class="rcpt-meta-row"><span>${linkedInvs.length>1?'الفواتير الأصلية':'الفاتورة الأصلية'}:</span><span>${linkedInvs.map(li=>'#'+docNo(li)).join('، ')}</span></div>`:''}
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(ret)}</span></div>
+    ${ret.cashRefund?`<div class="rcpt-meta-row"><span>مردود نقدي — مسترد فورًا</span></div>`:''}`;
+  const summary=`<div class="rcpt-total"><span>إجمالي المردود</span><span>${fmt(ret.total)} جنيه</span></div>`;
+  _thermalOpenWin(`إيصال مردود #${docNo(ret)}`, _thermalDoc('مردود مبيعات',[meta,_thermalItems(items),summary]));
+}
+
+function printPaymentReceiptThermal(pid){
+  const p=payments.find(p=>p.id===pid);
+  if(!p)return;
+  const c=clients.find(c=>c.id===p.clientId);
+  const inv=p.invoiceId?invoices.find(i=>i.id===p.invoiceId):null;
+  const bal=c?clientBalance(c.id):0;
+  const meta=`
+    <div class="rcpt-meta-row"><span>العميل:</span><span>${esc(c?.name||'—')}</span></div>
+    ${c?.phone?`<div class="rcpt-meta-row"><span>الهاتف:</span><span>${esc(c.phone)}</span></div>`:''}
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(p)}</span></div>
+    <div class="rcpt-meta-row"><span>${inv?`مرتبط بفاتورة #${docNo(inv)} (${fmt(inv.total)} ج)`:'عام على الحساب'}</span></div>
+    ${p.note?`<div class="rcpt-meta-row"><span>ملاحظة:</span><span>${esc(p.note)}</span></div>`:''}`;
+  const summary=`
+    <div class="rcpt-total"><span>${viaIsInstapay(p)?'المحصّل عبر إنستا باي':'المحصّل نقدًا'}</span><span>${fmt(p.amount-(p.discount||0))} جنيه</span></div>
+    ${p.discount?`<div class="rcpt-summary-row"><span>خصم مسموح به</span><span>${fmt(p.discount)} جنيه</span></div>`:''}
+    ${c?`<div class="rcpt-summary-row"><span>${bal>0?'الرصيد المتبقي عليه':bal<0?'له رصيد':'الحساب صافي'}</span><span>${fmt(Math.abs(bal))} جنيه</span></div>`:''}`;
+  _thermalOpenWin(`إيصال سداد ${c?.name||''}`, _thermalDoc('إيصال سداد',[meta,summary]));
+}
+
+function printPurchaseThermal(purId){
+  const pur=purchases.find(p=>p.id===purId);
+  if(!pur)return;
+  const s=suppliers.find(s=>s.id===pur.supplierId);
+  const items=(pur.lines||[]).map(l=>{
+    const prod=stock.find(p=>p.id===l.productId);
+    const pName=esc(prod?.name||l.productName||'—');
+    const afterDiscount=l.price*(1-(l.discount||0)/100);
+    const lineTotal=l.qty*afterDiscount;
+    const extras=[];
+    if(l.expiry) extras.push(`صلاحية: ${l.expiry}`);
+    if(l.discount>0) extras.push(`خصم ${lineDiscTxt(l)}`);
+    if(l.bonus>0) extras.push(`هدية: ${l.bonus}`);
+    return {name:pName, desc:`${lineUnitLabel(l)?'الوحدة: '+lineUnitLabel(l)+' | ':''}الكمية: ${l.qty} × ${fmt(l.price)}`, total:fmt(lineTotal), extras:extras.join(' | ')};
+  });
+  const meta=`
+    <div class="rcpt-meta-row"><span>رقم:</span><span>#${docNo(pur)}${bkTxt(pur)}</span></div>
+    <div class="rcpt-meta-row"><span>المورد:</span><span>${esc(s?.name||'—')}</span></div>
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(pur)}</span></div>
+    ${pur.isCash?`<div class="rcpt-meta-row"><span>كاش — مسددة بالكامل</span></div>`:''}`;
+  let summary='';
+  if(pur.overallDiscount>0){
+    summary+=`<div class="rcpt-summary-row"><span>الإجمالي قبل الخصم</span><span>${fmt(pur.subtotal)} جنيه</span></div>
+    <div class="rcpt-summary-row"><span>خصم ${ovDiscTxt(pur)} على الفاتورة</span><span>-${fmt(pur.subtotal-pur.total)} جنيه</span></div>`;
+  }
+  summary+=`<div class="rcpt-total"><span>الإجمالي</span><span>${fmt(pur.total)} جنيه</span></div>`;
+  summary+=_thermalPurBalance(pur);
+  _thermalOpenWin(`إيصال فاتورة مشتريات #${docNo(pur)}`, _thermalDoc('فاتورة مشتريات',[meta,_thermalItems(items),summary]));
+}
+
+function printPurchaseReturnThermal(retId){
+  const ret=purchaseReturns.find(r=>r.id===retId);
+  if(!ret)return;
+  const s=suppliers.find(s=>s.id===ret.supplierId);
+  const linkedPurs=((ret.purchaseIds&&ret.purchaseIds.length)?ret.purchaseIds:(ret.purchaseId?[ret.purchaseId]:[])).map(id=>purchases.find(x=>x.id===id)).filter(Boolean);
+  const items=(ret.lines||[]).map(l=>{
+    const pName=esc(l.productName||stock.find(p=>p.id===l.productId)?.name||'—');
+    return {name:pName, desc:`${lineUnitLabel(l)?'الوحدة: '+lineUnitLabel(l)+' | ':''}الكمية: ${l.qty} × ${fmt(l.price)}`, total:fmt(l.qty*l.price), extras:(l.expiry?`صلاحية: ${l.expiry}`:'')};
+  });
+  const meta=`
+    <div class="rcpt-meta-row"><span>رقم:</span><span>#${docNo(ret)}${bkTxt(ret)}</span></div>
+    <div class="rcpt-meta-row"><span>المورد:</span><span>${esc(s?.name||'—')}</span></div>
+    ${linkedPurs.length?`<div class="rcpt-meta-row"><span>${linkedPurs.length>1?'فواتير الشراء الأصلية':'فاتورة الشراء الأصلية'}:</span><span>${linkedPurs.map(x=>'#'+docNo(x)).join('، ')}</span></div>`:''}
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(ret)}</span></div>
+    ${ret.cashRefund?`<div class="rcpt-meta-row"><span>استرداد نقدي — مسترد فورًا</span></div>`:''}`;
+  const summary=`<div class="rcpt-total"><span>إجمالي المردود</span><span>${fmt(ret.total)} جنيه</span></div>`;
+  _thermalOpenWin(`إيصال مردود مشتريات #${docNo(ret)}`, _thermalDoc('مردود مشتريات',[meta,_thermalItems(items),summary]));
+}
+
+function printSupplierPaymentReceiptThermal(pid){
+  const p=supplierPayments.find(p=>p.id===pid);
+  if(!p)return;
+  const s=suppliers.find(s=>s.id===p.supplierId);
+  const bal=s?supplierBalance(s.id):0;
+  const meta=`
+    <div class="rcpt-meta-row"><span>المورد:</span><span>${esc(s?.name||'—')}</span></div>
+    ${s?.phone?`<div class="rcpt-meta-row"><span>الهاتف:</span><span>${esc(s.phone)}</span></div>`:''}
+    <div class="rcpt-meta-row"><span>التاريخ:</span><span>${dtInline(p)}</span></div>
+    ${p.note?`<div class="rcpt-meta-row"><span>ملاحظة:</span><span>${esc(p.note)}</span></div>`:''}`;
+  const summary=`
+    <div class="rcpt-total"><span>${viaIsInstapay(p)?'المدفوع عبر إنستا باي':'المدفوع نقدًا'}</span><span>${fmt(p.amount-(p.discount||0))} جنيه</span></div>
+    ${p.discount?`<div class="rcpt-summary-row"><span>خصم مكتسب</span><span>${fmt(p.discount)} جنيه</span></div>`:''}
+    ${s?`<div class="rcpt-summary-row"><span>${bal>0?'المتبقي له علينا':bal<0?'له رصيد':'الحساب صافي'}</span><span>${fmt(Math.abs(bal))} جنيه</span></div>`:''}`;
+  _thermalOpenWin(`إيصال سداد مورد ${s?.name||''}`, _thermalDoc('إيصال سداد',[meta,summary]));
+}
+
 function renderPos(){
   const el=document.getElementById('tab-pos');
   if(!el)return;
@@ -7835,6 +8071,7 @@ function renderReturnDetail(){
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-1e8449,#1E8449)">إجمالي المرتجع: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+          <button class="btn green" onclick="printReturnThermal('${ret.id}')">🧾 إيصال حراري</button>
           ${roleCanModify(ret)?`<button class="btn orange" onclick="editReturn('${ret.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
@@ -8651,6 +8888,7 @@ function renderInvDetail(){
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-1a5276,#1A5276)">الإجمالي: ${fmt(inv.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printInvoice('${inv.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+          <button class="btn green" onclick="printInvoiceThermal('${inv.id}')">🧾 إيصال حراري</button>
           ${roleCanModify(inv)?`<button class="btn orange" onclick="editInvoice('${inv.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
@@ -8817,6 +9055,7 @@ function renderPaymentDetail(){
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للعميل</button>
+          <button class="btn green" onclick="printPaymentReceiptThermal('${p.id}')">🧾 إيصال حراري</button>
           ${(roleCanModify(p)&&!p.isCashAuto&&!p.isDownPaymentAuto&&!p.isCheckAuto)?`<button class="btn orange" onclick="editPayment('${p.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
@@ -14784,6 +15023,7 @@ function renderPurDetail(){
       ${pur.overallDiscount>0?`<div style="margin-top:8px;color:var(--tx-d68910,#D68910)">✂️ خصم ${ovDiscTxt(pur)} على إجمالي الفاتورة (- ${fmt(pur.subtotal-pur.total)} ج) — الإجمالي قبل الخصم: ${fmt(pur.subtotal)} ج</div>`:''}
       <div class="btn-row" style="margin-top:12px">
         <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchase('${pur.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+          <button class="btn green" onclick="printPurchaseThermal('${pur.id}')">🧾 إيصال حراري</button>
         <button class="btn orange" onclick="editPurchase('${pur.id}')">✏️ تعديل</button>
       </div>
     </div>`;
@@ -14998,6 +15238,7 @@ function renderSupPayTabDetail(){
         <div style="margin-bottom:10px"><strong>ملاحظة:</strong> ${esc(p.note||'—')}</div>
         <div class="btn-row">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printSupplierPaymentReceipt('${p.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF للمورد</button>
+          <button class="btn green" onclick="printSupplierPaymentReceiptThermal('${p.id}')">🧾 إيصال حراري</button>
           ${(!p.isCashAuto&&!p.isDownPaymentAuto&&!p.isCheckAuto)?`<button class="btn orange" onclick="editSupplierPayment('${p.id}')">✏️ تعديل</button>`:''}
         </div>
       </div>
@@ -15469,6 +15710,7 @@ function renderPurRetDetail(){
         <div style="text-align:left;margin-top:12px;font-weight:bold;font-size:16px;color:var(--tx-d68910,#D68910)">إجمالي المردود: ${fmt(ret.total)} جنيه</div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn blue" onclick="this.disabled=true;const t=this.innerHTML;this.innerHTML='⏳ جاري التجهيز...';printPurchaseReturn('${ret.id}').finally(()=>{this.disabled=false;this.innerHTML=t;})">📤 إرسال PDF</button>
+          <button class="btn green" onclick="printPurchaseReturnThermal('${ret.id}')">🧾 إيصال حراري</button>
           <button class="btn orange" onclick="editPurRet('${ret.id}')">✏️ تعديل</button>
         </div>
       </div>
