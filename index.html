@@ -944,7 +944,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-26-c</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-26-d</div>
   </div>
 </div>
 
@@ -7694,6 +7694,8 @@ const ARABIC_TO_LATIN_MAP={
 };
 // مفتاح واحد: true = اسم الملف بالعربي (فاتورة أحمد محمد.pdf) — false = يرجع للتحويل اللاتيني القديم لو ظهرت مشكلة على جهاز معين
 const KEEP_ARABIC_FILENAMES=true;
+// مفتاح منفصل للآيفون: true = مشاركة PDF على الآيفون باسم لاتيني (حل مشكلة فشل واتساب) — الاسم العربي يفضل شغال على باقي الأجهزة
+const IOS_LATIN_SHARE_FILENAMES=true;
 function _latinFileName(str){
   if(!str) return 'file';
   let out='';
@@ -7732,7 +7734,14 @@ async function sendDocument(title, bodyHtml, filename){
   try{
     const {pdfBlob, previewPages}=await generateDocumentPdfBlob(title, bodyHtml);
     await showPdfPreviewModal(previewPages, async ()=>{
-      const file=new File([pdfBlob], safeFilename, {type:'application/pdf'});
+      // آيفون: واتساب iOS بيفشل في الإرسال (Couldn't send message) لما اسم الملف المُشارَك فيه حروف عربية،
+      // فعلى الآيفون بس بنشارك الملف باسم لاتيني آمن (نفس الاسم لكن مكتوب بحروف إنجليزي). أندرويد وويندوز بيفضلوا بالاسم العربي زي ما هو.
+      // لو عايز تلغي ده: خلّي IOS_LATIN_SHARE_FILENAMES=false
+      let shareName=safeFilename;
+      if(IOS_LATIN_SHARE_FILENAMES && _isIOSDevice()){
+        try{ shareName=_latinFileName(safeFilename.replace(/\.pdf$/i,''))+'.pdf'; }catch(e){ shareName=safeFilename; }
+      }
+      const file=new File([pdfBlob], shareName, {type:'application/pdf'});
       if(navigator.canShare && navigator.canShare({files:[file]})){
         // آيفون: واتساب iOS بيقبل نوع بيانات واحد بس في المشاركة — إرسال title/text مع الملف بيخليه
         // يفشل في التسليم برسالة "Couldn't send message". فعلى الآيفون بنشارك الملف لوحده من غير عنوان،
