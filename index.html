@@ -441,6 +441,9 @@ input.pl-manu,input.pl-active{border:1px solid var(--bd-d5d8dc,#D5D8DC);border-r
 .cat-kind-btn.on .ck-title::after{content:' ✓';}
 .cat-raw-warn{margin-top:6px;font-size:11.5px;line-height:1.6;color:var(--tx-b9770e,#B9770E);background:var(--bg-fef5e7,#FEF5E7);border:1px solid var(--bd-f5cba7,#F5CBA7);border-radius:6px;padding:6px 10px;}
 .bonus-box{background:var(--bg-e8f8f5,#E8F8F5);border:1px solid #27AE60;border-radius:6px;padding:6px 10px;font-size:12px;color:var(--tx-1e8449,#1E8449);margin-top:4px;}
+/* زرار "التكلفة" للاطلاع فقط في سطر فاتورة البيع */
+.cost-peek-btn{display:inline-block;cursor:pointer;margin-right:6px;padding:1px 9px;border-radius:10px;font-size:11px;font-weight:bold;background:var(--bg-eaecee,#EAECEE);color:var(--tx-566573,#566573);user-select:none;-webkit-user-select:none;}
+.cost-peek-box{background:var(--bg-ebf5fb,#EBF5FB);border:1px solid #AED6F1;border-radius:6px;padding:6px 10px;font-size:12.5px;color:var(--tx-1a5276,#1A5276);margin-bottom:8px;}
 
 /* ===== Toast ===== */
 #toastContainer{position:fixed;bottom:74px;left:0;right:0;z-index:9000;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;padding:0 16px;}
@@ -941,7 +944,7 @@ body.sheet-open .sheet-ov{display:block;animation:sheetFade .22s ease;}
     <button onclick="doExportShare()" class="modal-btn" style="width:100%;background:#27AE60;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:bold;cursor:pointer;margin-bottom:4px">📤 مشاركة لجوجل درايف الخاص بيك</button>
     <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);margin-bottom:14px;line-height:1.6">هتختار "حفظ في Drive" من القائمة اللي هتظهر، وبياناتك هتترفع في حساب جوجل درايف بتاعك انت شخصيًا — مش عندنا ولا عند حد تاني</div>
     <button onclick="document.getElementById('exportModal').style.display='none'" class="modal-btn" style="width:100%;background:var(--bg-ecf0f1,#ECF0F1);color:var(--tx-717d7e,#717D7E);border:none;border-radius:8px;padding:10px;cursor:pointer">إلغاء</button>
-    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-26-a</div>
+    <div class="modal-tiny" style="color:var(--tx-b2babb,#B2BABB);text-align:center;margin-top:10px;direction:ltr">إصدار الصفحة: SM-2026-11-26-c</div>
   </div>
 </div>
 
@@ -8191,7 +8194,7 @@ function renderInvoices(){
     return `<div class="line-box">
       <div class="form-row">
         <div class="form-group" style="flex:2">
-          <div class="lbl"><span class="line-num">${_li+1}</span>المنتج</div>
+          <div class="lbl"><span class="line-num">${_li+1}</span>المنتج${(!isRestrictedRole()&&l.productId)?` <span class="cost-peek-btn" onmousedown="event.preventDefault()" onclick="toggleInvCostPeek('${l.id}')" title="عرض سعر التكلفة للاطلاع فقط">▾ التكلفة</span>`:''}</div>
           ${stock.length>0?searchableSelectHtml(`invline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updateLine('${l.id}','productId',document.getElementById('invline_${l.id}').value);updateLine('${l.id}','expiry','')`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updateLine('${l.id}','productName',this.value)">`}
         </div>
         ${fieldsCfg().expiry&&l.productId&&stockBatches(l.productId).length>0?`
@@ -8224,6 +8227,7 @@ function renderInvoices(){
           <input type="number" min="0" value="${l.price}" onchange="updateLine('${l.id}','price',this.value)">
         </div>`}
       </div>
+      ${(!isRestrictedRole()&&l.productId)?`<div class="cost-peek-box" id="costpk_${l.id}" style="display:none"></div>`:''}
       ${l.saleUnit?`<div style="font-size:10.5px;color:var(--tx-717d7e,#717D7E);padding:0 2px 4px">⇄ يعادل ${fmtQty(lineMainQty(l))} ${stock.find(s=>s.id===l.productId)?.unit||''} من المخزون — بيع بالتجزئة: اكتب الإجمالي النهائي اللي اتفقتوا عليه مباشرة</div>`:''}
       <div class="form-row">
         ${!l.saleUnit?`
@@ -8431,6 +8435,32 @@ function applyInvClientCashDefault(){
   const c=clients.find(x=>x.id===cid);
   if(c){ invIsCash = c.transType==='cash'; if(invIsCash) invDownPayment=0; }
   rerenderInvoiceFormKeepFields();
+}
+// ===== زرار "▾ التكلفة" في سطر فاتورة البيع — للاطلاع فقط =====
+// بيظهر سعر تكلفة الصنف تحت السطر (نفس رقم تنبيه هامش الربح: متوسط التكلفة ÷ معامل وحدة البيع)، ويتشال لوحده
+// أول ما تكمل أي حقل (الفورم بيتعاد رسمه فبيختفي) أو بعد 8 ثواني أو بالضغط عليه تاني.
+// مبيتخزنش في الفاتورة، ومبيغيّر أي حقل أو حساب، ومبيعملش إعادة رسم للفورم (عشان ميضيعش اللي بتكتبه). مخفي عن العامل زي تنبيه الهامش.
+let _invCostPeekTimer=null;
+function _hideInvCostPeeks(){
+  clearTimeout(_invCostPeekTimer);
+  document.querySelectorAll('.cost-peek-box').forEach(b=>{b.style.display='none';b.innerHTML='';});
+}
+function toggleInvCostPeek(lineId){
+  const box=document.getElementById('costpk_'+lineId);
+  if(!box) return;
+  const wasOpen=box.style.display!=='none';
+  _hideInvCostPeeks();
+  if(wasOpen||isRestrictedRole()) return;
+  const l=invLines.find(x=>x.id===lineId);
+  if(!l||!l.productId) return;
+  let cost=0;
+  try{ cost=productAvgCost(l.productId)/lineUnitFactor(l); }catch(e){ cost=0; }
+  const unit=lineUnitLabel(l)||'وحدة';
+  box.innerHTML = cost>0
+    ? `💰 سعر التكلفة: <b>${fmt(cost)} ج</b> / ${esc(unit)} <span style="color:var(--tx-717d7e,#717D7E);font-size:11px">(للاطلاع فقط)</span>`
+    : `💰 سعر التكلفة مش متسجّل للصنف ده لسه`;
+  box.style.display='block';
+  _invCostPeekTimer=setTimeout(_hideInvCostPeeks,8000);
 }
 function addLine(){const nl={id:uid(),productId:'',productName:'',qty:'',price:'',discount:'',bonus:'',expiry:'',saleUnit:''};invLines.push(nl);rerenderInvoiceFormKeepFields();focusNewLineField('invline_'+nl.id+'_search','tab-invoices');}
 function removeLine(id){invLines=invLines.filter(l=>l.id!==id);rerenderInvoiceFormKeepFields();}
@@ -14118,11 +14148,12 @@ function renderPurchases(){
       const bonusQty=Number(l.bonus)||0;
       return `<div class="line-box">
         <div class="form-row">
-          <div class="form-group" style="flex:2"><div class="lbl"><span class="line-num">${_li+1}</span>المنتج</div>
+          <div class="form-group" style="flex:2"><div class="lbl"><span class="line-num">${_li+1}</span>المنتج${(!isRestrictedRole()&&l.productId)?` <span class="cost-peek-btn" onmousedown="event.preventDefault()" onclick="togglePurPricePeek('${l.id}')" title="عرض آخر سعر شراء للصنف ده للمقارنة فقط">▾ آخر سعر شراء</span>`:''}</div>
             ${stock.length>0?searchableSelectHtml(`purline_${l.id}`, stockOptsArr, '🔍 دور على الصنف...', l.productId, `updatePurLine('${l.id}','productId',document.getElementById('purline_${l.id}').value)`):`<input type="text" value="${esc(l.productName)}" placeholder="اسم المنتج" onchange="updatePurLine('${l.id}','productName',this.value)">`}
           </div>
           ${fieldsCfg().expiry?`<div class="form-group"><div class="lbl">📅 الصلاحية</div><input type="month" required value="${l.expiry}" onchange="updatePurLine('${l.id}','expiry',this.value)"></div>`:''}
         </div>
+        ${(!isRestrictedRole()&&l.productId)?`<div class="cost-peek-box" id="purpk_${l.id}" style="display:none"></div>`:''}
         <div class="form-row">
           <div class="form-group"><div class="lbl">الكمية *</div><input type="number" min="1" value="${l.qty}" onchange="updatePurLine('${l.id}','qty',this.value)"></div>
           <div class="form-group"><div class="lbl">سعر الشراء *</div><input type="number" min="0" value="${l.price}" onchange="updatePurLine('${l.id}','price',this.value)"></div>
@@ -14803,6 +14834,39 @@ function addPurLine(){const nl={id:uid(),productId:'',productName:'',qty:'',pric
 function removePurLine(id){purchaseLines=purchaseLines.filter(l=>l.id!==id);rerenderPurchaseFormKeepFields();}
 function updatePurOverallDiscount(value){purOverallDiscount=Number(value)||0;rerenderPurchaseFormKeepFields();}
 function updatePurDownPayment(value){purDownPayment=Number(value)||0;rerenderPurchaseFormKeepFields();}
+// ===== زرار "▾ آخر سعر شراء" في سطر فاتورة المشتريات — للمقارنة فقط =====
+// نفس كيفية زرار التكلفة في فاتورة البيع (بيتشال لوحده لما تكمل أي حقل أو بعد 8 ثواني أو بالضغط عليه تاني، ومبيتخزنش في الفاتورة).
+// الرقم بيتحسب من فواتير المشتريات المسجلة نفسها (أحدث تاريخ فعلي للصنف)، ومعاه استبعاد الفاتورة اللي بتتعدل دلوقتي،
+// فمبيعتمدش على ميموري السعر في الصنف (اللي ممكن تفضل قديمة بعد تعديل/حذف فاتورة) ومبيغيّرش فيها أي حاجة.
+function _lastPurchaseOfProduct(productId, exceptPurId){
+  let best=null, bestKey='';
+  (purchases||[]).forEach(pu=>{
+    if(!pu || pu.id===exceptPurId || !Array.isArray(pu.lines)) return;
+    const key=(pu.date||'')+'|'+(pu.createdAt||'');
+    pu.lines.forEach(l=>{
+      if(l.productId!==productId || !(Number(l.price)>0)) return;
+      if(!best || key>=bestKey){ best={price:Number(l.price), date:pu.date||''}; bestKey=key; }
+    });
+  });
+  return best;
+}
+function togglePurPricePeek(lineId){
+  const box=document.getElementById('purpk_'+lineId);
+  if(!box) return;
+  const wasOpen=box.style.display!=='none';
+  _hideInvCostPeeks();
+  if(wasOpen||isRestrictedRole()) return;
+  const l=purchaseLines.find(x=>x.id===lineId);
+  if(!l||!l.productId) return;
+  let last=null;
+  try{ last=_lastPurchaseOfProduct(l.productId, editPurchaseId); }catch(e){ last=null; }
+  const unit=(stock.find(s=>s.id===l.productId)||{}).unit||'وحدة';
+  box.innerHTML = last
+    ? `🏷️ آخر سعر شراء للصنف ده: <b>${fmt(last.price)} ج</b> / ${esc(unit)}${last.date?` — بتاريخ ${esc(last.date)}`:''} <span style="color:var(--tx-717d7e,#717D7E);font-size:11px">(للمقارنة فقط)</span>`
+    : `🏷️ مفيش شراء سابق مسجّل للصنف ده`;
+  box.style.display='block';
+  _invCostPeekTimer=setTimeout(_hideInvCostPeeks,8000);
+}
 function updatePurLine(id,field,value){
   purchaseLines=purchaseLines.map(l=>{
     if(l.id!==id)return l;
